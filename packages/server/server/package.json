@@ -1,0 +1,32 @@
+{
+  "name": "@custom-harness/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "@custom-harness/core-types": "workspace:*",
+    "@custom-harness/core-tools": "workspace:*",
+    "@custom-harness/core-agent": "workspace:*",
+    "@custom-harness/session": "workspace:*",
+    "@custom-harness/settings": "workspace:*",
+    "@custom-harness/llm": "workspace:*",
+    "@custom-harness/tool-skill": "workspace:*",
+    "@custom-harness/token-meter": "workspace:*",
+    "cordis": "^3.18.1",
+    "cors": "^2.8.5",
+    "esbuild": "^0.28.2",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.14"
+  }
+}

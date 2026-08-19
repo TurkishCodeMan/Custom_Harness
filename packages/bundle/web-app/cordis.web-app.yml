@@ -1,0 +1,8 @@
+# DeepSeek Harness Web App Distribution Profile
+name: bundle-web-app
+description: Full Web Application Profile with Base Bundle and Web UI Server
+extends:
+  - "@custom-harness/bundle-base"
+plugins:
+  - name: server
+    package: "@custom-harness/server"

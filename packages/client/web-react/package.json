@@ -1,48 +1,19 @@
 {
-  "name": "@deepseek-ai/dsh-client-web-react",
-  "description": "Shell-side React glue: createSlotRenderer, SessionProvider, bindSnapshotSelector (uSES bridge), useInvoke",
-  "version": "0.1.0-rc.7",
-  "publishConfig": {
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/client/web-react"
-  },
+  "name": "@custom-harness/client-web-react",
+  "version": "0.1.0",
+  "description": "Main React Web Client Application mounting all modular client packages",
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./invariant": {
-      "types": "./lib/types/invariant.d.ts",
-      "default": "./lib/invariant.js"
-    },
-    "./src/*": "./src/*",
-    "./package.json": "./package.json"
-  },
-  "license": "MIT",
+  "main": "src/index.tsx",
   "dependencies": {
-    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
-    "react": "^18.2.0",
-    "use-sync-external-store": "1.2.0"
+    "@custom-harness/client-ui-primitives": "workspace:^",
+    "@custom-harness/client-ui-layout": "workspace:^",
+    "@custom-harness/client-ui-sidebar": "workspace:^",
+    "@custom-harness/client-ui-conversation": "workspace:^",
+    "@custom-harness/client-ui-token-meter": "workspace:^",
+    "@custom-harness/client-ui-settings": "workspace:^"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/cordis": "workspace:^"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@types/react": "~18.3.1",
-    "@deepseek-ai/cordis": "workspace:^"
-  },
-  "files": [
-    "lib/index.js",
-    "lib/invariant.js",
-    "lib/types/**/*.d.ts"
-  ]
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  }
 }

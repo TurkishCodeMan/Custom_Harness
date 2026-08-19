@@ -1,181 +1,331 @@
-/**
- * MCP client bridge plugin: connects to an external MCP server and registers
- * its tools on `ctx.tools` under server-qualified public names
- * (`mcp__<serverName>__<rawName>`). Each plugin instance connects to one MCP
- * server; load multiple instances in `cordis.yml` for multiple servers.
- *
- * Namespace plugin (named exports, no default export). Lifecycle is
- * effect-scoped: disposal disconnects from the server, unregisters all tools,
- * and releases the `serverName` namespace reservation. HMR hot-swaps by
- * disposing the old instance and creating a new one; identical `serverName`
- * reproduces identical public tool names.
- *
- * @module @deepseek-ai/dsh-mcp-client
- */
+import { Service } from 'cordis'
+import type { Context } from '@custom-harness/core-context'
+import { defineTool } from '@custom-harness/core-tools'
+import { spawn, type ChildProcess } from 'node:child_process'
+import path from 'node:path'
+import fs from 'node:fs'
+import os from 'node:os'
 
-import type { Context } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
-import type { ReconnectConfig } from './connection.ts'
-// Side-effect type import: declaration-merges `ctx.tools` onto Context.
-import type {} from '@deepseek-ai/dsh-tools'
-
-export type { McpResult } from './tools.ts'
-export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
-
-/** Cordis plugin name used by loader diagnostics. */
-export const name = 'mcp-client'
-
-/** Services required by this plugin. */
-export const inject = ['tools']
-
-/** Default timeout for individual MCP tool calls (ms). */
-const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
-
-/** Valid `serverName`, kept below the public tool-name budget. */
-const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
-
-/**
- * Live `serverName` reservations per app, keyed off `ctx.root` (multiple apps
- * in one process — tests — must not see each other's names). A duplicate
- * namespace is a configuration error surfaced at plugin load, never silent
- * shadowing.
- */
-const activeServerNames = new WeakMap<Context, Set<string>>()
-
-// ---- Config ----
-
-/** Config for connecting to an MCP server via a spawned child process over stdio. */
-export interface StdioConfig {
-  /** Selects child-process stdio transport. */
-  transport: 'stdio'
-  /**
-   * Stable local namespace for this server's model-facing tool names
-   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
-   * unique across live mcp-client instances.
-   */
-  serverName: string
-  /** Executable used to start the server. */
+export interface McpServerConfig {
+  id: string
+  name?: string
   command: string
-  /** Arguments passed directly, without shell interpolation. */
-  args: string[]
-  /** Extra env vars merged on top of scrubbed ambient env. */
-  env: Record<string, string>
-  /** Working directory for the child process. */
-  cwd: string
-  /** Per-tool-call timeout in milliseconds. */
-  toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool synchronization fails. */
-  failOnStartupError: boolean
-  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
-  reconnect?: ReconnectConfig
+  args?: string[]
+  env?: Record<string, string>
 }
 
-/** Config for connecting to an MCP server over Streamable HTTP (SSE). */
-export interface StreamableHttpConfig {
-  /** Selects Streamable HTTP transport. */
-  transport: 'streamable-http'
-  /**
-   * Stable local namespace for this server's model-facing tool names
-   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
-   * unique across live mcp-client instances.
-   */
-  serverName: string
-  /** MCP endpoint URL. */
-  url: string
-  /** Additional headers attached to MCP requests. */
-  headers: Record<string, string>
-  /** Per-tool-call timeout in milliseconds. */
-  toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool synchronization fails. */
-  failOnStartupError: boolean
-  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
-  reconnect?: ReconnectConfig
-}
+export class McpProcessClient {
+  private process?: ChildProcess
+  private reqId = 1
+  private pendingRequests = new Map<number, { resolve: (res: any) => void; reject: (err: any) => void }>()
+  private buffer = ''
+  public activeTools: any[] = []
 
-/** Configuration for one stdio or Streamable HTTP MCP server. */
-export type Config = StdioConfig | StreamableHttpConfig
+  constructor(public config: McpServerConfig) {}
 
-const Reconnect: z<ReconnectConfig> = z.object({
-  enabled: z.boolean().default(RECONNECT_DEFAULTS.enabled),
-  initialDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.initialDelayMs),
-  maxDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.maxDelayMs),
-  maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
-})
+  public async start(): Promise<any[]> {
+    return new Promise((resolve) => {
+      try {
+        console.log(`[MCP] Spawning process for "${this.config.id}": ${this.config.command} ${(this.config.args || []).join(' ')}`)
+        const proc = spawn(this.config.command, this.config.args || [], {
+          env: { ...process.env, ...this.config.env },
+          stdio: ['pipe', 'pipe', 'pipe']
+        })
+        this.process = proc
 
-export const Config = z.union([
-  z.object({
-    transport: z.const('stdio'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
-    command: z.string().required(),
-    args: z.array(String).default([]),
-    env: z.dict(String).default({}),
-    cwd: z.string().default(''),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    reconnect: Reconnect,
-  }),
-  z.object({
-    transport: z.const('streamable-http'),
-    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
-    url: z.string().required(),
-    headers: z.dict(String).default({}),
-    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
-    failOnStartupError: z.boolean().default(false),
-    reconnect: Reconnect,
-  }),
-]) as unknown as z<Config>
+        let settled = false
+        const finish = (tools: any[]) => {
+          if (!settled) {
+            settled = true
+            this.activeTools = tools
+            resolve(tools)
+          }
+        }
 
-// ---- Plugin apply ----
+        const timeout = setTimeout(() => {
+          if (!settled) {
+            console.warn(`[MCP] Timeout waiting for "${this.config.id}" initialization handshake.`)
+            finish([])
+          }
+        }, 12000)
 
-/**
- * Connect one MCP server and publish its initial tool generation before activation.
- * This entry remains explicitly `async`: Cordis treats a prototype-bearing
- * ordinary function as a constructor, whose returned Promise is not startup work.
- * @param ctx - plugin context carrying the tool registry.
- * @param config - resolved transport and server namespace configuration.
- * @returns startup readiness after connection and initial tool discovery settle.
- */
-export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Fail loud at load: reconnect misconfiguration (including programmatic
-  // construction that bypassed Schemastery) rejects THIS instance before any
-  // effect registers.
-  const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+        proc.stdout?.on('data', (chunk: Buffer) => {
+          this.handleData(chunk)
+        })
 
-  // Reserve the namespace next: a duplicate `serverName` fails THIS instance
-  // at load with an actionable error and leaves the earlier instance intact.
-  ctx.effect(() => {
-    let names = activeServerNames.get(ctx.root)
-    if (!names) {
-      names = new Set()
-      activeServerNames.set(ctx.root, names)
+        proc.stderr?.on('data', (chunk: Buffer) => {
+          const msg = chunk.toString('utf8').trim()
+          if (msg) {
+            // Diagnostics / logs
+            console.log(`[MCP:${this.config.id}:stderr]`, msg)
+          }
+        })
+
+        proc.on('error', (err) => {
+          console.error(`[MCP:${this.config.id}] Process spawn error:`, err.message)
+          clearTimeout(timeout)
+          finish([])
+        })
+
+        proc.on('close', (code) => {
+          console.log(`[MCP:${this.config.id}] Process exited with code ${code}`)
+          this.process = undefined
+        })
+
+        // MCP JSON-RPC Handshake
+        this.request('initialize', {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'custom-harness', version: '0.1.0' }
+        }).then(async () => {
+          this.notify('notifications/initialized', {})
+          const toolsRes = await this.request('tools/list', {})
+          clearTimeout(timeout)
+          const tools = toolsRes?.tools || []
+          console.log(`[MCP] Successfully connected to "${this.config.id}". Discovered ${tools.length} tool(s): ${tools.map((t: any) => t.name).join(', ')}`)
+          finish(tools)
+        }).catch((err) => {
+          clearTimeout(timeout)
+          console.warn(`[MCP:${this.config.id}] Handshake failed:`, err.message)
+          finish([])
+        })
+      } catch (err: any) {
+        console.error(`[MCP:${this.config.id}] Failed to start:`, err.message)
+        resolve([])
+      }
+    })
+  }
+
+  private handleData(chunk: Buffer) {
+    this.buffer += chunk.toString('utf8')
+    const lines = this.buffer.split('\n')
+    this.buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const msg = JSON.parse(trimmed)
+        if (msg.id && this.pendingRequests.has(msg.id)) {
+          const { resolve, reject } = this.pendingRequests.get(msg.id)!
+          this.pendingRequests.delete(msg.id)
+          if (msg.error) {
+            reject(new Error(msg.error.message || JSON.stringify(msg.error)))
+          } else {
+            resolve(msg.result)
+          }
+        }
+      } catch (e) {
+        // Not a JSON-RPC message line
+      }
     }
-    if (names.has(config.serverName)) {
-      throw new Error(
-        `mcp-client: serverName "${config.serverName}" is already in use by another mcp-client instance — pick a unique serverName in cordis.yml`,
-      )
+  }
+
+  public request(method: string, params: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.process || !this.process.stdin?.writable) {
+        return reject(new Error(`MCP server "${this.config.id}" is not running`))
+      }
+      const id = this.reqId++
+      this.pendingRequests.set(id, { resolve, reject })
+      const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'
+      this.process.stdin.write(payload)
+    })
+  }
+
+  public notify(method: string, params: any) {
+    if (!this.process || !this.process.stdin?.writable) return
+    const payload = JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n'
+    this.process.stdin.write(payload)
+  }
+
+  public async callTool(name: string, args: any): Promise<any> {
+    const result = await this.request('tools/call', {
+      name,
+      arguments: args || {}
+    })
+    if (result?.content && Array.isArray(result.content)) {
+      return result.content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
     }
-    names.add(config.serverName)
-    return () => void names.delete(config.serverName)
-  }, 'mcp-client.serverName')
+    return result
+  }
 
-  // The supervisor owns the client/transport generations, the reconnect
-  // loop, and the live tool registrations; disposal stops reconnection,
-  // quiesces in-flight work, and unregisters the current generation.
-  const connection = startConnection(ctx, config, reconnect)
-
-  ctx.effect(() => {
-    return () => connection.dispose()
-  }, 'mcp-client.connection')
-
-  // Block plugin activation on the initial connection + tool discovery so
-  // Cordis consumers observe the tools immediately after the fiber activates.
-  // When failOnStartupError is true, a failed initial attempt rejects the
-  // fiber (Cordis rolls it back); otherwise the error is logged and the
-  // supervisor enters its reconnect loop.
-  const outcome = await connection.ready
-  if (outcome.error !== undefined && config.failOnStartupError) {
-    throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
+  public stop() {
+    if (this.process) {
+      this.process.kill()
+      this.process = undefined
+    }
   }
 }
+
+export const name = 'mcp-client'
+export const inject = ['tools']
+
+export class McpClientService extends Service {
+  declare ctx: Context
+  private serverConfigs = new Map<string, McpServerConfig>()
+  private clients = new Map<string, McpProcessClient>()
+  private registeredToolsDisposers: Array<() => void> = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'mcpClient')
+    this.discoverConfigs()
+    // Automatically connect on initialization
+    this.connectAll().catch(err => {
+      console.warn('[MCP] Error connecting servers:', err)
+    })
+  }
+
+  public discoverConfigs() {
+    const configPaths = [
+      path.join(process.cwd(), 'mcp.json'),
+      path.join(process.cwd(), '.mcp.json'),
+      path.resolve(process.cwd(), '../../mcp.json'),
+      path.resolve(process.cwd(), '../../.mcp.json'),
+      path.resolve(process.cwd(), '../mcp.json'),
+      path.resolve(process.cwd(), '../.mcp.json'),
+      path.join(os.homedir(), '.gemini', 'antigravity-ide', 'mcp_config.json'),
+      path.join(os.homedir(), '.dsh', 'mcp.json')
+    ]
+
+    for (const p of configPaths) {
+      if (!fs.existsSync(p)) continue
+      try {
+        const raw = fs.readFileSync(p, 'utf8')
+        const json = JSON.parse(raw)
+        const servers = json.mcpServers || json.servers || json
+        if (typeof servers === 'object') {
+          for (const [id, srv] of Object.entries(servers)) {
+            if (typeof srv === 'object' && (srv as any).command) {
+              this.registerServer({
+                id,
+                name: (srv as any).name || id,
+                command: (srv as any).command,
+                args: (srv as any).args || [],
+                env: (srv as any).env || {}
+              })
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[MCP] Failed to parse config at ${p}:`, e)
+      }
+    }
+  }
+
+  public registerServer(config: McpServerConfig) {
+    if (this.serverConfigs.has(config.id)) return
+    this.serverConfigs.set(config.id, config)
+    console.log(`[MCP] Registered server configuration: ${config.id} (${config.command})`)
+  }
+
+  public async connectAll() {
+    for (const [id, config] of this.serverConfigs.entries()) {
+      if (!this.clients.has(id)) {
+        await this.connectServer(config)
+      }
+    }
+  }
+
+  public async connectServer(config: McpServerConfig) {
+    const client = new McpProcessClient(config)
+    this.clients.set(config.id, client)
+    const tools = await client.start()
+
+    for (const tool of tools) {
+      const sanitizedServerId = config.id.replace(/[^a-zA-Z0-9_]/g, '_')
+      const toolName = `mcp_${sanitizedServerId}_${tool.name}`
+
+      // Register prefixed MCP tool into context tools
+      const disposer = this.ctx.tools.register(
+        defineTool({
+          name: toolName,
+          description: `[MCP: ${config.id}] ${tool.description || tool.name}`,
+          parameters: tool.inputSchema || { type: 'object', properties: {} },
+          execute: async (args: any) => {
+            return await client.callTool(tool.name, args)
+          }
+        })
+      )
+      this.registeredToolsDisposers.push(disposer)
+
+      // Also register direct tool name alias if not already occupied
+      if (!this.ctx.tools.get(tool.name)) {
+        const aliasDisposer = this.ctx.tools.register(
+          defineTool({
+            name: tool.name,
+            description: `[MCP: ${config.id}] ${tool.description || tool.name}`,
+            parameters: tool.inputSchema || { type: 'object', properties: {} },
+            execute: async (args: any) => {
+              return await client.callTool(tool.name, args)
+            }
+          })
+        )
+        this.registeredToolsDisposers.push(aliasDisposer)
+      }
+    }
+  }
+
+  public listServers(): Array<McpServerConfig & { toolsCount: number; connected: boolean }> {
+    return Array.from(this.serverConfigs.values()).map(cfg => {
+      const client = this.clients.get(cfg.id)
+      return {
+        ...cfg,
+        connected: !!client,
+        toolsCount: client?.activeTools.length || 0
+      }
+    })
+  }
+
+  public disconnectAll() {
+    for (const client of this.clients.values()) {
+      client.stop()
+    }
+    this.clients.clear()
+    for (const disposer of this.registeredToolsDisposers) {
+      try { disposer() } catch (e) {}
+    }
+    this.registeredToolsDisposers = []
+  }
+}
+
+export function apply(ctx: Context) {
+  const service = new McpClientService(ctx)
+  ctx.set('mcpClient', service)
+
+  ctx.on('dispose', () => {
+    service.disconnectAll()
+  })
+
+  // Register mcp management tool
+  ctx.tools.register(
+    defineTool({
+      name: 'mcp',
+      description: 'Model Context Protocol (MCP) tool manager. Discovers, connects and lists active external MCP tool servers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list_servers', 'reload_configs', 'connect_all'],
+            description: 'Action to perform.'
+          }
+        },
+        required: ['action']
+      },
+      async execute({ action }: { action: 'list_servers' | 'reload_configs' | 'connect_all' }) {
+        if (action === 'reload_configs' || action === 'connect_all') {
+          service.discoverConfigs()
+          await service.connectAll()
+        }
+        const list = service.listServers()
+        if (list.length === 0) {
+          return 'No active MCP servers found in mcp.json or workspace configs.'
+        }
+        return `### Active MCP Servers (${list.length}):\n\n` + list.map(s => `- **${s.id}** (${s.connected ? `Connected, ${s.toolsCount} tools` : 'Disconnected'}): \`${s.command} ${(s.args || []).join(' ')}\``).join('\n')
+      }
+    })
+  )
+}
+
+export default McpClientService

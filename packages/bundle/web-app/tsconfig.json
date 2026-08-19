@@ -1,42 +1,7 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "dist"
   },
-  "include": [
-    "src"
-  ],
-  "references": [
-    {
-      "path": "../../../vendor/cordis"
-    },
-    {
-      "path": "../../../vendor/schemastery"
-    },
-    {
-      "path": "../../../vendor/loader"
-    },
-    {
-      "path": "../../boot/app-boot"
-    },
-    {
-      "path": "../../boot/cmdline"
-    },
-    {
-      "path": "../../host/frontend-static"
-    },
-    {
-      "path": "../../host/webserver"
-    },
-    {
-      "path": "../../core/system-prompt"
-    },
-    {
-      "path": "../../shell/shell-env"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
-    }
-  ]
+  "include": ["src/**/*"]
 }

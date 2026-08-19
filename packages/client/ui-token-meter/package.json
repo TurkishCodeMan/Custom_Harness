@@ -1,0 +1,14 @@
+{
+  "name": "@custom-harness/client-ui-token-meter",
+  "version": "0.1.0",
+  "description": "Real-time context window usage gauge and token segment visualization",
+  "type": "module",
+  "main": "src/index.tsx",
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@custom-harness/client-ui-primitives": "workspace:^"
+  }
+}

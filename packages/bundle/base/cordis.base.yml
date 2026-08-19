@@ -1,0 +1,51 @@
+# DeepSeek Harness Base Composition Profile
+name: bundle-base
+description: Standard Core Agent Profile with Tools, Seams, LLM, and Guards
+plugins:
+  # 1. Capability Seams
+  - name: seam-fs
+    package: "@custom-harness/core-seam-fs"
+  - name: seam-subprocess
+    package: "@custom-harness/core-seam-subprocess"
+  - name: seam-approval
+    package: "@custom-harness/core-seam-approval"
+  - name: seam-spill
+    package: "@custom-harness/core-seam-spill"
+
+  # 2. Core Services
+  - name: settings
+    package: "@custom-harness/settings"
+  - name: systemPrompt
+    package: "@custom-harness/core-system-prompt"
+  - name: tools
+    package: "@custom-harness/core-tools"
+  - name: llm
+    package: "@custom-harness/llm"
+  - name: session
+    package: "@custom-harness/session"
+  - name: agentPresets
+    package: "@custom-harness/preset-agent-presets"
+  - name: persona
+    package: "@custom-harness/preset-persona"
+  - name: repeatGuard
+    package: "@custom-harness/guard-repeat-tool-reminder"
+  - name: toolResultPruner
+    package: "@custom-harness/compaction-tool-result-pruner"
+  - name: compactor
+    package: "@custom-harness/compaction-basic"
+  - name: agent
+    package: "@custom-harness/core-agent"
+  - name: tokenMeter
+    package: "@custom-harness/token-meter"
+
+  # 3. Standard Tools
+  - name: tool-bash
+    package: "@custom-harness/tool-bash"
+  - name: tool-bash-persistent
+    package: "@custom-harness/tool-bash-persistent"
+  - name: tool-fs
+    package: "@custom-harness/tool-fs"
+  - name: tool-todo
+    package: "@custom-harness/tool-todo"
+  - name: tool-skill
+    package: "@custom-harness/tool-skill"

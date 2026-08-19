@@ -1,0 +1,9 @@
+{
+  "name": "@custom-harness/client-ui",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.html",
+  "files": [
+    "src"
+  ]
+}

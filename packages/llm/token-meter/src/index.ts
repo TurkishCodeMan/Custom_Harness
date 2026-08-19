@@ -1,313 +1,168 @@
-/**
- * Single replay-aware token-meter service for request and surface pressure.
- *
- * @module @deepseek-ai/dsh-token-meter
- */
+import { Service } from 'cordis'
+import type { Context } from '@custom-harness/core-context'
+import type { ChatMessage, ModelConfig } from '@custom-harness/core-types'
 
-import { Context, Service } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
-import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { Message, TokenUsage } from '@deepseek-ai/dsh-llm'
-import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
-// Type-only: resolves the optional projection registry Context declaration.
-import type {} from '@deepseek-ai/dsh-session-projection'
-import type {
-  TokenMeasurement,
-  TokenMeasurementBaseline,
-  TokenMeterConfig,
-  TokenSurfaceNode,
-} from './types.ts'
-import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
-import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
-import { estimateContent, estimateHeader, estimateMessage, ROLE_OVERHEAD } from './estimate.ts'
-import { foldSurfaceTokens } from './surface-fold.ts'
-
-export type * from './types.ts'
-
-interface MeasurementAnchor {
-  readonly header: EpochHeader | undefined
-  readonly surfaceTokens: number
-  readonly baseline: Exclude<TokenMeasurementBaseline, { kind: 'none' }>
+export interface ContextBreakdown {
+  systemTokens: number
+  toolsTokens: number
+  messageTokens: number
+  systemPercent: number
+  toolsPercent: number
+  messagePercent: number
 }
 
-interface ReplayState {
-  consumedEvents: number
-  header: EpochHeader | undefined
-  surface: TokenSurfaceNode[]
-  surfaceTokens: number
-  stepStart: { turn: number; step: number; surfaceTokens: number } | undefined
-  anchor: MeasurementAnchor | undefined
+export interface ContextPressure {
+  usedTokens: number
+  contextWindow: number
+  percent: number
+  projectedTokens: number
 }
 
-/** Sum disjoint provider usage buckets without double-counting reasoning output. */
-function usageTokens(usage: TokenUsage): number {
-  return usage.inputTokens
-    + (usage.cacheReadTokens ?? 0)
-    + (usage.cacheWriteTokens ?? 0)
-    + usage.outputTokens
+export interface TokenMeasurement {
+  contextPressure: ContextPressure
+  contextBreakdown: ContextBreakdown
+  modelId: string
+  contextWindow: number
+  disabled?: boolean
+  systemPromptTokens?: number
+  toolsTokens?: number
+  historyTokens?: number
+  totalTokens?: number
+  percentage?: number
 }
 
-/** Compare optional envelopes so a headerless estimate can track later surface deltas. */
-function optionalHeaderEquals(
-  left: EpochHeader | undefined,
-  right: EpochHeader | undefined,
-): boolean {
-  if (left === undefined || right === undefined) return left === right
-  return headerEquals(left, right)
-}
+export const name = 'token-meter'
+export const inject = ['settings', 'tools', 'session']
 
-/** Reject stale or misspelled keys before defaults can hide them. */
-function validateConfigKeys(config: TokenMeterConfig): void {
-  for (const key of Object.keys(config)) {
-    throw new Error(`TokenMeterConfig: unknown key "${key}" (no settings are supported)`)
-  }
-}
+export class TokenMeterService extends Service {
+  declare ctx: Context
+  static inject = ['settings', 'tools', 'session']
 
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    tokenMeter: TokenMeter
-  }
-}
-
-/** Replay owner for one service-wide estimator and isolated per-session folds. */
-export class TokenMeter extends Service {
-  // Schemastery preserves untrusted loader keys on an empty object schema;
-  // the public type excludes settings while validateConfigKeys rejects them.
-  static Config: z<TokenMeterConfig> = z.object({}) as unknown as z<TokenMeterConfig>
-
-  private readonly states = new WeakMap<Session, ReplayState>()
-
-  constructor(ctx: Context, config: TokenMeterConfig = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'tokenMeter')
-    validateConfigKeys(config)
-
-    // Projection registration is an optional child: compositions without the
-    // generic registry keep the meter's standalone read shape.
-    ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
-      projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
-      projectionCtx.sessionProjections.register(contextBreakdownProjectionDefinition)
-    })
-
-    // Readers catch up independently, while eager observation bounds ordinary
-    // read latency without creating state for sessions no consumer has read.
-    ctx.on('session/event', (session) => {
-      if (this.states.has(session)) this._sync(session)
-    })
   }
 
   /**
-   * Measure current request pressure and surface through the durable tail.
-   *
-   * Provider usage is reused only when the latest successful call's canonical
-   * request envelope matches `requestHeader` and its total is no lower than
-   * that call's full heuristic anchor; otherwise the complete envelope and
-   * surface are heuristically repriced.
-   *
-   * `requestHeader` affects request pressure only; surface fields always
-   * describe the current session surface. Every call clones those positional
-   * nodes, so measurement is O(surface).
-   *
-   * @param session - session to replay through its current durable tail.
-   * @param requestHeader - optional effective request envelope replacing the latest logged header.
-   * @returns a detached deeply immutable pressure and surface measurement.
+   * Fast & robust token estimation heuristic (4 chars per token + structural overhead).
    */
-  measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement {
-    const state = this._sync(session)
-    const header = requestHeader === undefined
-      ? state.header
-      : canonicalHeader(requestHeader)
-    const anchor = state.anchor
-
-    let baseline: TokenMeasurementBaseline
-    let surfaceDeltaTokens: number
-    if (anchor !== undefined && optionalHeaderEquals(anchor.header, header)) {
-      baseline = anchor.baseline
-      surfaceDeltaTokens = state.surfaceTokens - anchor.surfaceTokens
-    } else if (header === undefined && state.surfaceTokens === 0) {
-      baseline = { kind: 'none', tokens: 0 }
-      surfaceDeltaTokens = 0
-    } else {
-      baseline = {
-        kind: 'estimated',
-        tokens: estimateHeader(header) + state.surfaceTokens,
-      }
-      surfaceDeltaTokens = 0
-    }
-
-    return deepFreeze(structuredClone({
-      logRevision: state.consumedEvents,
-      baseline,
-      surfaceDeltaTokens,
-      totalTokens: Math.max(0, baseline.tokens + surfaceDeltaTokens),
-      surfaceTokens: state.surfaceTokens,
-      nodes: state.surface,
-    }))
+  public estimateText(text?: string): number {
+    if (!text) return 0
+    return Math.max(1, Math.ceil(text.length / 4))
   }
 
   /**
-   * Heuristically price one model-visible message (instance face of the pure
-   * `estimateMessage` export from `estimate.ts`).
-   * @param message - message to price without mutation.
-   * @returns content and role-framing tokens under the fixed service heuristic.
+   * Estimate token count of a single ChatMessage.
    */
-  estimateMessage(message: Message): number {
-    return estimateMessage(message)
-  }
-
-  /** Catch one session's fold up to the current durable tail. */
-  private _sync(session: Session): ReplayState {
-    let state = this.states.get(session)
-    if (state === undefined) {
-      state = {
-        consumedEvents: 0,
-        header: undefined,
-        surface: [],
-        surfaceTokens: 0,
-        stepStart: undefined,
-        anchor: undefined,
+  public estimateMessage(msg: ChatMessage): number {
+    let tokens = 4 // Base message role overhead
+    if (msg.content) {
+      tokens += this.estimateText(msg.content)
+    }
+    if (msg.reasoning_content) {
+      tokens += this.estimateText(msg.reasoning_content)
+    }
+    if (msg.tool_calls) {
+      for (const call of msg.tool_calls) {
+        tokens += 6 // tool call wrapper overhead
+        tokens += this.estimateText(call.function?.name)
+        tokens += this.estimateText(call.function?.arguments)
       }
-      this.states.set(session, state)
     }
-
-    while (state.consumedEvents < session.events.length) {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- contiguous session seqs index the durable log
-      const event = session.events[state.consumedEvents]!
-      this._foldEvent(session, state, event)
-      state.consumedEvents += 1
-    }
-    return state
+    return tokens
   }
 
   /**
-   * Validate and prepare every fallible part before mutating replay state.
-   * A malformed event remains unread on every retry instead of partially
-   * applying the same mutation more than once.
+   * Measures current session context occupancy and breakdown.
    */
-  private _foldEvent(session: Session, state: ReplayState, event: SessionEvent): void {
-    let nextHeader = state.header
-    let nextStepStart = state.stepStart
-    let nextAnchor = state.anchor
+  public measureSession(sessionId?: string, modelOverride?: ModelConfig): TokenMeasurement {
+    const isPluginEnabled = this.ctx.settings?.getPlugin ? (this.ctx.settings.getPlugin('token-meter')?.enabled !== false) : true
+    const activeModel = modelOverride || this.ctx.settings.getActiveModel()
+    const contextWindow = activeModel?.contextWindow || 24576
+    const modelId = activeModel?.id || 'default-model'
 
-    switch (event.type) {
-      case 'request/header':
-        nextHeader = canonicalHeader(event.data.header)
-        break
-      case 'step/start':
-        if (state.stepStart !== undefined) {
-          throw new Error(
-            `token meter: step/start at seq ${event.seq} arrived before turn ${state.stepStart.turn}/step ${state.stepStart.step} ended`,
-          )
-        }
-        nextStepStart = { ...event.data, surfaceTokens: state.surfaceTokens }
-        break
-      case 'step/end':
-        if (state.stepStart === undefined
-          || state.stepStart.turn !== event.data.turn
-          || state.stepStart.step !== event.data.step) {
-          throw new Error(`token meter: step/end at seq ${event.seq} has no matching step/start event`)
-        }
-        nextStepStart = undefined
-        break
-      default:
-        break
+    if (!isPluginEnabled) {
+      return {
+        contextPressure: {
+          usedTokens: 0,
+          contextWindow,
+          percent: 0,
+          projectedTokens: 0
+        },
+        contextBreakdown: {
+          systemTokens: 0,
+          toolsTokens: 0,
+          messageTokens: 0,
+          systemPercent: 0,
+          toolsPercent: 0,
+          messagePercent: 0
+        },
+        modelId,
+        contextWindow,
+        disabled: true
+      }
     }
 
-    const surface = isSurfaceEvent(event)
-      ? foldSurfaceTokens(state.surface, event)
-      : undefined
+    // 1. System Prompt Tokens
+    const cwd = this.ctx.settings.getSettings().workspace || process.cwd()
+    const systemPromptText = `You are a helpful and intelligent AI Coding Assistant powered by ${activeModel?.name || modelId}.
+Your current working directory is: ${cwd}
 
-    if (event.type === 'assistant/message') {
-      const stepStart = state.stepStart
-      if (stepStart === undefined
-        || stepStart.turn !== event.data.turn
-        || stepStart.step !== event.data.step) {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} has no matching step/start event`)
-      }
+You have access to tools for interacting with the system. Always prefer using tools when you need to inspect files, execute commands, or verify code.`
+    const systemTokens = this.estimateText(systemPromptText) + 8
 
-      // assistant/message is surface-mandatory at every append/seed boundary.
-      // oxlint-disable-next-line typescript/no-non-null-assertion
-      const eventTokens = surface!.tokens
-      if (event.data.usage !== undefined && nextHeader !== undefined) {
-        const providerAssistantTokens = this._estimateProviderAssistant(
-          session,
-          event,
-          eventTokens,
-        )
-        const anchorSurfaceTokens = stepStart.surfaceTokens + providerAssistantTokens
-        const providerTokens = usageTokens(event.data.usage)
-        const estimatedAnchorTokens = estimateHeader(nextHeader) + anchorSurfaceTokens
-        nextAnchor = {
-          header: nextHeader,
-          surfaceTokens: anchorSurfaceTokens,
-          // Signed heuristic deltas remain conservative only from an anchor
-          // that is at least as large as the matching full heuristic price.
-          baseline: providerTokens >= estimatedAnchorTokens
-            ? { kind: 'usage', tokens: providerTokens, usage: event.data.usage }
-            : { kind: 'estimated', tokens: estimatedAnchorTokens },
-        }
-      } else {
-        const anchorSurfaceTokens = stepStart.surfaceTokens + eventTokens
-        nextAnchor = {
-          header: nextHeader,
-          surfaceTokens: anchorSurfaceTokens,
-          baseline: {
-            kind: 'estimated',
-            tokens: estimateHeader(nextHeader) + anchorSurfaceTokens,
-          },
+    // 2. Tools Schema Tokens
+    const toolSchemas = this.ctx.tools.getOpenAiSchemas()
+    let toolsTokens = 0
+    if (toolSchemas && toolSchemas.length > 0) {
+      const toolsJson = JSON.stringify(toolSchemas)
+      toolsTokens = this.estimateText(toolsJson) + 12
+    }
+
+    // 3. Message History Tokens
+    let messageTokens = 0
+    if (sessionId) {
+      const session = this.ctx.session.getSession(sessionId)
+      if (session && session.messages) {
+        for (const msg of session.messages) {
+          messageTokens += this.estimateMessage(msg)
         }
       }
     }
 
-    state.header = nextHeader
-    state.stepStart = nextStepStart
-    if (surface !== undefined) {
-      state.surface = surface.nodes
-      state.surfaceTokens += surface.deltaTokens
-    }
-    state.anchor = nextAnchor
-  }
+    const usedTokens = systemTokens + toolsTokens + messageTokens
+    const percent = Math.min(100, Math.round((usedTokens / contextWindow) * 100))
 
-  /**
-   * Reassemble provider output from the exact cited chunk seqs for a usage anchor.
-   * Missing legacy source seqs conservatively treat the durable output as the
-   * provider output; an explicit empty list prices a known empty stream.
-   */
-  private _estimateProviderAssistant(
-    session: Session,
-    event: SessionEvent<'assistant/message'>,
-    durableEventTokens: number,
-  ): number {
-    const sourceSeqs = event.sourceEventSeqs
-    if (sourceSeqs === undefined) return durableEventTokens
+    const breakdownTotal = Math.max(1, usedTokens)
+    const systemPercent = Math.round((systemTokens / breakdownTotal) * 100)
+    const toolsPercent = Math.round((toolsTokens / breakdownTotal) * 100)
+    const messagePercent = Math.max(0, 100 - systemPercent - toolsPercent)
 
-    const assembler = new BlockAssembler()
-    const seen = new Set<number>()
-    for (const seq of sourceSeqs) {
-      if (seq >= event.seq) {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} source seq ${seq} is not earlier`)
-      }
-      if (seen.has(seq)) {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} repeats source seq ${seq}`)
-      }
-      seen.add(seq)
-      // Session construction validates contiguous seqs, and the explicit
-      // earlier-than-assistant check above therefore guarantees existence.
-      const source = session.events[seq]
-      // oxlint-disable-next-line typescript/no-non-null-assertion
-      const sourceEvent = source!
-      if (sourceEvent.type !== 'assistant/chunk') {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} source seq ${seq} is not assistant/chunk`)
-      }
-      if (sourceEvent.data.turn !== event.data.turn || sourceEvent.data.step !== event.data.step) {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} source seq ${seq} belongs to another step`)
-      }
-      assembler.push(sourceEvent.data.chunk)
+    return {
+      contextPressure: {
+        usedTokens,
+        contextWindow,
+        percent,
+        projectedTokens: usedTokens
+      },
+      contextBreakdown: {
+        systemTokens,
+        toolsTokens,
+        messageTokens,
+        systemPercent,
+        toolsPercent,
+        messagePercent
+      },
+      modelId,
+      contextWindow,
+      systemPromptTokens: systemTokens,
+      toolsTokens,
+      historyTokens: messageTokens,
+      totalTokens: usedTokens,
+      percentage: percent
     }
-    const providerContent = assembler.blocks()
-    return providerContent.length === 0 ? 0 : estimateContent(providerContent) + ROLE_OVERHEAD
   }
 }
 
-export default TokenMeter
+export function apply(ctx: Context) {
+  ctx.set('tokenMeter', new TokenMeterService(ctx))
+}

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Harness - AI Agent UI</title>
+  
+  <!-- Modern Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-ds-dark-theme="true">
+  <div class="app-layout">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" fill="url(#brand-grad)" stroke="#679efe" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <defs>
+                <linearGradient id="brand-grad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#4d93f8"/>
+                  <stop offset="1" stop-color="#06b6d4"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="brand-info">
+            <div class="brand-name">Custom Harness</div>
+            <div class="brand-badge">Cordis Core</div>
+          </div>
+        </div>
+
+        <button id="btn-new-chat" class="btn-new-chat" title="Yeni Sohbet Başlat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>Yeni Sohbet</span>
+        </button>
+      </div>
+
+      <!-- Session History Section -->
+      <div class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">SOHBETLER</span>
+          <span id="session-count" class="section-count">0</span>
+        </div>
+        <div id="session-list" class="session-list">
+          <!-- Session items loaded dynamically -->
+        </div>
+      </div>
+
+      <!-- Skills Section -->
+      <div class="sidebar-section">
+        <div class="section-header">
+          <span class="section-title">BECERİLER (.agents/skills)</span>
+          <span id="skills-count" class="section-count">0</span>
+        </div>
+        <div id="skills-list" class="skills-list">
+          <!-- Skills loaded dynamically -->
+        </div>
+      </div>
+
+      <!-- Sidebar Footer / Workspace Selector -->
+      <div class="sidebar-footer">
+        <div class="workspace-card" id="btn-change-workspace" title="Çalışma Alanı Dizini">
+          <div class="ws-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          </div>
+          <div class="ws-details">
+            <span class="ws-label">Çalışma Alanı</span>
+            <span id="current-workspace-name" class="ws-path">/workspace</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Area -->
+    <main class="main-content">
+      
+      <!-- Topbar Header -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="model-picker-wrapper">
+            <div class="model-picker-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </div>
+            <select id="select-model" class="model-select" title="Aktif Modeli Seçin">
+              <option value="gemma-4-abliterated">Gemma 4 Abliterated (26B)</option>
+              <option value="deepseek-chat">DeepSeek V3 (Chat)</option>
+              <option value="deepseek-reasoner">DeepSeek R1 (Reasoner)</option>
+            </select>
+          </div>
+
+          <div class="topbar-ws-chip" id="topbar-workspace-chip" title="Aktif Çalışma Alanını Değiştir">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span id="topbar-ws-name">code_mode</span>
+          </div>
+
+          <div class="topbar-ws-chip" id="topbar-preset-chip" title="Aktif Ajan Önayarı (Agent Preset)">
+            <span id="topbar-preset-icon">🚀</span>
+            <span id="topbar-preset-name">Full-Stack Developer</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="connection-badge">
+            <span id="status-dot" class="status-pulse online"></span>
+            <span id="status-text" class="status-text">Bağlandı</span>
+          </div>
+
+          <button id="btn-open-settings" class="btn-settings" title="Ayarları Aç">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Chat Trajectory Area -->
+      <div id="chat-messages" class="chat-messages">
+        
+        <!-- Welcome Hero View -->
+        <div id="welcome-view" class="welcome-hero">
+          <div class="hero-icon">⚡</div>
+          <h1 class="hero-title">Custom Harness</h1>
+          <p class="hero-subtitle">Cordis Mimarisi ile Modüler, Bağımsız ve Yüksek Performanslı AI Ajan Platformu</p>
+          
+          <div class="quick-prompts">
+            <button class="quick-card" data-prompt="Projedeki dosyaları ve mimariyi analiz edip bana bir özet çıkar.">
+              <div class="card-icon">📁</div>
+              <div class="card-text">
+                <div class="card-title">Dizini İncele</div>
+                <div class="card-desc">Çalışma alanındaki dosyaları listeler ve özetler.</div>
+              </div>
+            </button>
+
+            <button class="quick-card" data-prompt="Linux sistem durumunu ve donanım kullanımını kontrol et.">
+              <div class="card-icon">💻</div>
+              <div class="card-text">
+                <div class="card-title">Sistem Durumu</div>
+                <div class="card-desc">Bash aracı ile CPU, RAM ve disk bilgilerini alır.</div>
+              </div>
+            </button>
+
+            <button class="quick-card" data-prompt="Yüklü becerileri listele ve proje asistanı becerisini açıkla.">
+              <div class="card-icon">🧠</div>
+              <div class="card-text">
+                <div class="card-title">Becerileri Keşfet</div>
+                <div class="card-desc">.agents/skills/ altındaki yetenekleri listeler.</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Floating Composer Area -->
+      <div class="composer-outer">
+        <div class="composer-box">
+          <form id="chat-form" class="composer-form">
+            <div class="input-container">
+              <textarea id="prompt-input" placeholder="Bir görev verin veya soru sorun... (Enter: Gönder, Shift+Enter: Yeni Satır)" rows="1"></textarea>
+              
+              <div class="composer-actions">
+                <div class="context-meter-wrapper" id="context-meter-wrapper" title="Bağlam Doluluk Oranı (Context Occupancy)">
+                  <button type="button" id="btn-context-meter" class="btn-context-meter" aria-label="Bağlam Bütçesi">
+                    <svg viewBox="0 0 16 16" width="16" height="16" class="context-ring-svg">
+                      <circle class="ring-track" cx="8" cy="8" r="6" />
+                      <circle id="context-ring-fill" class="ring-fill" cx="8" cy="8" r="6" stroke-dasharray="0 37.7" transform="rotate(-90 8 8)" />
+                    </svg>
+                    <span id="context-percent-label" class="context-percent-label">0%</span>
+                  </button>
+
+                  <!-- Context Breakdown Popup Panel -->
+                  <div id="context-popup" class="context-popup hidden">
+                    <div class="context-popup-header">
+                      <div class="cp-title-group">
+                        <span class="cp-headline">Bağlam Kullanımı</span>
+                        <span id="cp-percent" class="cp-percent-badge">0%</span>
+                      </div>
+                      <span id="cp-figures" class="cp-figures">~0 / 24.6k</span>
+                    </div>
+
+                    <!-- Segmented Multi-color Bar -->
+                    <div class="context-progress-bar">
+                      <div id="cp-bar-system" class="cp-bar-seg seg-system" style="width: 0%" title="System Prompt"></div>
+                      <div id="cp-bar-tools" class="cp-bar-seg seg-tools" style="width: 0%" title="Araçlar"></div>
+                      <div id="cp-bar-messages" class="cp-bar-seg seg-messages" style="width: 0%" title="Sohbet Geçmişi"></div>
+                    </div>
+
+                    <!-- Breakdown Legend Table -->
+                    <div class="context-breakdown-legend">
+                      <div class="legend-row">
+                        <div class="legend-label">
+                          <span class="legend-dot dot-system"></span>
+                          <span>Sistem İstemleri</span>
+                        </div>
+                        <span id="cp-leg-system" class="legend-val">~0 tok (0%)</span>
+                      </div>
+                      <div class="legend-row">
+                        <div class="legend-label">
+                          <span class="legend-dot dot-tools"></span>
+                          <span>Tanımlı Araçlar</span>
+                        </div>
+                        <span id="cp-leg-tools" class="legend-val">~0 tok (0%)</span>
+                      </div>
+                      <div class="legend-row">
+                        <div class="legend-label">
+                          <span class="legend-dot dot-messages"></span>
+                          <span>Mesaj Geçmişi</span>
+                        </div>
+                        <span id="cp-leg-messages" class="legend-val">~0 tok (0%)</span>
+                      </div>
+                    </div>
+
+                    <div class="context-popup-footer">
+                      <span id="cp-model-name" class="cp-model-name">gemma-4-abliterated</span>
+                      <span class="cp-tip">Kapasite: <b id="cp-cap-tokens">24,576</b> tok</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button type="button" id="btn-stop" class="btn-action-stop hidden" title="Üretimi Durdur">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                  <span>Durdur</span>
+                </button>
+
+                <button type="submit" id="btn-send" class="btn-action-send" title="Gönder (Enter)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div class="composer-hints">
+            <span><kbd>↵</kbd> Gönder</span>
+            <span><kbd>Shift</kbd> + <kbd>↵</kbd> Yeni Satır</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Redesigned Tabbed Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog settings-modal-dialog">
+      <div class="modal-header">
+        <div class="modal-header-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4d93f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <h2>Ayarlar ve Yapılandırma</h2>
+        </div>
+        <button id="btn-close-settings" class="modal-btn-close">×</button>
+      </div>
+
+      <!-- Settings Tabs Navigation -->
+      <div class="settings-tabs-nav">
+        <button type="button" class="settings-tab-btn active" data-tab="general">
+          <span>📋</span><span>General</span>
+        </button>
+        <button type="button" class="settings-tab-btn" data-tab="models">
+          <span>🤖</span><span>Models</span>
+        </button>
+        <button type="button" class="settings-tab-btn" data-tab="plugins">
+          <span>🔌</span><span>Plugins</span>
+        </button>
+        <button type="button" class="settings-tab-btn" data-tab="presets">
+          <span>👥</span><span>Agent Presets</span>
+        </button>
+      </div>
+
+      <div class="modal-body settings-modal-body">
+        
+        <!-- Tab 1: General -->
+        <div id="tab-pane-general" class="settings-tab-pane active">
+          <div class="form-group">
+            <label class="form-label">Çalışma Alanı (Workspace Klasörü):</label>
+            <input type="text" id="settings-workspace" class="form-input" placeholder="/home/huseyina/code_mode">
+            <small class="form-hint">Ajan komutlarının ve araçlarının varsayılan olarak çalışacağı ana dizin.</small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Varsayılan Sağlayıcı (Provider):</label>
+            <select id="settings-provider" class="form-select">
+              <option value="gemma-local">Local Gemma 4 26B (vLLM / llama.cpp)</option>
+              <option value="deepseek">DeepSeek Official API</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Varsayılan Model Adı (Model ID):</label>
+            <input type="text" id="settings-model-id" class="form-input" placeholder="gemma-4-abliterated">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Varsayılan Ajan Önayarı (Default Preset):</label>
+            <select id="settings-default-preset" class="form-select">
+              <option value="full-stack">🚀 Full-Stack Developer</option>
+              <option value="fast-coder">⚡ Quick Script Runner</option>
+              <option value="code-reviewer">🔍 Architect & Reviewer</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tab 2: Models -->
+        <div id="tab-pane-models" class="settings-tab-pane">
+          <div class="form-group">
+            <label class="form-label">Endpoint URL (Base URL):</label>
+            <div class="input-action-group">
+              <input type="text" id="settings-base-url" class="form-input" placeholder="http://localhost:8888/v1">
+              <button type="button" id="btn-discover-models" class="btn-discover" title="Mevcut modelleri API'den sorgular">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Modelleri Keşfet</span>
+              </button>
+            </div>
+            <small class="form-hint">vLLM, Ollama, LMStudio veya OpenAI uyumlu API adresi.</small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">API Key (Gerekiyorsa):</label>
+            <input type="password" id="settings-api-key" class="form-input" placeholder="sk-...">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Aktif Model Bağlam Limiti (Context Window):</label>
+            <input type="number" id="settings-context-window" class="form-input" placeholder="24576" value="24576">
+            <small class="form-hint">Token Meter doluluk halkası ve bütçe hesaplamasında baz alınır.</small>
+          </div>
+        </div>
+
+        <!-- Tab 3: Plugins -->
+        <div id="tab-pane-plugins" class="settings-tab-pane">
+          <div class="plugins-header-bar">
+            <input type="text" id="plugin-search-input" class="form-input plugin-search" placeholder="Eklenti veya araç ara...">
+            <span id="plugins-count-badge" class="badge-count">3 Eklenti</span>
+          </div>
+
+          <div id="plugins-inventory-list" class="plugins-inventory-list">
+            <!-- Dynamic plugin cards with toggle switch -->
+          </div>
+        </div>
+
+        <!-- Tab 4: Agent Presets -->
+        <div id="tab-pane-presets" class="settings-tab-pane">
+          <div class="presets-intro">
+            <span>Ajanın sistem rolünü, düşünce yapısını ve kullanabileceği araç izinlerini belirleyin.</span>
+          </div>
+
+          <div id="presets-grid" class="presets-grid">
+            <!-- Dynamic Preset Cards -->
+          </div>
+
+          <div class="presets-builder-card" id="presets-builder-card">
+            <input type="hidden" id="preset-editing-id" value="">
+            <div class="builder-header">
+              <span class="builder-title" id="builder-title">+ Yeni Özel Ajan Profili Ekle</span>
+            </div>
+            <div class="builder-form">
+              <div class="form-row-2">
+                <input type="text" id="preset-new-name" class="form-input" placeholder="Profil Adı (örn: Python Uzmanı)">
+                <input type="text" id="preset-new-icon" class="form-input" placeholder="İkon (örn: 🐍)" style="max-width: 90px; text-align: center;">
+              </div>
+              <input type="text" id="preset-new-desc" class="form-input" placeholder="Kısa açıklama...">
+              <textarea id="preset-new-prompt" class="form-input" rows="3" placeholder="Özel Sistem İstemi / Karakter ve Ek Talimatlar (Opsiyonel)..."></textarea>
+              
+              <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                <button type="button" id="btn-save-custom-preset" class="btn-discover">
+                  <span id="btn-save-custom-preset-text">Profili Kaydet</span>
+                </button>
+                <button type="button" id="btn-cancel-preset-edit" class="btn-ghost hidden" style="font-size: 12px; padding: 6px 12px;">
+                  <span>İptal</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="btn-modal-save">Kaydet ve Uygula</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspace Picker Modal -->
+  <div id="workspace-picker-modal" class="modal-overlay hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog ws-modal-dialog">
+      <div class="modal-header">
+        <div class="modal-header-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <h2>Çalışma Alanı Seçimi (Workspace)</h2>
+        </div>
+        <button id="btn-close-ws-modal" class="modal-btn-close">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Çalışma Alanı Yolu (Dizin):</label>
+          <div class="input-action-group">
+            <input type="text" id="ws-input-path" class="form-input" placeholder="/home/huseyina/code_mode">
+            <button type="button" id="btn-ws-navigate" class="btn-discover" title="Dizine Git">
+              <span>Aç</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="ws-browser-section">
+          <div class="ws-browser-header">
+            <span class="form-label">Klasör Gezgini:</span>
+            <button type="button" id="btn-ws-parent" class="btn-ws-up" title="Üst Klasöre Çık">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
+              <span>Üst Dizin</span>
+            </button>
+          </div>
+          <div id="ws-dir-list" class="ws-dir-list">
+            <!-- Directory list loaded dynamically -->
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Hızlı Çalışma Alanları:</label>
+          <div class="quick-ws-tags">
+            <button type="button" class="btn-quick-ws" data-path="/home/huseyina/code_mode">~/code_mode</button>
+            <button type="button" class="btn-quick-ws" data-path="/home/huseyina/code_mode/custom-harness">~/custom-harness</button>
+            <button type="button" class="btn-quick-ws" data-path="/home/huseyina/code_mode/deepseek-harness">~/deepseek-harness</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-apply-workspace" class="btn-modal-save">Bu Klasörü Çalışma Alanı Yap</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

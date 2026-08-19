@@ -1,150 +1,56 @@
-/**
- * @deepseek-ai/dsh-headless — one-shot direct Agent driver. The bundle patch
- * rides over dsh-base without Host, HTTP, or browser plugins; this runner
- * creates one Agent through the core registry, drives the task to quiescence,
- * flushes its Session, prints the final assistant text, and exits.
- *
- * @module @deepseek-ai/dsh-headless
- */
+import type { Context } from '@custom-harness/core-context'
+import * as fs from '@custom-harness/fs'
+import * as fsLocal from '@custom-harness/fs-local'
+import * as subprocess from '@custom-harness/subprocess'
+import * as subprocessLocal from '@custom-harness/subprocess-local'
+import * as spill from '@custom-harness/spill'
+import * as spillLocal from '@custom-harness/spill-local'
+import * as userApproval from '@custom-harness/user-approval'
+import * as settings from '@custom-harness/settings'
+import * as systemPrompt from '@custom-harness/core-system-prompt'
+import * as tools from '@custom-harness/core-tools'
+import * as llm from '@custom-harness/llm'
+import * as session from '@custom-harness/session'
+import * as agentPresets from '@custom-harness/preset-agent-presets'
+import * as persona from '@custom-harness/preset-persona'
+import * as repeatGuard from '@custom-harness/guard-repeat-tool-reminder'
+import * as toolResultPruner from '@custom-harness/compaction-tool-result-pruner'
+import * as compactor from '@custom-harness/compaction-basic'
+import * as agent from '@custom-harness/core-agent'
+import * as tokenMeter from '@custom-harness/token-meter'
+import * as bash from '@custom-harness/tool-bash'
+import * as bashPersistent from '@custom-harness/tool-bash-persistent'
+import * as toolFs from '@custom-harness/tool-fs'
 
-import { randomUUID } from 'node:crypto'
-import type { Context } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
-import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-agent-default-model'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-// Empty type imports carry the loader Context merge for the settlement await
-// and the cmdline Context merge for the appExit host value.
-import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type {} from '@deepseek-ai/dsh-cmdline'
-
-/** Stable Cordis plugin name. */
-export const name = 'headless-runner'
-
-/** Core services required before the one-shot turn can start. */
-export const inject = ['agentDefaultModel', 'agents', 'sessions']
-
-/** Plugin config: the task resolved from this app's injected provider service. */
-export interface Config {
-  /** The prompt text for the single run. */
-  task: string
+export interface HeadlessConfig {
+  llmPlugin?: any
 }
 
-export const Config: z<Config> = z.object({
-  task: z.string().required(),
-})
+export async function apply(ctx: Context, config: HeadlessConfig = {}) {
+  // 1. Capability Seams & Providers
+  await ctx.plugin(fs)
+  await ctx.plugin(fsLocal)
+  await ctx.plugin(subprocess)
+  await ctx.plugin(subprocessLocal)
+  await ctx.plugin(spill)
+  await ctx.plugin(spillLocal)
+  await ctx.plugin(userApproval)
 
-/** Outcome of one owned run interval. */
-interface RunOutcome {
-  text: string
-  reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
+  // 2. Core Infrastructure & Services
+  await ctx.plugin(settings)
+  await ctx.plugin(systemPrompt)
+  await ctx.plugin(tools)
+  await ctx.plugin(config.llmPlugin || llm)
+  await ctx.plugin(session)
+  await ctx.plugin(agentPresets)
+  await ctx.plugin(persona)
+  await ctx.plugin(repeatGuard)
+  await ctx.plugin(toolResultPruner)
+  await ctx.plugin(compactor)
+  await ctx.plugin(agent)
+  await ctx.plugin(tokenMeter)
+
+  // 3. Focused Coding Tools for Benchmarks
+  await ctx.plugin(toolFs)
 }
 
-/** Process-facing effects of one run: output streams plus the launcher's bounded exit request. */
-interface HeadlessIo {
-  stdout: { write(chunk: string): unknown }
-  stderr: { write(chunk: string): unknown }
-  /** Request process exit with `code` after the tree disposes. */
-  exit(code: number): void
-}
-
-/** The process streams the runner writes to; tests substitute captures. */
-export const internals: { stdout: HeadlessIo['stdout']; stderr: HeadlessIo['stderr'] } = {
-  stdout: process.stdout,
-  stderr: process.stderr,
-}
-
-/** Aggregate the last assistant text and turn outcome in one owned interval. */
-function summarize(events: readonly SessionEvent[], firstSeq: number): RunOutcome {
-  let started = false
-  let text = ''
-  let reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
-  for (const event of events) {
-    if (event.seq < firstSeq) continue
-    if (event.type === 'turn/start') {
-      started = true
-      continue
-    }
-    if (!started) continue
-    if (event.type === 'assistant/message') {
-      const joined = event.data.message.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
-        .join('')
-      if (joined !== '') text = joined
-    }
-    if (event.type === 'turn/end') reason = event.data.reason
-  }
-  return { text, reason }
-}
-
-/** Report an unexpected direct-driver failure and request a failing exit. */
-function fail(io: HeadlessIo, error: unknown): void {
-  io.stderr.write(`dsh: ${error instanceof Error ? error.message : String(error)}\n`)
-  io.exit(1)
-}
-
-/**
- * Run one task through a freshly created Agent and request process exit.
- * @param ctx - plugin context carrying the Agent, default model, Session, and launcher IO services.
- * @param task - one-shot task text.
- * @param io - process-facing effects.
- */
-async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
-  // Loader siblings mount concurrently. Await the complete application before
-  // creating an Agent so its scoped tools and adapters are not half-composed.
-  await ctx.get('loader')?.await()
-  const agents = ctx.get('agents')
-  const defaultModel = ctx.get('agentDefaultModel')
-  const sessions = ctx.get('sessions')
-  // Early process shutdown can dispose the tree while settlement is pending.
-  if (agents === undefined || defaultModel === undefined || sessions === undefined) return
-
-  const selection = defaultModel.currentSelection()
-  // This bundle composes no preset roster, so the model-facing rows sit in the
-  // host plane and the agent reads them from the global layer. A deployment
-  // that DOES configure one has to join it here first
-  // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
-  const { agent } = await agents.create({
-    sessionId: SessionId(`session-${randomUUID()}`),
-    meta: { cwd: process.cwd() },
-    agentOptions: { provider: selection.provider, model: selection.model },
-    setup: (agentCtx) => {
-      const selected: ModelSelectionRef = { current: selection, assembled: undefined }
-      installModelSelection(agentCtx, selected)
-    },
-  })
-  await agent.whenIdle()
-  const firstSeq = agent.session.seq
-  agent.followup(createUserMessage({
-    content: [{ type: 'text', text: task }],
-    source: { kind: 'user' },
-  }))
-  await agent.whenIdle()
-  await sessions.flush(agent.session)
-  const outcome = summarize(agent.session.events, firstSeq)
-  io.stdout.write(outcome.text + '\n')
-  if (outcome.reason?.kind === 'error') {
-    io.stderr.write(`dsh: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
-  }
-  io.exit(outcome.reason?.kind === 'completed' ? 0 : 1)
-}
-
-/**
- * Mount the one-shot direct driver.
- * @param ctx - plugin context carrying core services and the launcher-provided exit request.
- * @param config - validated task config.
- */
-export function apply(ctx: Context, config: Config): void {
-  // Read through the global service store, not the property proxy: appExit is
-  // an optional host value, never an injected dependency.
-  const exit = ctx.get('appExit')
-  if (exit === undefined) {
-    throw new Error('headless-runner: the launcher must provide ctx.appExit before the tree mounts')
-  }
-  const io: HeadlessIo = { stdout: internals.stdout, stderr: internals.stderr, exit }
-  void run(ctx, config.task, io).catch((error: unknown) => { fail(io, error) })
-}

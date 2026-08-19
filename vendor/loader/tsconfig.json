@@ -1,8 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types",
     "noImplicitAny": false,
     "noUncheckedIndexedAccess": false,
     "exactOptionalPropertyTypes": false,
@@ -12,13 +10,5 @@
   },
   "include": [
     "src"
-  ],
-  "references": [
-    {
-      "path": "../cosmokit"
-    },
-    {
-      "path": "../cordis"
-    }
   ]
 }

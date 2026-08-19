@@ -1,0 +1,5 @@
+# DeepSeek Harness Headless Distribution Profile
+name: bundle-headless
+description: Headless CLI and Single-Shot Execution Profile
+extends:
+  - "@custom-harness/bundle-base"
