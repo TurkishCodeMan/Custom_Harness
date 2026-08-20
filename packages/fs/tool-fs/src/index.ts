@@ -4,12 +4,50 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export const name = 'tool-fs'
-export const inject = ['tools', 'fs']
+export const inject = ['tools', 'fs', 'settings']
+
+import os from 'node:os'
+
+function assertWritePermitted(ctx: Context): void {
+  const mode = ctx.settings?.getSandboxMode ? ctx.settings.getSandboxMode() : 'workspace-write'
+  if (mode === 'read-only') {
+    throw new Error(`[Sandbox Güvenlik Engeli]: Sistem şu anda 'Read-Only' (Salt-Okunur) modundadır. Dosya oluşturma, düzenleme, silme veya üzerine yazma işlemleri engellenmiştir. Değişiklik yapabilmek için lütfen arayüzden Sandbox modunu 'Workspace Write' olarak ayarlayın.`)
+  }
+}
+
+function isSafeWorkspacePath(resolvedPath: string, workspaceRoot: string): boolean {
+  const normTarget = path.normalize(path.resolve(resolvedPath))
+  const normRoot = path.normalize(path.resolve(workspaceRoot))
+  const dshDir = path.normalize(path.join(os.homedir(), '.dsh'))
+
+  // Allow inside workspace or inside user data attachments (~/.dsh)
+  if (normTarget.startsWith(normRoot)) return true
+  if (normTarget.startsWith(dshDir)) return true
+
+  return false
+}
 
 function resolvePath(targetPath: string, cwd?: string): string {
-  if (!targetPath) return cwd || process.cwd()
-  if (path.isAbsolute(targetPath)) return targetPath
-  return path.resolve(cwd || process.cwd(), targetPath)
+  const root = cwd || process.cwd()
+  if (!targetPath) return root
+
+  let resolved: string
+  if (path.isAbsolute(targetPath)) {
+    if (isSafeWorkspacePath(targetPath, root)) {
+      resolved = targetPath
+    } else {
+      // Re-map absolute path to workspace root
+      resolved = path.resolve(root, targetPath.replace(/^[/\\]+/, ''))
+    }
+  } else {
+    resolved = path.resolve(root, targetPath)
+  }
+
+  if (!isSafeWorkspacePath(resolved, root)) {
+    throw new Error(`[Güvenlik Engeli]: '${targetPath}' yolu çalışma alanı (${root}) dışındadır. Yalnızca çalışma alanınızdaki dosyalara erişebilirsiniz.`)
+  }
+
+  return resolved
 }
 
 function applyReplacement(content: string, oldStr: string, newStr: string, replaceAll = false): { success: boolean; result: string; error?: string } {
@@ -165,6 +203,7 @@ export function apply(ctx: Context) {
 
   // 2. edit / edit_file
   const editHandler = async (args: any, context: any) => {
+    assertWritePermitted(ctx)
     const targetFile = args.file_path || args.path
     if (!targetFile) throw new Error('file_path parameter is required.')
 
@@ -231,6 +270,7 @@ export function apply(ctx: Context) {
 
   // 3. write / write_file
   const writeHandler = async (args: any, context: any) => {
+    assertWritePermitted(ctx)
     const targetFile = args.file_path || args.path
     if (!targetFile) throw new Error('file_path parameter is required.')
 
@@ -305,6 +345,8 @@ export function apply(ctx: Context) {
         const sliced = lines.slice(start - 1, end).map((l, i) => `${start + i}\t${l}`).join('\n')
         return `File: ${args.path}\n${sliced}`
       }
+
+      assertWritePermitted(ctx)
 
       if (args.command === 'create') {
         fs.mkdirSync(path.dirname(fullPath), { recursive: true })
@@ -411,22 +453,6 @@ export function apply(ctx: Context) {
       } catch (err: any) {
         return `git diff error: ${err.message}`
       }
-    }
-  }))
-
-  // 8. finish_task
-  ctx.tools.register(defineTool({
-    name: 'finish_task',
-    description: 'Call this tool when you have finished inspecting, modifying, and verifying the code in the repository to conclude your work.',
-    parameters: {
-      type: 'object',
-      properties: {
-        summary: { type: 'string', description: 'Brief summary of the fix or changes made.' }
-      },
-      required: ['summary']
-    },
-    execute: async (args: { summary: string }) => {
-      return `Task successfully finished: ${args.summary}`
     }
   }))
 }

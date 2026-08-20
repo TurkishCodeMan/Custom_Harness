@@ -4,8 +4,17 @@ import type { Context } from '@custom-harness/core-context'
 import { FsService, type FsStat } from '@custom-harness/fs'
 
 export class LocalFsService extends FsService {
+  declare ctx: Context
+
   constructor(ctx: Context) {
     super(ctx)
+  }
+
+  private assertWritable() {
+    const mode = this.ctx.settings?.getSandboxMode ? this.ctx.settings.getSandboxMode() : 'workspace-write'
+    if (mode === 'read-only') {
+      throw new Error(`[Sandbox Güvenlik Engeli]: Sistem şu anda 'Read-Only' modundadır. Dosya yazma veya silme işlemi engellendi.`)
+    }
   }
 
   public async readText(filePath: string): Promise<string> {
@@ -13,6 +22,7 @@ export class LocalFsService extends FsService {
   }
 
   public async writeText(filePath: string, content: string): Promise<void> {
+    this.assertWritable()
     const dir = path.dirname(filePath)
     if (!fs.existsSync(dir)) {
       await fs.promises.mkdir(dir, { recursive: true })
@@ -30,6 +40,7 @@ export class LocalFsService extends FsService {
   }
 
   public async mkdir(dirPath: string): Promise<void> {
+    this.assertWritable()
     await fs.promises.mkdir(dirPath, { recursive: true })
   }
 
@@ -44,6 +55,7 @@ export class LocalFsService extends FsService {
   }
 
   public async unlink(filePath: string): Promise<void> {
+    this.assertWritable()
     await fs.promises.unlink(filePath)
   }
 
@@ -75,6 +87,7 @@ export class LocalFsService extends FsService {
 }
 
 export const name = 'fs-local'
+export const inject = ['settings']
 
 export function apply(ctx: Context) {
   ctx.set('fs', new LocalFsService(ctx))

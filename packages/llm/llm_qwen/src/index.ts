@@ -60,6 +60,7 @@ export class QwenLlmService extends Service {
     // Strictly sanitize messages for Qwen / vLLM template:
     // 1. Only index 0 can be 'system'
     // 2. Any subsequent 'system' message is converted to 'user' with '[System Note]:'
+    // 3. Ensure all tool_calls have strictly valid JSON strings in function.arguments
     const sanitizedMessages = messages.map((m, idx) => {
       let role = m.role
       let content = m.content || ''
@@ -68,7 +69,29 @@ export class QwenLlmService extends Service {
         content = `[System Note]:\n${content}`
       }
       const item: any = { role, content }
-      if (m.tool_calls) item.tool_calls = m.tool_calls
+
+      if (m.tool_calls && Array.isArray(m.tool_calls)) {
+        item.tool_calls = m.tool_calls.map((tc: any) => {
+          let rawArgs = tc.function?.arguments || tc.arguments || '{}'
+          if (typeof rawArgs !== 'string') {
+            rawArgs = JSON.stringify(rawArgs)
+          }
+          try {
+            JSON.parse(rawArgs)
+          } catch {
+            rawArgs = JSON.stringify({ raw: String(rawArgs) })
+          }
+          return {
+            id: tc.id || `call_${Date.now()}`,
+            type: tc.type || 'function',
+            function: {
+              name: tc.function?.name || tc.name || 'tool',
+              arguments: rawArgs
+            }
+          }
+        })
+      }
+
       if (m.tool_call_id) item.tool_call_id = m.tool_call_id
       if (m.name) item.name = m.name
       return item
@@ -214,7 +237,6 @@ export class QwenLlmService extends Service {
           if (toolName.includes('edit_file') || toolName === 'eget_file') toolName = 'edit_file'
           else if (toolName.includes('read_file') || toolName.includes('file_content')) toolName = 'read_file'
           else if (toolName.includes('write_file')) toolName = 'write_file'
-          else if (toolName.includes('finish')) toolName = 'finish_task'
           
           const rawArgs = match[2].trim()
 
@@ -252,12 +274,19 @@ export class QwenLlmService extends Service {
 
       for (const [_, tc] of toolCallsMap) {
         if (tc.name) {
+          let cleanArgs = (tc.args || '{}').trim()
+          if (!cleanArgs) cleanArgs = '{}'
+          try {
+            JSON.parse(cleanArgs)
+          } catch {
+            cleanArgs = JSON.stringify({ raw: cleanArgs })
+          }
           yield {
             type: 'tool_call',
             toolCall: {
               id: tc.id || `call_${Date.now()}`,
               name: tc.name,
-              arguments: tc.args
+              arguments: cleanArgs
             }
           }
         }

@@ -18,8 +18,13 @@ export interface SidebarRootProps {
   onClearAllSessions?: () => void
   activeModelName?: string
   workspace?: string
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  onSelectSandboxMode?: (mode: 'read-only' | 'workspace-write' | 'danger-full-access') => void
   onOpenSettings?: () => void
   onOpenWorkspace?: () => void
+  onOpenSkills?: () => void
+  onOpenRag?: () => void
+  isRagActive?: boolean
   version?: string
 }
 
@@ -40,8 +45,13 @@ export function SidebarRoot({
   onClearAllSessions,
   activeModelName = 'Gemma 4 (27B)',
   workspace,
+  sandboxMode = 'workspace-write',
+  onSelectSandboxMode,
   onOpenSettings,
   onOpenWorkspace,
+  onOpenSkills,
+  onOpenRag,
+  isRagActive = false,
   version = 'v1.0.0'
 }: SidebarRootProps) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -83,17 +93,78 @@ export function SidebarRoot({
 
   return (
     <aside className="sidebar">
-      {/* 1. Header & New Chat Button */}
+      {/* 1. Header, Quick Hub Nav & New Chat Button */}
       <div className="sidebar-header">
         <div className="brand-logo">
           <div className="logo-icon-glow">
-            <span className="logo-symbol">⚡</span>
+            <img 
+              src="/logo.png" 
+              alt="Logo" 
+              className="artificax-icon-img" 
+            />
           </div>
           <div className="brand-info">
             <div className="brand-title">ArtificaX</div>
             <div className="brand-sub">Enterprise GPT</div>
           </div>
         </div>
+
+        {/* Quick Hub Navigation (Beceriler & RAG) */}
+        {(onOpenSkills || onOpenRag) && (
+          <div className="sidebar-hub-nav" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0 8px 0', width: '100%' }}>
+            {onOpenSkills && (
+              <button
+                className="btn-sidebar-hub"
+                onClick={onOpenSkills}
+                title="Uzmanlık Becerileri (Skills)"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '7px 10px',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '9px',
+                  color: 'var(--text-primary, #f1f5f9)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>✨</span>
+                <span>Beceriler</span>
+              </button>
+            )}
+
+            {onOpenRag && (
+              <button
+                className="btn-sidebar-hub"
+                onClick={onOpenRag}
+                title="RAG Bilgi Tabanı & Vektör Bellek"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '7px 10px',
+                  background: isRagActive ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                  border: isRagActive ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '9px',
+                  color: isRagActive ? '#60a5fa' : 'var(--text-primary, #f1f5f9)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🧠</span>
+                <span>RAG</span>
+              </button>
+            )}
+          </div>
+        )}
 
         <button className="btn-chatgpt-new" onClick={onNewSession} title="Yeni Sohbet Başlat (Ctrl+K)">
           <IconPlus size={16} />
@@ -193,8 +264,45 @@ export function SidebarRoot({
         )}
       </div>
 
-      {/* 4. Bottom Profile & Workspace Bar */}
+      {/* 4. Bottom Workspace Bar & Actions */}
       <div className="sidebar-footer">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
+          {workspace && onOpenWorkspace && (
+            <div className="workspace-footer-pill" onClick={onOpenWorkspace} title={`Çalışma Alanı: ${workspace}`}>
+              <span className="ws-dot">📁</span>
+              <span className="ws-text">{folderName}</span>
+            </div>
+          )}
+
+          {onSelectSandboxMode && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>
+                <span>{sandboxMode === 'workspace-write' ? '🛡️' : sandboxMode === 'read-only' ? '🔒' : '⚠️'}</span>
+                <span>Sandbox:</span>
+              </div>
+              <select
+                value={sandboxMode}
+                onChange={(e) => onSelectSandboxMode(e.target.value as any)}
+                style={{
+                  background: 'rgba(0,0,0,0.3)',
+                  color: sandboxMode === 'workspace-write' ? '#10b981' : sandboxMode === 'read-only' ? '#60a5fa' : '#f87171',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '6px',
+                  padding: '2px 6px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                <option value="workspace-write">🛡️ Workspace Write</option>
+                <option value="read-only">🔒 Read Only</option>
+                <option value="danger-full-access">⚠️ Full Access</option>
+              </select>
+            </div>
+          )}
+        </div>
+
         {sessions.length > 0 && onClearAllSessions && (
           <button
             className="btn-clear-all-sessions"
@@ -208,24 +316,6 @@ export function SidebarRoot({
             <IconTrash size={12} />
             <span>Tüm Sohbetleri Temizle</span>
           </button>
-        )}
-
-        <div className="user-profile-card" onClick={onOpenSettings} title="Ayarları Aç">
-          <div className="user-avatar">
-            <span>👤</span>
-          </div>
-          <div className="user-details">
-            <div className="user-name">Geliştirici</div>
-            <div className="user-model-badge">{activeModelName}</div>
-          </div>
-          <button className="btn-settings-gear" title="Ayarlar">⚙️</button>
-        </div>
-
-        {workspace && onOpenWorkspace && (
-          <div className="workspace-footer-pill" onClick={onOpenWorkspace} title={`Çalışma Alanı: ${workspace}`}>
-            <span className="ws-dot">📁</span>
-            <span className="ws-text">{folderName}</span>
-          </div>
         )}
       </div>
     </aside>

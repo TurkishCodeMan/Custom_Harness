@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export const name = 'tool-fs-search'
-export const inject = ['tools']
+export const inject = ['tools', 'settings']
 
 export function apply(ctx: Context) {
   ctx.tools.register(
@@ -33,7 +33,14 @@ export function apply(ctx: Context) {
         { query, targetDir, filePattern }: { query: string; targetDir?: string; filePattern?: string },
         exec?: { cwd?: string }
       ) {
-        const root = path.resolve(exec?.cwd || targetDir || (ctx.settings?.getWorkspace ? ctx.settings.getWorkspace() : process.cwd()))
+        const workspaceRoot = path.resolve(exec?.cwd || (ctx.settings?.getWorkspace ? ctx.settings.getWorkspace() : process.cwd()))
+        let root = workspaceRoot
+        if (targetDir) {
+          const candidate = path.resolve(workspaceRoot, targetDir.replace(/^[/\\]+/, ''))
+          if (candidate.startsWith(workspaceRoot)) {
+            root = candidate
+          }
+        }
 
         const matches: Array<{ file: string; line: number; content: string }> = []
         const MAX_MATCHES = 50

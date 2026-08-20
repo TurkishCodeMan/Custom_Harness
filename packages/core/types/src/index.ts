@@ -26,6 +26,8 @@ export interface ChatMessage {
   }[]
   tool_call_id?: string
   name?: string
+  presetName?: string
+  modelName?: string
 }
 
 export interface ModelConfig {
@@ -67,6 +69,15 @@ export interface AgentPreset {
   providerId?: string
   enabledTools?: string[]
   temperature?: number
+  ownerId?: string
+  isGlobal?: boolean
+}
+
+export interface UiSettings {
+  defaultTitlePrompt?: string
+  fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold'
+  fontSize?: 'sm' | 'md' | 'lg'
+  bubbleStyle?: 'modern' | 'minimal' | 'glass'
 }
 
 export interface SettingsDoc {
@@ -77,6 +88,9 @@ export interface SettingsDoc {
   providers: Record<string, ProviderConfig>
   plugins?: Record<string, PluginConfig>
   presets?: Record<string, AgentPreset>
+  ui?: UiSettings
+  thinkingEnabled?: boolean
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
 }
 
 export interface SkillItem {
@@ -85,6 +99,33 @@ export interface SkillItem {
   description: string
   filePath: string
   content: string
+  ownerId?: string
+  isGlobal?: boolean
+  allowedUserIds?: string[]
+  isPublic?: boolean
+  enabled?: boolean
+}
+
+export type UserRole = 'admin' | 'user'
+
+export interface User {
+  id: string
+  username: string
+  name: string
+  email?: string
+  role: UserRole
+  createdAt: number
+  lastActiveAt?: number
+  avatar?: string
+}
+
+export interface TenantContext {
+  userId: string
+  user: User
+  workspaceDir: string
+  uploadsDir: string
+  sessionsDir: string
+  ragNamespace: string
 }
 
 export interface SessionData {
@@ -93,5 +134,7 @@ export interface SessionData {
   createdAt: number
   updatedAt: number
   workspace: string
+  userId?: string
   messages: ChatMessage[]
 }
+

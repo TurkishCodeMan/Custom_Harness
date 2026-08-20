@@ -1,6 +1,7 @@
 import type { Context } from '@custom-harness/core-context'
 import { defineTool } from '@custom-harness/core-tools'
 import { spawn, ChildProcess } from 'node:child_process'
+import { buildBwrapInteractiveArgs } from '@custom-harness/subprocess-local'
 
 export const name = 'tool-bash-persistent'
 export const inject = ['tools']
@@ -15,7 +16,8 @@ class PersistentSession {
   }
 
   private initProcess() {
-    this.child = spawn('bash', ['-i'], {
+    const { binary, args } = buildBwrapInteractiveArgs(this.currentCwd)
+    this.child = spawn(binary, args, {
       cwd: this.currentCwd,
       env: { ...process.env, PAGER: 'cat', TERM: 'dumb' }
     })
@@ -86,6 +88,16 @@ export function apply(ctx: Context) {
       required: ['command']
     },
     execute: async (args: { command: string; restart?: boolean }, context) => {
+      const cwd = context?.cwd || process.cwd()
+
+      if (/\b(sudo|su\s+|chroot|systemctl|shutdown|reboot)\b/i.test(args.command)) {
+        return `[Güvenlik Engeli]: 'sudo' veya sistem seviyesi yetkili komutlar güvenlik nedeniyle engellenmiştir. Komutlarınızı yalnızca çalışma alanınız (${cwd}) içinde çalıştırabilirsiniz.`
+      }
+
+      if (/\brm\s+-[rfRF]{1,4}\s+(\/|\/\*|~|\$HOME|\.\.\/)\b/.test(args.command)) {
+        return `[Güvenlik Engeli]: Kök dizin veya çalışma alanı dışı silme komutları engellenmiştir.`
+      }
+
       const sessionId = 'default'
       let session = sessions.get(sessionId)
 
@@ -96,7 +108,6 @@ export function apply(ctx: Context) {
       }
 
       if (!session) {
-        const cwd = context?.cwd || process.cwd()
         session = new PersistentSession(cwd)
         sessions.set(sessionId, session)
       }

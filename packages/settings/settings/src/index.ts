@@ -15,7 +15,7 @@ export const DEFAULT_PRESETS: Record<string, AgentPreset> = {
     name: 'Full-Stack Developer',
     description: 'Tam yetkili kıdemli yazılım mühendisi. Projeleri baştan sona analiz eder, geliştirir ve test eder.',
     icon: '🚀',
-    systemPrompt: 'You are an elite full-stack software engineer with deep expertise in architecture, testing, and modern frameworks.'
+    systemPrompt: 'You are an elite full-stack software engineer with deep expertise in modern web, backend, and system architecture. When given a technical task, use tools proactively to inspect files, write code, and run tests. For general questions, explanations, or greetings, respond helpfully and clearly.'
   },
   'fast-coder': {
     id: 'fast-coder',
@@ -61,8 +61,15 @@ const DEFAULT_SETTINGS: SettingsDoc = {
       baseURL: 'http://localhost:7272/v1',
       models: [
         {
-          id: '/gpfs/scratch/ehpc540/models/Qwen3.8-27B',
+          id: 'Qwen3.8-27B',
           name: 'Qwen 3.8 (27B)',
+          contextWindow: 32768,
+          maxTokens: 8192,
+          reasoningFormat: 'deepseek'
+        },
+        {
+          id: '/gpfs/scratch/ehpc540/models/Qwen3.8-27B',
+          name: 'Qwen 3.8 (27B) Path',
           contextWindow: 32768,
           maxTokens: 8192,
           reasoningFormat: 'deepseek'
@@ -93,7 +100,14 @@ const DEFAULT_SETTINGS: SettingsDoc = {
     }
   },
   plugins: {},
-  presets: DEFAULT_PRESETS
+  presets: DEFAULT_PRESETS,
+  ui: {
+    defaultTitlePrompt: 'Sen profesyonel bir başlık üreticisisin. Verilen ilk kullanıcı iletisini analiz et ve bu sohbet konusu için net, sade, anlaşılır ve en fazla 3-5 kelimelik Türkçe bir başlık üret. Tırnak işareti, "Başlık:" ön eki veya noktalama işareti ekleme, yalnızca başlık metnini döndür.',
+    fontWeight: 'medium',
+    fontSize: 'md',
+    bubbleStyle: 'modern'
+  },
+  sandboxMode: 'workspace-write'
 }
 
 export const name = 'settings'
@@ -105,8 +119,28 @@ export class SettingsService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'settings')
     this.doc = this.load()
+    if (!this.doc.ui) {
+      this.doc.ui = { ...DEFAULT_SETTINGS.ui }
+    }
+    if (!this.doc.sandboxMode) {
+      this.doc.sandboxMode = 'workspace-write'
+    }
     // Discover live packages dynamically on startup
     this.discoverPlugins()
+  }
+
+  public getSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {
+    return this.doc.sandboxMode || 'workspace-write'
+  }
+
+  public setSandboxMode(mode: 'read-only' | 'workspace-write' | 'danger-full-access'): SettingsDoc {
+    this.doc.sandboxMode = mode
+    this.save()
+    return this.doc
+  }
+
+  public getUiSettings(): import('@custom-harness/core-types').UiSettings {
+    return this.doc.ui || DEFAULT_SETTINGS.ui || {}
   }
 
   /**
@@ -287,15 +321,15 @@ export class SettingsService extends Service {
   }
 
   public getActivePreset(): AgentPreset {
-    if (this.ctx?.agentPresets) {
-      return this.ctx.agentPresets.getActive()
-    }
     const key = this.doc.defaultPreset || 'full-stack'
+    const preset = DEFAULT_PRESETS[key]
+    if (preset) return preset
     return {
       id: key,
       name: key,
       description: '',
-      icon: '🚀'
+      icon: '🚀',
+      systemPrompt: 'You are an elite full-stack software engineer.'
     }
   }
 
@@ -333,6 +367,17 @@ export class SettingsService extends Service {
       return this.doc.plugins[id]
     }
     throw new Error(`Eklenti bulunamadı: ${id}`)
+  }
+
+  public isApprovalEnabled(): boolean {
+    const plugins = this.doc.plugins || {}
+    const p1 = plugins['user-approval']?.enabled
+    const p2 = plugins['approval']?.enabled
+    const p3 = plugins['seam-approval']?.enabled
+    if (p1 === false || p2 === false || p3 === false) {
+      return false
+    }
+    return true
   }
 
   /**
@@ -386,33 +431,107 @@ export class SettingsService extends Service {
     return true
   }
 
-  // --- Agent Presets Management (Delegates to @custom-harness/preset-agent-presets) ---
+  // --- Agent Presets Management ---
   public getPresets(): AgentPreset[] {
-    if (this.ctx?.agentPresets) {
-      return this.ctx.agentPresets.list()
-    }
     return Object.values(DEFAULT_PRESETS)
   }
 
   public getPreset(id: string): AgentPreset | undefined {
-    if (this.ctx?.agentPresets) {
-      return this.ctx.agentPresets.get(id)
-    }
     return DEFAULT_PRESETS[id]
   }
 
   public savePreset(preset: AgentPreset): AgentPreset {
-    if (this.ctx?.agentPresets) {
-      return this.ctx.agentPresets.save(preset)
-    }
     return preset
   }
 
   public deletePreset(id: string): { success: boolean; reset?: boolean } {
-    if (this.ctx?.agentPresets) {
-      return this.ctx.agentPresets.delete(id)
-    }
     return { success: false }
+  }
+
+  private getTenantSettingsFile(userId: string): string {
+    return path.join(DSH_DIR, 'tenants', userId, 'settings.json')
+  }
+
+  public getTenantSettings(userId: string): Partial<SettingsDoc> {
+    try {
+      const file = this.getTenantSettingsFile(userId)
+      if (fs.existsSync(file)) {
+        const raw = fs.readFileSync(file, 'utf8')
+        const data = JSON.parse(raw)
+        if (data && typeof data === 'object') {
+          if (data.error) {
+            delete data.error
+            try {
+              fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8')
+            } catch {}
+          }
+          return data
+        }
+      }
+    } catch (e) {
+      console.warn(`[Settings] Failed to read tenant settings for ${userId}:`, e)
+    }
+    return {}
+  }
+
+  public saveTenantSettings(userId: string, partial: Partial<SettingsDoc>): void {
+    try {
+      const file = this.getTenantSettingsFile(userId)
+      const dir = path.dirname(file)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      const current = this.getTenantSettings(userId)
+      const { error: _e1, ...cleanCurrent } = current as any
+      const { error: _e2, ...cleanPartial } = partial as any
+      const merged = {
+        ...cleanCurrent,
+        ...cleanPartial,
+        ui: {
+          ...(cleanCurrent.ui || {}),
+          ...(cleanPartial.ui || {})
+        }
+      }
+      delete (merged as any).error
+      fs.writeFileSync(file, JSON.stringify(merged, null, 2), 'utf8')
+    } catch (e) {
+      console.error(`[Settings] Failed to save tenant settings for ${userId}:`, e)
+    }
+  }
+
+  public getSettingsForUser(userId?: string): SettingsDoc {
+    const { error: _e, ...cleanDoc } = this.doc as any
+    if (!userId) return cleanDoc
+    const tenant = this.getTenantSettings(userId)
+    const { error: _e2, ...cleanTenant } = tenant as any
+    return {
+      ...cleanDoc,
+      ...cleanTenant,
+      ui: {
+        ...(cleanDoc.ui || {}),
+        ...(cleanTenant.ui || {})
+      }
+    }
+  }
+
+  public updateSettingsForUser(userId: string, partial: Partial<SettingsDoc>, isAdmin: boolean): SettingsDoc {
+    if (!isAdmin) {
+      this.saveTenantSettings(userId, {
+        ui: partial.ui,
+        thinkingEnabled: partial.thinkingEnabled,
+        defaultPreset: partial.defaultPreset,
+        defaultModel: partial.defaultModel,
+        defaultProvider: partial.defaultProvider
+      })
+      return this.getSettingsForUser(userId)
+    }
+
+    // Admin updates global settings
+    this.updateSettings(partial)
+    if (partial.ui) {
+      this.saveTenantSettings(userId, { ui: partial.ui })
+    }
+    return this.getSettingsForUser(userId)
   }
 
   public updateSettings(partial: Partial<SettingsDoc>): SettingsDoc {
@@ -420,15 +539,11 @@ export class SettingsService extends Service {
       ...this.doc,
       ...partial,
       providers: { ...this.doc.providers, ...(partial.providers || {}) },
-      plugins: { ...(this.doc.plugins || {}), ...(partial.plugins || {}) }
+      plugins: { ...(this.doc.plugins || {}), ...(partial.plugins || {}) },
+      ui: { ...(this.doc.ui || {}), ...(partial.ui || {}) }
     }
     if (partial.defaultPreset) {
       this.doc.defaultPreset = partial.defaultPreset
-      if (this.ctx?.agentPresets) {
-        try {
-          this.ctx.agentPresets.select(partial.defaultPreset)
-        } catch {}
-      }
     }
     this.save()
     return this.doc

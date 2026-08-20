@@ -36,6 +36,12 @@ export interface HeaderProps {
   onSelectModel?: (model: string) => void
   availablePresets?: string[]
   onSelectPreset?: (preset: string) => void
+  currentUser?: any
+  users?: any[]
+  onSwitchUser?: (userId: string) => void
+  onOpenAdmin?: () => void
+  onOpenAuth?: () => void
+  onLogout?: () => void
   onOpenSettings: () => void
   onOpenWorkspace?: () => void
   onOpenRag?: () => void
@@ -44,6 +50,8 @@ export interface HeaderProps {
   isConnected: boolean
   isSidebarOpen?: boolean
   onToggleSidebar?: () => void
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  onSelectSandboxMode?: (mode: 'read-only' | 'workspace-write' | 'danger-full-access') => void
 }
 
 export function Header({
@@ -54,6 +62,12 @@ export function Header({
   onSelectModel,
   availablePresets = ['Full-Stack Developer', 'Architect & Planner', 'Bug Hunter & QA', 'Code Reviewer'],
   onSelectPreset,
+  currentUser,
+  users = [],
+  onSwitchUser,
+  onOpenAdmin,
+  onOpenAuth,
+  onLogout,
   onOpenSettings,
   onOpenWorkspace,
   onOpenRag,
@@ -61,13 +75,19 @@ export function Header({
   isRagActive = false,
   isConnected,
   isSidebarOpen = true,
-  onToggleSidebar
+  onToggleSidebar,
+  sandboxMode = 'workspace-write',
+  onSelectSandboxMode
 }: HeaderProps) {
   const folderName = workspace ? (workspace.split('/').filter(Boolean).pop() || workspace) : 'Workspace'
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false)
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false)
+  const [isSandboxDropdownOpen, setIsSandboxDropdownOpen] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const presetMenuRef = useRef<HTMLDivElement>(null)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const sandboxMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -77,10 +97,18 @@ export function Header({
       if (presetMenuRef.current && !presetMenuRef.current.contains(e.target as Node)) {
         setIsPresetDropdownOpen(false)
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserDropdownOpen(false)
+      }
+      if (sandboxMenuRef.current && !sandboxMenuRef.current.contains(e.target as Node)) {
+        setIsSandboxDropdownOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const isAdmin = currentUser?.role === 'admin'
 
   return (
     <header className="app-header">
@@ -168,7 +196,7 @@ export function Header({
         </div>
       </div>
 
-      {/* Right: Workspace, RAG, Skills, Status & Settings */}
+      {/* Right: Workspace, Sandbox Mode, RAG, Skills, Admin Panel, User Profile & Settings */}
       <div className="header-right">
         {workspace && (
           <div
@@ -178,6 +206,100 @@ export function Header({
           >
             <span className="ws-icon">📂</span>
             <span className="ws-name">{folderName}</span>
+          </div>
+        )}
+
+        {/* Sandbox Mode Dropdown */}
+        {onSelectSandboxMode && (
+          <div className="header-sandbox-selector" ref={sandboxMenuRef} style={{ position: 'relative' }}>
+            <button
+              className={`workspace-badge sandbox-badge-btn`}
+              onClick={() => setIsSandboxDropdownOpen(!isSandboxDropdownOpen)}
+              title="Sandbox İzolasyon Modunu Değiştir (DeepSeek Standardı)"
+              style={{
+                background: sandboxMode === 'workspace-write' 
+                  ? 'rgba(16, 185, 129, 0.15)' 
+                  : sandboxMode === 'read-only' 
+                    ? 'rgba(59, 130, 246, 0.15)' 
+                    : 'rgba(239, 68, 68, 0.18)',
+                borderColor: sandboxMode === 'workspace-write' 
+                  ? 'rgba(16, 185, 129, 0.3)' 
+                  : sandboxMode === 'read-only' 
+                    ? 'rgba(59, 130, 246, 0.3)' 
+                    : 'rgba(239, 68, 68, 0.35)',
+                color: sandboxMode === 'workspace-write' 
+                  ? '#10b981' 
+                  : sandboxMode === 'read-only' 
+                    ? '#60a5fa' 
+                    : '#f87171',
+                cursor: 'pointer'
+              }}
+            >
+              <span className="ws-icon">{sandboxMode === 'workspace-write' ? '🛡️' : sandboxMode === 'read-only' ? '🔒' : '⚠️'}</span>
+              <span className="ws-name" style={{ fontWeight: 600 }}>
+                {sandboxMode === 'workspace-write' ? 'Workspace' : sandboxMode === 'read-only' ? 'Read-Only' : 'Full Access'}
+              </span>
+              <span style={{ fontSize: '10px', marginLeft: '2px', opacity: 0.7 }}>{isSandboxDropdownOpen ? '▴' : '▾'}</span>
+            </button>
+
+            {isSandboxDropdownOpen && (
+              <div
+                className="model-dropdown-menu"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  minWidth: '230px',
+                  zIndex: 1000
+                }}
+              >
+                <div className="dropdown-header">Sandbox İzolasyon Modu</div>
+                <div
+                  className={`model-menu-item ${sandboxMode === 'workspace-write' ? 'selected' : ''}`}
+                  onClick={() => {
+                    onSelectSandboxMode('workspace-write')
+                    setIsSandboxDropdownOpen(false)
+                  }}
+                >
+                  <span className="model-item-icon">🛡️</span>
+                  <div className="model-item-details">
+                    <span className="model-item-title" style={{ color: '#10b981' }}>Workspace Write</span>
+                    <span className="model-item-sub">Yalnızca workspace yazılabilir (Önerilen)</span>
+                  </div>
+                  {sandboxMode === 'workspace-write' && <span className="item-check">✓</span>}
+                </div>
+
+                <div
+                  className={`model-menu-item ${sandboxMode === 'read-only' ? 'selected' : ''}`}
+                  onClick={() => {
+                    onSelectSandboxMode('read-only')
+                    setIsSandboxDropdownOpen(false)
+                  }}
+                >
+                  <span className="model-item-icon">🔒</span>
+                  <div className="model-item-details">
+                    <span className="model-item-title" style={{ color: '#60a5fa' }}>Read Only</span>
+                    <span className="model-item-sub">Tüm sistem ve workspace salt-okunur</span>
+                  </div>
+                  {sandboxMode === 'read-only' && <span className="item-check">✓</span>}
+                </div>
+
+                <div
+                  className={`model-menu-item ${sandboxMode === 'danger-full-access' ? 'selected' : ''}`}
+                  onClick={() => {
+                    onSelectSandboxMode('danger-full-access')
+                    setIsSandboxDropdownOpen(false)
+                  }}
+                >
+                  <span className="model-item-icon">⚠️</span>
+                  <div className="model-item-details">
+                    <span className="model-item-title" style={{ color: '#f87171' }}>Full Access</span>
+                    <span className="model-item-sub">Korumasız host modu (Tüm yetkiler)</span>
+                  </div>
+                  {sandboxMode === 'danger-full-access' && <span className="item-check">✓</span>}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -203,6 +325,111 @@ export function Header({
             {isRagActive && <span className="action-dot" />}
           </button>
         )}
+
+        {/* Admin Panel Button (Visible Only for Admin Role) */}
+        {isAdmin && onOpenAdmin && (
+          <button
+            className="btn-header-action admin-badge-btn"
+            onClick={onOpenAdmin}
+            title="Yönetici Paneli (Multi-Tenancy & RBAC)"
+          >
+            <span className="action-icon">🛡️</span>
+            <span className="action-label">Yönetici Paneli</span>
+            <span className="admin-pill-tag">ADMIN</span>
+          </button>
+        )}
+
+        {/* User Profile / Switcher Dropdown */}
+        <div className="header-user-selector" ref={userMenuRef}>
+          <button
+            className={`btn-user-dropdown ${isAdmin ? 'is-admin' : ''}`}
+            onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+            title={`Aktif Kullanıcı: ${currentUser?.name || currentUser?.username || 'admin'}`}
+          >
+            <span className="user-avatar-icon">{currentUser?.avatar || (isAdmin ? '🛡️' : '👤')}</span>
+            <span className="user-dropdown-name">{currentUser?.name || currentUser?.username || 'admin'}</span>
+            <span className="user-role-tag">{isAdmin ? 'Admin' : 'User'}</span>
+            <span className="dropdown-arrow">{isUserDropdownOpen ? '▴' : '▾'}</span>
+          </button>
+
+          {isUserDropdownOpen && (
+            <div className="user-dropdown-menu">
+              <div className="dropdown-header">Aktif Kullanıcı & Kiracı</div>
+              <div className="current-user-info-card">
+                <span className="card-avatar">{currentUser?.avatar || (isAdmin ? '🛡️' : '👤')}</span>
+                <div className="card-details">
+                  <strong>{currentUser?.name || 'Sistem Yöneticisi'}</strong>
+                  <span className="card-sub">@{currentUser?.username || 'admin'} · {isAdmin ? 'Yönetici' : 'Kullanıcı'}</span>
+                </div>
+              </div>
+
+              {users.length > 1 && (
+                <>
+                  <div className="dropdown-divider" />
+                  <div className="dropdown-section-title">Kullanıcı Değiştir (Multi-Tenancy)</div>
+                  {users.map((u: any) => (
+                    <div
+                      key={u.id}
+                      className={`user-menu-item ${u.id === currentUser?.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        onSwitchUser?.(u.id)
+                        setIsUserDropdownOpen(false)
+                      }}
+                    >
+                      <span className="user-item-avatar">{u.avatar || '👤'}</span>
+                      <div className="user-item-details">
+                        <span className="user-item-name">{u.name}</span>
+                        <span className="user-item-role">{u.role === 'admin' ? '🛡️ Yönetici' : '👤 Kullanıcı'}</span>
+                      </div>
+                      {u.id === currentUser?.id && <span className="item-check">✓</span>}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {isAdmin && onOpenAdmin && (
+                <>
+                  <div className="dropdown-divider" />
+                  <button
+                    className="btn-dropdown-admin-link"
+                    onClick={() => {
+                      onOpenAdmin()
+                      setIsUserDropdownOpen(false)
+                    }}
+                  >
+                    <span>🛡️ Yönetici Paneline Git</span>
+                  </button>
+                </>
+              )}
+
+              <div className="dropdown-divider" />
+              <div className="user-dropdown-actions">
+                {onOpenAuth && (
+                  <button
+                    className="btn-user-action-link"
+                    onClick={() => {
+                      onOpenAuth()
+                      setIsUserDropdownOpen(false)
+                    }}
+                  >
+                    <span>🔐 Giriş / Kayıt Ol</span>
+                  </button>
+                )}
+                {onLogout && (
+                  <button
+                    className="btn-user-action-link danger"
+                    onClick={() => {
+                      onLogout()
+                      setIsUserDropdownOpen(false)
+                    }}
+                  >
+                    <span>🚪 Çıkış Yap</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="connection-status" title={isConnected ? 'Sunucuya Bağlı' : 'Bağlantı Kesildi'}>
           <span className={`status-pulse ${isConnected ? 'online' : 'offline'}`} />

@@ -67,7 +67,7 @@ export class PgVectorDatabase {
       // 1. Enable pgvector extension if available
       await client.query('CREATE EXTENSION IF NOT EXISTS vector;')
 
-      // 2. Sources table (Indexed directories)
+      // 2. Sources table (Indexed directories with permissions)
       await client.query(`
         CREATE TABLE IF NOT EXISTS rag_sources (
           id TEXT PRIMARY KEY,
@@ -76,8 +76,14 @@ export class PgVectorDatabase {
           chunk_count INT DEFAULT 0,
           last_indexed_at BIGINT NOT NULL,
           status TEXT NOT NULL,
-          error TEXT
+          error TEXT,
+          owner_id TEXT DEFAULT 'user_admin',
+          allowed_user_ids TEXT[] DEFAULT ARRAY['*'],
+          is_public BOOLEAN DEFAULT TRUE
         );
+        ALTER TABLE rag_sources ADD COLUMN IF NOT EXISTS owner_id TEXT DEFAULT 'user_admin';
+        ALTER TABLE rag_sources ADD COLUMN IF NOT EXISTS allowed_user_ids TEXT[] DEFAULT ARRAY['*'];
+        ALTER TABLE rag_sources ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT TRUE;
       `)
 
       // 3. Documents table

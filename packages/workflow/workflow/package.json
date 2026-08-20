@@ -1,0 +1,11 @@
+{
+  "name": "@custom-harness/workflow",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "cordis": "^3.0.0"
+  }
+}

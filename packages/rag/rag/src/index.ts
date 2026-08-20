@@ -23,17 +23,22 @@ export abstract class RagService extends Service {
   /**
    * Adds and recursively indexes an entire folder of code, docs, and images.
    */
-  public abstract addAndIndexFolder(folderPath: string, options?: RagResourceConfig): Promise<RagSourceFolder>
+  public abstract addAndIndexFolder(folderPath: string, options?: RagResourceConfig, ownerId?: string): Promise<RagSourceFolder>
+
+  /**
+   * Updates permission access list for an indexed source folder.
+   */
+  public abstract updateSourcePermissions(sourceId: string, allowedUserIds: string[], isPublic?: boolean): Promise<void>
 
   /**
    * Performs semantic similarity search against pgvector.
    */
-  public abstract search(query: RagSearchQuery): Promise<DocumentChunk[]>
+  public abstract search(query: RagSearchQuery, userId?: string, isAdmin?: boolean): Promise<DocumentChunk[]>
 
   /**
    * Performs semantic image similarity search using SigLIP visual embeddings.
    */
-  public abstract searchImages(query: { textQuery?: string; imagePath?: string; topK?: number }): Promise<import('./types.js').ImageSearchResult[]>
+  public abstract searchImages(query: { textQuery?: string; imagePath?: string; topK?: number }, userId?: string, isAdmin?: boolean): Promise<import('./types.js').ImageSearchResult[]>
 
   /**
    * Removes an indexed folder and all its associated vector chunks.
@@ -48,7 +53,7 @@ export abstract class RagService extends Service {
   /**
    * Returns current RAG indexing, storage, and resource status.
    */
-  public abstract getStatus(): Promise<RagStatus>
+  public abstract getStatus(userId?: string, isAdmin?: boolean): Promise<RagStatus>
 
   /**
    * Sets or updates RAG resource throttling and mode configuration.

@@ -5,12 +5,18 @@ export interface RagModalProps {
   isOpen: boolean
   onClose: () => void
   onShowToast: (msg: string, type?: 'success' | 'error' | 'info') => void
+  currentUser?: any
+  users?: any[]
 }
 
-export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
+export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = [] }: RagModalProps) {
   const [activeTab, setActiveTab] = useState<'sources' | 'config' | 'search'>('sources')
   const [status, setStatus] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [editingPermSourceId, setEditingPermSourceId] = useState<string | null>(null)
+  const [permAllowedUsers, setPermAllowedUsers] = useState<string[]>([])
+  const [permIsPublic, setPermIsPublic] = useState(true)
+  const [isSavingPerms, setIsSavingPerms] = useState(false)
   const [newFolderPath, setNewFolderPath] = useState('/home/huseyina/code_mode')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -55,12 +61,21 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
     chunkOverlap: 150
   })
 
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('artificax_jwt_token')
+    const userId = localStorage.getItem('artificax_user_id')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (userId) headers['X-User-Id'] = userId
+    return headers
+  }
+
   const browse = async (target: string) => {
     setIsBrowsing(true)
     try {
       const res = await fetch('/api/workspace/browse', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ path: target })
       })
       const data = await res.json()
@@ -81,7 +96,7 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
   const loadStatus = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch('/api/rag/status')
+      const res = await fetch('/api/rag/status', { headers: getAuthHeaders() })
       const data = await res.json()
       if (data) {
         setStatus(data)
@@ -103,6 +118,8 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
 
   // Periodic progress polling when indexing is active
   useEffect(() => {
+    setEditingPermSourceId(null)
+    setPermAllowedUsers([])
     if (!isOpen) return
     loadStatus()
     browse(newFolderPath || '/home/huseyina/code_mode')
@@ -121,7 +138,7 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
     }, 1200)
 
     return () => clearInterval(interval)
-  }, [isOpen])
+  }, [isOpen, currentUser?.id])
 
   if (!isOpen) return null
 
@@ -191,7 +208,7 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
     try {
       const res = await fetch('/api/rag/index', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ path: newFolderPath.trim(), config })
       })
       const data = await res.json()
@@ -213,7 +230,7 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
     try {
       const res = await fetch('/api/rag/remove', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ id: folderPathOrId })
       })
       const data = await res.json()
@@ -229,7 +246,7 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
   const handleClearAll = async () => {
     if (!confirm('Tüm RAG veritabanını ve vektör kayıtlarını temizlemek istediğinize emin misiniz?')) return
     try {
-      const res = await fetch('/api/rag/clear', { method: 'POST' })
+      const res = await fetch('/api/rag/clear', { method: 'POST', headers: getAuthHeaders() })
       const data = await res.json()
       if (data.success) {
         onShowToast('Tüm RAG veritabanı temizlendi', 'success')
@@ -238,6 +255,50 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
     } catch (e: any) {
       onShowToast(`Hata: ${e.message}`, 'error')
     }
+  }
+
+  const handleOpenPermissions = (src: any) => {
+    setEditingPermSourceId(src.id)
+    setPermAllowedUsers(src.allowedUserIds || ['*'])
+    setPermIsPublic(src.isPublic !== false)
+  }
+
+  const handleSavePermissions = async (sourceId: string) => {
+    setIsSavingPerms(true)
+    try {
+      const res = await fetch('/api/rag/permissions', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          sourceId,
+          allowedUserIds: permIsPublic ? ['*'] : permAllowedUsers,
+          isPublic: permIsPublic
+        })
+      })
+      const data = await res.json()
+      if (data.success) {
+        onShowToast('RAG klasörü izinleri güncellendi', 'success')
+        setEditingPermSourceId(null)
+        loadStatus()
+      } else {
+        onShowToast(`İzin güncelleme hatası: ${data.error}`, 'error')
+      }
+    } catch (e: any) {
+      onShowToast(`Hata: ${e.message}`, 'error')
+    } finally {
+      setIsSavingPerms(false)
+    }
+  }
+
+  const handleToggleUserPermission = (userId: string) => {
+    setPermAllowedUsers(prev => {
+      const clean = prev.filter(id => id !== '*')
+      if (clean.includes(userId)) {
+        return clean.filter(id => id !== userId)
+      } else {
+        return [...clean, userId]
+      }
+    })
   }
 
   const handleToggleRagMode = async () => {
@@ -729,24 +790,146 @@ export function RagModal({ isOpen, onClose, onShowToast }: RagModalProps) {
               </div>
 
               {(!status?.sources || status.sources.length === 0) ? (
-                <div className="ws-empty-hint">Henüz indekslenmiş bir klasör bulunmuyor.</div>
+                <div className="ws-empty-hint">Erişim yetkiniz olan veya indekslenmiş bir klasör bulunmuyor.</div>
               ) : (
-                status.sources.map((src: any) => (
-                  <div key={src.id} className="rag-source-card">
-                    <div className="rag-source-info">
-                      <div className="rag-source-path">📂 {src.path}</div>
-                      <div className="rag-source-meta">
-                        <span>📄 {src.fileCount} dosya</span>
-                        <span>🧩 {src.chunkCount} vektör</span>
-                        <span>🕒 {new Date(src.lastIndexedAt).toLocaleDateString()}</span>
-                        <span className={`rag-source-badge ${src.status}`}>{src.status}</span>
+                status.sources.map((src: any) => {
+                  const isEditingThis = editingPermSourceId === src.id
+                  const isOwner = src.ownerId === currentUser?.id
+                  const isAdmin = currentUser?.role === 'admin'
+
+                  return (
+                    <div key={src.id} className="rag-source-card" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+                        <div className="rag-source-info" style={{ flex: 1 }}>
+                          <div className="rag-source-path" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>📂 {src.path}</span>
+                            {src.isPublic ? (
+                              <span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                🌐 Herkese Açık
+                              </span>
+                            ) : (
+                              <span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>
+                                🔒 Özel İzinli ({src.allowedUserIds?.filter((u: string) => u !== '*').length || 0} Kişi)
+                              </span>
+                            )}
+                          </div>
+                          <div className="rag-source-meta">
+                            <span>📄 {src.fileCount} dosya</span>
+                            <span>🧩 {src.chunkCount} vektör</span>
+                            <span>🕒 {new Date(src.lastIndexedAt).toLocaleDateString()}</span>
+                            <span className={`rag-source-badge ${src.status}`}>{src.status}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {isAdmin && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => isEditingThis ? setEditingPermSourceId(null) : handleOpenPermissions(src)}
+                              style={{ fontSize: '12px', padding: '4px 8px' }}
+                            >
+                              {isEditingThis ? '✕ Kapat' : '🔒 İzin Ayarla'}
+                            </Button>
+                          )}
+                          {(isAdmin || isOwner) && (
+                            <Button variant="ghost" size="sm" onClick={() => handleRemoveFolder(src.id)}>
+                              🗑️ Sil
+                            </Button>
+                          )}
+                        </div>
                       </div>
+
+                      {/* Permission Editor Drawer for Admin */}
+                      {isEditingThis && isAdmin && (
+                        <div className="rag-perm-editor" style={{
+                          marginTop: '10px',
+                          padding: '12px',
+                          background: 'rgba(0, 0, 0, 0.35)',
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                          borderRadius: '8px'
+                        }}>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#d8b4fe', marginBottom: '8px' }}>
+                            🛡️ Bu RAG Klasörünün Erişim İzinlerini Belirleyin:
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '16px', marginBottom: '10px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#ececec', cursor: 'pointer' }}>
+                              <input
+                                type="radio"
+                                name={`perm_mode_${src.id}`}
+                                checked={permIsPublic}
+                                onChange={() => setPermIsPublic(true)}
+                              />
+                              <span>🌐 Herkese Açık (Tüm Kiracılar Görebilir)</span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#ececec', cursor: 'pointer' }}>
+                              <input
+                                type="radio"
+                                name={`perm_mode_${src.id}`}
+                                checked={!permIsPublic}
+                                onChange={() => setPermIsPublic(false)}
+                              />
+                              <span>🔒 Sadece Seçili Kullanıcılar</span>
+                            </label>
+                          </div>
+
+                          {!permIsPublic && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' }}>
+                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>İzin verilecek kullanıcıları seçin:</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {users.map((u: any) => {
+                                  const isAllowed = permAllowedUsers.includes(u.id) || permAllowedUsers.includes('*')
+                                  return (
+                                    <label
+                                      key={u.id}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        fontSize: '11.5px',
+                                        padding: '4px 8px',
+                                        background: isAllowed ? 'rgba(16, 163, 126, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                        border: `1px solid ${isAllowed ? 'var(--brand-primary)' : 'rgba(255, 255, 255, 0.1)'}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isAllowed}
+                                        onChange={() => handleToggleUserPermission(u.id)}
+                                      />
+                                      <span>{u.avatar || '👤'} {u.name} (@{u.username})</span>
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingPermSourceId(null)}
+                            >
+                              İptal
+                            </Button>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={isSavingPerms}
+                              onClick={() => handleSavePermissions(src.id)}
+                            >
+                              {isSavingPerms ? 'Kaydediliyor...' : '💾 İzinleri Kaydet'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleRemoveFolder(src.id)}>
-                      🗑️ Sil
-                    </Button>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </div>

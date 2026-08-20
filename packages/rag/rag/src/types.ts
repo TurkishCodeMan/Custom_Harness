@@ -3,6 +3,7 @@ export interface DocumentChunk {
   documentId: string
   sourcePath: string
   content: string
+  tenantId?: string
   metadata?: Record<string, any>
   embedding?: number[]
   similarity?: number
@@ -16,6 +17,7 @@ export interface RagSearchQuery {
   minSimilarity?: number
   sourceFilter?: string
   filePathPrefix?: string
+  tenantId?: string
   filter?: Record<string, any>
 }
 
@@ -61,6 +63,9 @@ export interface RagSourceFolder {
   lastIndexedAt: number
   status: 'idle' | 'indexing' | 'error'
   error?: string
+  ownerId?: string
+  allowedUserIds?: string[]
+  isPublic?: boolean
 }
 
 export interface IndexingProgress {

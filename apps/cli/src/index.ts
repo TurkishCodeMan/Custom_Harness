@@ -32,7 +32,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/workspace', desc: 'İnteraktif çalışma dizini gezgini ve seçici (/workspace [yol])', icon: '📁', snippet: '/workspace' },
   { name: '/preset', desc: 'İnteraktif ajan rolü/kişiliği seçici (/preset)', icon: '🎭', snippet: '/preset' },
   { name: '/model', desc: 'İnteraktif LLM sağlayıcı ve model seçici (/model)', icon: '🤖', snippet: '/model' },
-  { name: '/mode', desc: 'İnteraktif çalışma motoru seçici (full | minimal | code)', icon: '⚙️ ', snippet: '/mode' },
+  { name: '/mode', desc: 'İnteraktif çalışma motoru seçici (full | minimal)', icon: '⚙️ ', snippet: '/mode' },
   { name: '/sessions', desc: 'İnteraktif Oturum Yöneticisi (Gezin, Seç veya Sil)', icon: '📋', snippet: '/sessions' },
   { name: '/new', desc: 'Sıfırdan yeni bir oturum başlat', icon: '✨', snippet: '/new' },
   { name: '/yolo', desc: 'YOLO / Auto-Approve (Onay sormadan tüm komutları otomatik çalıştır)', icon: '⚡', snippet: '/yolo' },
@@ -114,7 +114,7 @@ ${taskText}`
     }
   }
 
-  let currentMode: 'full' | 'code' | 'minimal' = 'full'
+  let currentMode: 'full' | 'minimal' = 'full'
   let activeGoal: string | null = null
   let isYoloMode = false
   let enableModelThinking = false // Directly controls model API thinking parameter
@@ -525,9 +525,8 @@ ${taskText}`
   // Interactive Mode Selector Pane
   const openInteractiveModePicker = async (): Promise<string> => {
     const modes = [
-      { id: 'full', icon: '🚀', name: 'Full Tool Mode', desc: 'Tam Yetkili: Terminal + Dosya + Todo + Skills' },
-      { id: 'minimal', icon: '⚡', name: 'Minimal Mode', desc: 'Claude Code 2 Araç: Bash + File String Editor' },
-      { id: 'code', icon: '💻', name: 'Code Execution Mode', desc: 'TypeScript run_code motoru ile yürütme' }
+      { id: 'full', icon: '🚀', name: 'Full Tool Mode', desc: 'Tam Yetkili: Terminal + Dosya + Todo + Skills + Web + Jobs' },
+      { id: 'minimal', icon: '⚡', name: 'Minimal Mode', desc: 'Claude Code 2 Araç: Bash + File String Editor' }
     ]
     let selectedIndex = modes.findIndex(m => m.id === currentMode)
     if (selectedIndex < 0) selectedIndex = 0
@@ -1111,7 +1110,7 @@ ${taskText}`
       if (cmd === '/mode') {
         if (!argStr) {
           await openInteractiveModePicker()
-        } else if (argStr === 'code' || argStr === 'minimal' || argStr === 'full') {
+        } else if (argStr === 'minimal' || argStr === 'full') {
           currentMode = argStr
           console.log(`\n${c.green}✓ Çalışma Modu Değiştirildi:${c.reset} ${c.bold}${currentMode}${c.reset}\n`)
         } else {

@@ -18,6 +18,8 @@ export interface ApprovalResponse {
 }
 
 export class ApprovalService extends Service {
+  declare ctx: Context
+  static inject = ['settings']
   private pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>()
   private policy: ApprovalPolicy = 'ask_dangerous'
 
@@ -44,7 +46,8 @@ export class ApprovalService extends Service {
     extra?: any,
     signal?: AbortSignal
   ): Promise<ApprovalOutcome> {
-    if (this.policy === 'auto') {
+    const isApprovalEnabled = this.ctx.settings?.isApprovalEnabled ? this.ctx.settings.isApprovalEnabled() : true
+    if (!isApprovalEnabled || this.policy === 'auto') {
       return 'allow_once'
     }
     // Auto-allow safe inspection / read-only tools
@@ -96,6 +99,7 @@ export class ApprovalService extends Service {
 }
 
 export const name = 'user-approval'
+export const inject = ['settings']
 
 export function apply(ctx: Context) {
   ctx.set('approval', new ApprovalService(ctx))

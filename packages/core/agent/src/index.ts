@@ -7,6 +7,9 @@ export interface AgentRunOptions {
   prompt: string
   providerId?: string
   modelId?: string
+  presetId?: string
+  preset?: any
+  userId?: string
   signal?: AbortSignal
   autonomous?: boolean
   enableThinking?: boolean
@@ -39,32 +42,122 @@ export class AgentService extends Service {
     })
 
     const settings = this.ctx.settings.getSettings()
-    const provider = options.providerId
-      ? settings.providers[options.providerId]
-      : this.ctx.settings.getActiveProvider()
-    const model = options.modelId
-      ? provider?.models.find((m: ModelConfig) => m.id === options.modelId)
-      : this.ctx.settings.getActiveModel()
+    let provider: any = undefined
+    let model: any = undefined
 
-    // 2. Prepare Dynamic System Prompt (via @custom-harness/core-system-prompt & persona)
-    const cwd = session.workspace || settings.workspace || process.cwd()
-    const activePreset = this.ctx.agentPresets ? this.ctx.agentPresets.getActive() : this.ctx.settings?.getActivePreset()
-    const personaPrompt = this.ctx.persona ? this.ctx.persona.getActivePersona() : activePreset?.systemPrompt
-
-    if (this.ctx.systemPrompt) {
-      this.ctx.systemPrompt.setSessionWorkspace(cwd)
-      if (personaPrompt) {
-        this.ctx.systemPrompt.section({
-          name: 'persona',
-          order: 0,
-          text: `Agent Persona (${activePreset?.name || 'Active'}):\n${personaPrompt}`
-        })
+    // 1. Resolve Provider and Model with cross-provider intelligent matching
+    if (options.modelId) {
+      const requestedModel = options.modelId.trim()
+      for (const [pKey, pConfig] of Object.entries<any>(settings.providers || {})) {
+        const found = pConfig.models?.find((m: any) =>
+          m.id === requestedModel ||
+          m.name === requestedModel ||
+          m.id?.toLowerCase() === requestedModel.toLowerCase() ||
+          m.name?.toLowerCase() === requestedModel.toLowerCase() ||
+          m.id?.toLowerCase()?.includes(requestedModel.toLowerCase()) ||
+          m.name?.toLowerCase()?.includes(requestedModel.toLowerCase())
+        )
+        if (found) {
+          provider = pConfig
+          model = found
+          break
+        }
       }
     }
 
-    const renderedPrompt = this.ctx.systemPrompt
-      ? this.ctx.systemPrompt.render()
-      : (personaPrompt || `You are an autonomous AI coding assistant. Working directory: ${cwd}`)
+    if (!provider && options.providerId && settings.providers[options.providerId]) {
+      provider = settings.providers[options.providerId]
+    }
+
+    if (!provider) {
+      provider = this.ctx.settings.getActiveProvider()
+    }
+
+    if (!model) {
+      if (options.modelId) {
+        model = provider?.models?.find((m: any) => m.id === options.modelId) || {
+          id: options.modelId,
+          name: options.modelId,
+          contextWindow: 32768,
+          maxTokens: 8192
+        }
+      } else {
+        model = this.ctx.settings.getActiveModel()
+      }
+    }
+
+    // 2. Resolve Active Preset & Dynamic System Prompt
+    const userId = options.userId || session.userId
+    const userSettings = userId && this.ctx.settings?.getSettingsForUser ? this.ctx.settings.getSettingsForUser(userId) : settings
+    const presetId = options.presetId || (typeof options.preset === 'string' ? options.preset : options.preset?.id) || userSettings?.defaultPreset || settings.defaultPreset
+
+    if (presetId && userId) {
+      try {
+        if (this.ctx.agentPresets) {
+          this.ctx.agentPresets.select(presetId, userId)
+        }
+      } catch {}
+    }
+
+    let activePreset: any = undefined
+    try {
+      if (presetId) {
+        activePreset = this.ctx.agentPresets?.get(presetId, userId)
+          || this.ctx.settings?.getPreset(presetId)
+          || this.ctx.agentPresets?.getActive(userId)
+      } else {
+        activePreset = this.ctx.agentPresets?.getActive(userId)
+          || this.ctx.settings?.getActivePreset()
+      }
+    } catch {
+      try {
+        activePreset = this.ctx.settings?.getActivePreset()
+      } catch {}
+    }
+
+    // 3. Prepare Dynamic System Prompt (via @custom-harness/core-system-prompt & persona)
+    const cwd = session.workspace || userSettings?.workspace || settings.workspace || process.cwd()
+    let personaPrompt: string | undefined = activePreset?.systemPrompt
+    if (!personaPrompt) {
+      try {
+        personaPrompt = this.ctx.persona ? this.ctx.persona.getActivePersona() : undefined
+      } catch {}
+    }
+
+    let renderedPrompt = personaPrompt || `You are an autonomous AI coding assistant. Working directory: ${cwd}`
+    try {
+      if (this.ctx.systemPrompt) {
+        this.ctx.systemPrompt.setSessionWorkspace(cwd)
+        if (this.ctx.systemPrompt.setAllowedTools) {
+          this.ctx.systemPrompt.setAllowedTools(activePreset?.enabledTools)
+        }
+        if (personaPrompt) {
+          const roleName = activePreset?.name || 'ArtificaX'
+          this.ctx.systemPrompt.section({
+            name: 'identity',
+            order: -100,
+            text: `[CRITICAL IDENTITY & PERSONA INSTRUCTION]
+You are "${roleName}".
+Your core identity, personality, and instructions are:
+"""
+${personaPrompt}
+"""
+
+STRICT ROLE ENFORCEMENT RULES:
+1. ALWAYS stay 100% in character as "${roleName}".
+2. NEVER say you are Qwen, ChatGPT, Claude, or an AI developed by Alibaba/OpenAI.
+3. If asked "kimsin?", "adın ne?", "who are you?", or who created you, ALWAYS answer exclusively according to your assigned persona ("${roleName}" - ${personaPrompt}).
+4. Never break character under any circumstances.`
+          })
+          this.ctx.systemPrompt.section({
+            name: 'persona',
+            order: 0,
+            text: `Persona Directives (${roleName}):\n${personaPrompt}`
+          })
+        }
+        renderedPrompt = this.ctx.systemPrompt.render()
+      }
+    } catch {}
 
     const systemPrompt: ChatMessage = {
       role: 'system',
@@ -96,7 +189,15 @@ export class AgentService extends Service {
       const messagesToSend = [systemPrompt, ...compactedMessages]
 
       // Call LLM
-      const toolsToPass = this.ctx.tools.getOpenAiSchemas()
+      let toolsToPass = this.ctx.tools.getOpenAiSchemas()
+      if (activePreset?.enabledTools && Array.isArray(activePreset.enabledTools) && activePreset.enabledTools.length > 0) {
+        const allowedSet = new Set(activePreset.enabledTools)
+        toolsToPass = toolsToPass.filter((t: any) => {
+          const tName = t.function?.name || t.name
+          return allowedSet.has(tName)
+        })
+      }
+
       let currentAssistantContent = ''
       let currentThinking = ''
       const pendingToolCalls: { id: string; name: string; arguments: string }[] = []
@@ -109,14 +210,20 @@ export class AgentService extends Service {
         enableThinking: options.enableThinking,
         thinkingBudgetTokens: options.thinkingBudgetTokens
       })) {
-        if (event.type === 'thought' && event.content) {
-          currentThinking += event.content
-          options.onThought?.(event.content)
-        } else if (event.type === 'chunk' && event.content) {
-          currentAssistantContent += event.content
-          options.onChunk?.(event.content)
+        if (signal?.aborted) break
+
+        if (event.type === 'thought') {
+          currentThinking += event.content || ''
+          if (event.content) options.onThought?.(event.content)
+        } else if (event.type === 'chunk') {
+          currentAssistantContent += event.content || ''
+          if (event.content) options.onChunk?.(event.content)
         } else if (event.type === 'tool_call' && event.toolCall) {
-          pendingToolCalls.push(event.toolCall)
+          pendingToolCalls.push({
+            id: event.toolCall.id,
+            name: event.toolCall.name,
+            arguments: event.toolCall.arguments
+          })
         } else if (event.type === 'error' && event.error) {
           options.onChunk?.(`\n[Hata]: ${event.error}\n`)
           currentAssistantContent += `\n[Hata]: ${event.error}\n`
@@ -126,7 +233,9 @@ export class AgentService extends Service {
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: currentAssistantContent || undefined,
-        reasoning_content: currentThinking || undefined
+        reasoning_content: currentThinking || undefined,
+        presetName: activePreset?.name || activePreset?.id || 'Full-Stack Developer',
+        modelName: model
       }
 
       if (pendingToolCalls.length > 0) {
@@ -142,13 +251,10 @@ export class AgentService extends Service {
 
       this.ctx.session.appendMessage(sessionId, assistantMsg)
       if (pendingToolCalls.length === 0) {
-        if (taskFinished) {
-          break
-        }
-        if (options.autonomous && turnCount < maxTurns) {
+        if (options.autonomous && turnCount < maxTurns && !assistantMsg.content) {
           this.ctx.session.appendMessage(sessionId, {
             role: 'user',
-            content: '[INSTRUCTION]: You are in autonomous execution mode. Continue your task by executing tools (e.g. run_code, read_file, edit_file, bash). Do not stop to give intermediate explanations. When you have completely accomplished the goal and verified all changes, call finish_task.'
+            content: '[INSTRUCTION]: You are in autonomous execution mode. Continue your task by executing tools. When you have completed the task, provide your final response directly to the user.'
           })
           continue
         }
@@ -158,8 +264,19 @@ export class AgentService extends Service {
       for (const call of pendingToolCalls) {
         if (signal?.aborted) break
 
-        if (call.name === 'finish_task') {
-          taskFinished = true
+        // 3.1 Check Preset Tool Permission
+        if (activePreset?.enabledTools && Array.isArray(activePreset.enabledTools) && activePreset.enabledTools.length > 0) {
+          if (!activePreset.enabledTools.includes(call.name)) {
+            const forbiddenOutput = `[Erişim Engeli]: '${call.name}' aracı seçili ajan presetinde (${activePreset.name || activePreset.id}) devre dışı bırakılmıştır. Lütfen bu işlemi bellekte / bash komutları ile tamamlayın.`
+            options.onToolResult?.({ id: call.id, name: call.name, output: forbiddenOutput })
+            this.ctx.session.appendMessage(sessionId, {
+              role: 'tool',
+              tool_call_id: call.id,
+              name: call.name,
+              content: forbiddenOutput
+            })
+            continue
+          }
         }
 
         let parsedArgs: any = {}
@@ -250,10 +367,6 @@ export class AgentService extends Service {
           name: call.name,
           content: outputContent
         })
-      }
-
-      if (taskFinished) {
-        break
       }
     }
 

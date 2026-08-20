@@ -14,6 +14,7 @@ import type { ToolResultPrunerService } from '@custom-harness/compaction-tool-re
 import type { CompactionBasicService } from '@custom-harness/compaction-basic'
 import type { SpillService } from '@custom-harness/spill'
 import type { RagService } from '@custom-harness/rag'
+import type { AuthService } from '@custom-harness/auth'
 
 declare module 'cordis' {
   interface Events {
@@ -26,6 +27,7 @@ declare module 'cordis' {
   interface Context {
     start(): Promise<void>
     stop(): Promise<void>
+    auth: AuthService
     llm: LlmService
     tools: ToolsService
     agent: AgentService
@@ -50,6 +52,10 @@ declare module 'cordis' {
     approval: any
     spillStore: SpillService
     rag: RagService
+    web: any
+    jobs: any
+    terminals: any
+    workflowEngine: any
   }
 }
 

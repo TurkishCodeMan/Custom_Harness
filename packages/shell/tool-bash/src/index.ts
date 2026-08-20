@@ -5,11 +5,22 @@ import { exec } from 'node:child_process'
 export const name = 'plugin-bash'
 export const inject = ['tools', 'subprocess']
 
+const DANGEROUS_COMMANDS = [
+  /\bsudo\b/i,
+  /\bsu\s+/i,
+  /\bchroot\b/i,
+  /\bsystemctl\b/i,
+  /\bshutdown\b/i,
+  /\breboot\b/i,
+  /\binit\s+\d/i,
+  /\bmkfs\b/i
+]
+
 export function apply(ctx: Context) {
   ctx.tools.register(
     defineTool({
       name: 'bash',
-      description: 'Run shell commands in the terminal (such as git diff, grep, find). Note: To read files use `read_file`, and to edit files use `edit_file`.',
+      description: 'Run shell commands strictly inside the workspace directory (such as git, pytest, python, npm). Note: sudo and root-level commands are blocked.',
       parameters: {
         type: 'object',
         properties: {
@@ -22,6 +33,19 @@ export function apply(ctx: Context) {
       },
       execute: async ({ command }: { command: string }, context?: { signal?: AbortSignal; cwd?: string }) => {
         const cwd = context?.cwd || process.cwd()
+
+        // 1. Guard against sudo / root commands
+        for (const pattern of DANGEROUS_COMMANDS) {
+          if (pattern.test(command)) {
+            return `[Güvenlik Engeli]: 'sudo' veya sistem seviyesi yetkili komutlar güvenlik nedeniyle engellenmiştir. Komutlarınızı yalnızca çalışma alanınız (${cwd}) içinde çalıştırabilirsiniz.`
+          }
+        }
+
+        // 2. Prevent destructive recursive delete on root or home
+        if (/\brm\s+-[rfRF]{1,4}\s+(\/|\/\*|~|\$HOME|\.\.\/)\b/.test(command)) {
+          return `[Güvenlik Engeli]: Kök dizin veya çalışma alanı dışı silme komutları engellenmiştir.`
+        }
+
         if (ctx.subprocess) {
           const res = await ctx.subprocess.exec(command, { cwd, signal: context?.signal as any })
           if (res.exitCode !== 0) {

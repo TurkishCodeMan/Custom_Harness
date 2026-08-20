@@ -1,0 +1,11 @@
+{
+  "name": "@custom-harness/sandbox-local",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "@custom-harness/sandbox": "workspace:*",
+    "cordis": "^3.18.1"
+  }
+}

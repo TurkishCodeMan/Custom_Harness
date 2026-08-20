@@ -74,7 +74,27 @@
       "@custom-harness/rag": ["./packages/rag/rag/src/index.ts"],
       "@custom-harness/rag-vllm": ["./packages/rag/rag-vllm/src/index.ts"],
       "@custom-harness/rag-pgvector": ["./packages/rag/rag-pgvector/src/index.ts"],
-      "@custom-harness/tool-rag": ["./packages/rag/tool-rag/src/index.ts"]
+      "@custom-harness/tool-rag": ["./packages/rag/tool-rag/src/index.ts"],
+      "@custom-harness/auth": ["./packages/auth/auth/src/index.ts"],
+      "@custom-harness/auth-local": ["./packages/auth/auth-local/src/index.ts"],
+      "@custom-harness/client-ui-admin": ["./packages/client/ui-admin/src/index.tsx"],
+      "@custom-harness/client-ui-auth": ["./packages/client/ui-auth/src/index.tsx"],
+      "@custom-harness/web-service": ["./packages/web/web/src/index.ts"],
+      "@custom-harness/web-fetch-http": ["./packages/web/web-fetch-http/src/index.ts"],
+      "@custom-harness/web-search": ["./packages/web/web-search/src/index.ts"],
+      "@custom-harness/tool-web": ["./packages/web/tool-web/src/index.ts"],
+      "@custom-harness/jobs": ["./packages/jobs/jobs/src/index.ts"],
+      "@custom-harness/jobs-local": ["./packages/jobs/jobs-local/src/index.ts"],
+      "@custom-harness/tool-jobs": ["./packages/jobs/tool-jobs/src/index.ts"],
+      "@custom-harness/terminal": ["./packages/terminal/terminal/src/index.ts"],
+      "@custom-harness/terminal-bash": ["./packages/terminal/terminal-bash/src/index.ts"],
+      "@custom-harness/tool-terminal": ["./packages/terminal/tool-terminal/src/index.ts"],
+      "@custom-harness/workflow": ["./packages/workflow/workflow/src/index.ts"],
+      "@custom-harness/workflow-worker-thread": ["./packages/workflow/workflow-worker-thread/src/index.ts"],
+      "@custom-harness/tool-workflow": ["./packages/workflow/tool-workflow/src/index.ts"],
+      "@custom-harness/tool-ralph": ["./packages/workflow/tool-ralph/src/index.ts"],
+      "@custom-harness/sandbox": ["./packages/sandbox/sandbox/src/index.ts"],
+      "@custom-harness/sandbox-local": ["./packages/sandbox/sandbox-local/src/index.ts"]
     }
   }
 }

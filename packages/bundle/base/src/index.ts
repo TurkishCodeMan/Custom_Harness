@@ -3,6 +3,8 @@ import * as fs from '@custom-harness/fs'
 import * as fsLocal from '@custom-harness/fs-local'
 import * as subprocess from '@custom-harness/subprocess'
 import * as subprocessLocal from '@custom-harness/subprocess-local'
+import * as sandbox from '@custom-harness/sandbox'
+import * as sandboxLocal from '@custom-harness/sandbox-local'
 import * as spill from '@custom-harness/spill'
 import * as spillLocal from '@custom-harness/spill-local'
 import * as userApproval from '@custom-harness/user-approval'
@@ -37,13 +39,33 @@ import * as toolFsSearch from '@custom-harness/tool-fs-search'
 import * as rag from '@custom-harness/rag'
 import * as ragPgVector from '@custom-harness/rag-pgvector'
 import * as toolRag from '@custom-harness/tool-rag'
+import * as auth from '@custom-harness/auth'
+import * as authLocal from '@custom-harness/auth-local'
+import * as web from '@custom-harness/web-service'
+import * as webFetchHttp from '@custom-harness/web-fetch-http'
+import * as webSearch from '@custom-harness/web-search'
+import * as toolWeb from '@custom-harness/tool-web'
+import * as jobs from '@custom-harness/jobs'
+import * as jobsLocal from '@custom-harness/jobs-local'
+import * as toolJobs from '@custom-harness/tool-jobs'
+import * as terminals from '@custom-harness/terminal'
+import * as terminalBash from '@custom-harness/terminal-bash'
+import * as toolTerminal from '@custom-harness/tool-terminal'
+import * as workflow from '@custom-harness/workflow'
+import * as workflowWorkerThread from '@custom-harness/workflow-worker-thread'
+import * as toolWorkflow from '@custom-harness/tool-workflow'
+import * as toolRalph from '@custom-harness/tool-ralph'
 
 export const name = 'bundle-base'
 
 export async function apply(ctx: Context) {
   // 1. Capability Seams & Providers
+  await ctx.plugin(auth)
+  await ctx.plugin(authLocal)
   await ctx.plugin(fs)
   await ctx.plugin(fsLocal)
+  await ctx.plugin(sandbox)
+  await ctx.plugin(sandboxLocal)
   await ctx.plugin(subprocess)
   await ctx.plugin(subprocessLocal)
   await ctx.plugin(spill)
@@ -53,6 +75,15 @@ export async function apply(ctx: Context) {
   await ctx.plugin(lsp)
   await ctx.plugin(rag)
   await ctx.plugin(ragPgVector)
+  await ctx.plugin(web)
+  await ctx.plugin(webFetchHttp)
+  await ctx.plugin(webSearch)
+  await ctx.plugin(jobs)
+  await ctx.plugin(jobsLocal)
+  await ctx.plugin(terminals)
+  await ctx.plugin(terminalBash)
+  await ctx.plugin(workflow)
+  await ctx.plugin(workflowWorkerThread)
 
   // 2. Core Infrastructure & Services
   await ctx.plugin(settings)
@@ -84,6 +115,11 @@ export async function apply(ctx: Context) {
   await ctx.plugin(toolSessionQuery)
   await ctx.plugin(toolFsSearch)
   await ctx.plugin(toolRag)
+  await ctx.plugin(toolWeb)
+  await ctx.plugin(toolJobs)
+  await ctx.plugin(toolTerminal)
+  await ctx.plugin(toolWorkflow)
+  await ctx.plugin(toolRalph)
 }
 
 

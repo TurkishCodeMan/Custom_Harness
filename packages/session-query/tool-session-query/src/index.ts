@@ -23,23 +23,38 @@ export function apply(ctx: Context) {
         },
         required: ['query']
       },
-      async execute({ query, sessionId }: { query: string; sessionId?: string }) {
+      async execute(args: any, context?: any) {
+        const query = (args?.query ?? args?.keyword ?? args?.search ?? args?.q ?? args?.term ?? '').toString().trim()
+        const targetSessionId = args?.sessionId || context?.sessionId
+
         const sessions = ctx.session.listSessions()
-        const targetSessions = sessionId ? sessions.filter(s => s.id === sessionId) : sessions
+        const targetSessions = targetSessionId ? sessions.filter(s => s.id === targetSessionId) : sessions
 
         const matches: Array<{ sessionId: string; role: string; snippet: string }> = []
-
         const lowerQuery = query.toLowerCase()
 
         for (const summary of targetSessions) {
           const s = ctx.session.getSession(summary.id)
-          if (!s || !s.messages) continue
+          if (!s || !s.messages || !Array.isArray(s.messages)) continue
           for (const msg of s.messages) {
-            const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-            if (text.toLowerCase().includes(lowerQuery)) {
+            if (!msg) continue
+            let text = ''
+            if (typeof msg.content === 'string') {
+              text = msg.content
+            } else if (msg.content) {
+              text = JSON.stringify(msg.content)
+            } else if ((msg as any).reasoning_content) {
+              text = (msg as any).reasoning_content
+            } else if ((msg as any).tool_calls) {
+              text = JSON.stringify((msg as any).tool_calls)
+            }
+
+            if (!text) continue
+
+            if (!lowerQuery || text.toLowerCase().includes(lowerQuery)) {
               matches.push({
                 sessionId: s.id,
-                role: msg.role,
+                role: msg.role || 'unknown',
                 snippet: text.length > 300 ? text.substring(0, 300) + '...' : text
               })
             }
@@ -47,11 +62,11 @@ export function apply(ctx: Context) {
         }
 
         if (matches.length === 0) {
-          return `No matches found for '${query}' in session history.`
+          return query ? `No matches found for '${query}' in session history.` : 'No session messages recorded yet.'
         }
 
         return `### Session History Matches (${matches.length}):\n\n` +
-          matches.map(m => `- **[${m.sessionId}] ${m.role}**: ${m.snippet}`).join('\n\n')
+          matches.slice(0, 30).map(m => `- **[${m.sessionId}] ${m.role}**: ${m.snippet}`).join('\n\n')
       }
     })
   )

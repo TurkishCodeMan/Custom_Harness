@@ -57,6 +57,33 @@ importers:
         specifier: ^3.18.1
         version: 3.18.1
 
+  packages/auth/auth:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
+  packages/auth/auth-local:
+    dependencies:
+      '@custom-harness/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
   packages/bundle/base:
     dependencies:
       '@custom-harness/compaction-basic':
@@ -202,6 +229,30 @@ importers:
         version: 3.18.1
 
   packages/client/ui: {}
+
+  packages/client/ui-admin:
+    dependencies:
+      '@custom-harness/client-ui-primitives':
+        specifier: workspace:*
+        version: link:../ui-primitives
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+
+  packages/client/ui-auth:
+    dependencies:
+      '@custom-harness/client-ui-primitives':
+        specifier: workspace:*
+        version: link:../ui-primitives
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
 
   packages/client/ui-conversation:
     dependencies:
@@ -478,6 +529,42 @@ importers:
         specifier: ^3.18.1
         version: 3.18.1
 
+  packages/jobs/jobs:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/jobs/jobs-local:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/jobs':
+        specifier: workspace:*
+        version: link:../jobs
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/jobs/tool-jobs:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+      '@custom-harness/jobs':
+        specifier: workspace:*
+        version: link:../jobs
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
   packages/llm/llm:
     dependencies:
       '@custom-harness/core-context':
@@ -649,6 +736,27 @@ importers:
       '@custom-harness/rag':
         specifier: workspace:*
         version: link:../rag
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
+  packages/sandbox/sandbox:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
+  packages/sandbox/sandbox-local:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       cordis:
         specifier: ^3.18.1
         version: 3.18.1
@@ -864,6 +972,42 @@ importers:
         specifier: ^3.18.1
         version: 3.18.1
 
+  packages/terminal/terminal:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/terminal/terminal-bash:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/terminal':
+        specifier: workspace:*
+        version: link:../terminal
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/terminal/tool-terminal:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+      '@custom-harness/terminal':
+        specifier: workspace:*
+        version: link:../terminal
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
   packages/todo/tool-todo:
     dependencies:
       '@custom-harness/core-context':
@@ -877,6 +1021,102 @@ importers:
         version: link:../../core/types
       cordis:
         specifier: ^3.18.1
+        version: 3.18.1
+
+  packages/web/tool-web:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+      '@custom-harness/web-service':
+        specifier: workspace:*
+        version: link:../web
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/web/web:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/web/web-fetch-http:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/web-service':
+        specifier: workspace:*
+        version: link:../web
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/web/web-search:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/web-service':
+        specifier: workspace:*
+        version: link:../web
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/workflow/tool-ralph:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/workflow/tool-workflow:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-tools':
+        specifier: workspace:*
+        version: link:../../core/tools
+      '@custom-harness/workflow':
+        specifier: workspace:*
+        version: link:../workflow
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/workflow/workflow:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      cordis:
+        specifier: ^3.0.0
+        version: 3.18.1
+
+  packages/workflow/workflow-worker-thread:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/workflow':
+        specifier: workspace:*
+        version: link:../workflow
+      cordis:
+        specifier: ^3.0.0
         version: 3.18.1
 
   vendor/cordis:
@@ -1516,6 +1756,10 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
 
+  loose-envify@1.4.0:
+    resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
+    hasBin: true
+
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -1711,6 +1955,10 @@ packages:
     resolution: {integrity: sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==}
     peerDependencies:
       react: ^19.2.8
+
+  react@18.3.1:
+    resolution: {integrity: sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==}
+    engines: {node: '>=0.10.0'}
 
   react@19.2.8:
     resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
@@ -2318,6 +2566,10 @@ snapshots:
 
   kleur@4.1.5: {}
 
+  loose-envify@1.4.0:
+    dependencies:
+      js-tokens: 4.0.0
+
   math-intrinsics@1.1.0: {}
 
   media-typer@0.3.0: {}
@@ -2482,6 +2734,10 @@ snapshots:
     dependencies:
       react: 19.2.8
       scheduler: 0.27.0
+
+  react@18.3.1:
+    dependencies:
+      loose-envify: 1.4.0
 
   react@19.2.8: {}
 

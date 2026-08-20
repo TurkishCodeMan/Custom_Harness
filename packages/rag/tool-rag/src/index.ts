@@ -1,10 +1,19 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Context } from '@custom-harness/core-context'
 import { defineTool } from '@custom-harness/core-tools'
 
 export const name = 'tool-rag'
-export const inject = ['tools', 'rag']
+export const inject = ['tools', 'rag', 'session']
 
 export function apply(ctx: Context) {
+  const getTenantContext = () => {
+    const activeSession = (ctx as any).session?.getActiveSession?.()
+    const userId = activeSession?.userId || 'user_admin'
+    const isAdmin = userId === 'user_admin' || userId === 'admin'
+    return { userId, isAdmin }
+  }
+
   // 1. Tool: query_rag
   ctx.tools.register(
     defineTool({
@@ -34,64 +43,36 @@ export function apply(ctx: Context) {
         }
 
         try {
+          const { userId, isAdmin } = getTenantContext()
           const results = await ctx.rag.search({
             query,
             topK: topK || 5,
             filePathPrefix
-          })
+          }, userId, isAdmin)
 
           if (results.length === 0) {
-            return `No semantic matches found in RAG index for query: "${query}"`
+            return `No relevant information found for query: "${query}"`
           }
 
           const formatted = results.map((r, i) => {
             const sim = r.similarity !== undefined ? (r.similarity * 100).toFixed(1) + '%' : 'N/A'
-            return `### [Sonuç ${i + 1}] 📄 ${r.sourcePath} (Benzerlik Skoru: ${sim})\n\n${r.content}`
+            const docInfo = r.sourcePath || r.documentId || 'Unknown Document'
+            return `### Match ${i + 1} (${sim} match) - ${docInfo}\n${r.content}`
           }).join('\n\n---\n\n')
 
-          return `Semantik RAG aramasında "${query}" için ${results.length} ilgili içerik bulundu:\n\n${formatted}`
+          return `Found ${results.length} relevant passages:\n\n${formatted}`
         } catch (err: any) {
-          return `RAG arama hatası: ${err.message}`
+          return `RAG search error: ${err.message}`
         }
       }
     })
   )
 
-  // 2. Tool: add_rag_folder
+  // 2. Tool: get_rag_status
   ctx.tools.register(
     defineTool({
-      name: 'add_rag_folder',
-      description: 'Recursively scans, parses (including OCR on images), generates vLLM embeddings, and indexes a folder into pgvector.',
-      parameters: {
-        type: 'object',
-        properties: {
-          folderPath: {
-            type: 'string',
-            description: 'Absolute or relative folder path to index.'
-          }
-        },
-        required: ['folderPath']
-      },
-      async execute({ folderPath }: { folderPath: string }) {
-        if (!ctx.rag) {
-          return 'RAG service is not available.'
-        }
-
-        try {
-          const res = await ctx.rag.addAndIndexFolder(folderPath)
-          return `Successfully indexed folder: "${res.path}" (${res.fileCount} files, ${res.chunkCount} vector chunks stored).`
-        } catch (err: any) {
-          return `Failed to index folder "${folderPath}": ${err.message}`
-        }
-      }
-    })
-  )
-
-  // 3. Tool: list_rag_sources
-  ctx.tools.register(
-    defineTool({
-      name: 'list_rag_sources',
-      description: 'Lists all knowledge base folders currently indexed and available in the pgvector RAG system.',
+      name: 'get_rag_status',
+      description: 'Retrieves current pgvector database statistics, indexed folder paths, and knowledge base document counts.',
       parameters: {
         type: 'object',
         properties: {}
@@ -102,19 +83,47 @@ export function apply(ctx: Context) {
         }
 
         try {
-          const status = await ctx.rag.getStatus()
-          if (status.sources.length === 0) {
-            return 'No folders have been indexed in the RAG knowledge base yet.'
-          }
-
-          const list = status.sources.map(s => {
-            const dateStr = new Date(s.lastIndexedAt).toLocaleString()
-            return `- **${s.path}**: ${s.fileCount} files, ${s.chunkCount} chunks [Status: ${s.status}] (Last indexed: ${dateStr})`
-          }).join('\n')
-
-          return `### Indexed RAG Knowledge Sources (${status.totalDocumentsCount} total docs, ${status.totalChunksCount} chunks):\n${list}`
+          const { userId, isAdmin } = getTenantContext()
+          const status = await ctx.rag.getStatus(userId, isAdmin)
+          const sources = status.sources.map(s => ` - 📁 ${s.path} (${s.fileCount} docs, ${s.chunkCount} chunks)`).join('\n')
+          return `### RAG Status:\n- Total Documents: ${status.totalDocumentsCount}\n- Total Vectors: ${status.totalChunksCount}\n- Indexed Sources:\n${sources || ' (No sources indexed yet)'}`
         } catch (err: any) {
-          return `Error listing RAG sources: ${err.message}`
+          return `Failed to get RAG status: ${err.message}`
+        }
+      }
+    })
+  )
+
+  // 3. Tool: index_folder
+  ctx.tools.register(
+    defineTool({
+      name: 'index_folder',
+      description: 'Indexes a local workspace folder into pgvector knowledge base for semantic search, code understanding, and OCR visual retrieval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          folderPath: {
+            type: 'string',
+            description: 'Absolute path to the folder on the filesystem to index.'
+          },
+          maxFiles: {
+            type: 'number',
+            description: 'Optional maximum number of files to index.'
+          }
+        },
+        required: ['folderPath']
+      },
+      async execute({ folderPath, maxFiles }: { folderPath: string; maxFiles?: number }) {
+        if (!ctx.rag) {
+          return 'RAG service is not available.'
+        }
+
+        try {
+          const { userId } = getTenantContext()
+          const source = await ctx.rag.addAndIndexFolder(folderPath, maxFiles ? { maxFiles } : undefined, userId)
+          return `Successfully started indexing folder: ${folderPath} (Source ID: ${source.id}). Status: ${source.status}`
+        } catch (err: any) {
+          return `Failed to index folder: ${err.message}`
         }
       }
     })
@@ -148,23 +157,67 @@ export function apply(ctx: Context) {
         }
 
         try {
+          const { userId, isAdmin } = getTenantContext()
           const results = await ctx.rag.searchImages({
             textQuery: query,
             imagePath,
             topK: topK || 5
-          })
+          }, userId, isAdmin)
 
-          if (results.length === 0) {
-            return `No matching images found for query: "${query || imagePath}"`
+          if (results.length > 0) {
+            const formatted = results.map((r, i) => {
+              const sim = (r.similarity * 100).toFixed(1) + '%'
+              const ocr = r.ocrText ? `\n> **OCR Text:** ${r.ocrText.slice(0, 150)}...` : ''
+              return `${i + 1}. 🖼️ **${r.filePath}** (Similarity: ${sim})${ocr}`
+            }).join('\n\n')
+
+            return `### Found ${results.length} relevant images:\n\n${formatted}`
           }
 
-          const formatted = results.map((r, i) => {
-            const sim = (r.similarity * 100).toFixed(1) + '%'
-            const ocr = r.ocrText ? `\n> **OCR Text:** ${r.ocrText.slice(0, 150)}...` : ''
-            return `${i + 1}. 🖼️ **${r.filePath}** (Visual Similarity: ${sim})${ocr}`
-          }).join('\n\n')
+          // Fallback: search workspace and tenant uploads for image files matching keywords
+          const fallbackImages: { filePath: string; similarity: number }[] = []
+          const searchTerms = [
+            ...(query ? query.toLowerCase().split(/[\s,.-]+/).filter(t => t.length > 2) : []),
+            ...(imagePath ? [path.basename(imagePath).toLowerCase().replace(/\.[^.]+$/, '')] : [])
+          ]
 
-          return `### Found ${results.length} relevant images:\n\n${formatted}`
+          const scanDirForImages = (dir: string, depth = 0) => {
+            if (depth > 3 || !fs.existsSync(dir)) return
+            try {
+              const entries = fs.readdirSync(dir, { withFileTypes: true })
+              for (const e of entries) {
+                if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== 'dist') {
+                  scanDirForImages(path.join(dir, e.name), depth + 1)
+                } else if (e.isFile() && /\.(png|jpg|jpeg|webp|svg|gif|bmp)$/i.test(e.name)) {
+                  const full = path.join(dir, e.name)
+                  const lower = full.toLowerCase()
+                  const matches = searchTerms.some(term => lower.includes(term))
+                  if (matches || searchTerms.length === 0) {
+                    fallbackImages.push({ filePath: full, similarity: 0.85 })
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          const activeSession = (ctx as any).session?.getActiveSession?.()
+          const wsDir = activeSession?.workspace || process.cwd()
+          const uploadsDir = (ctx as any).session?.getUploadsDir?.(activeSession?.id, userId)
+
+          if (uploadsDir) scanDirForImages(uploadsDir)
+          if (wsDir) scanDirForImages(wsDir)
+
+          if (fallbackImages.length > 0) {
+            const uniqueMap = new Map<string, { filePath: string; similarity: number }>()
+            for (const f of fallbackImages) {
+              if (!uniqueMap.has(f.filePath)) uniqueMap.set(f.filePath, f)
+            }
+            const unique = Array.from(uniqueMap.values()).slice(0, topK || 5)
+            const formatted = unique.map((fp, i) => `${i + 1}. 🖼️ **${fp.filePath}** (Yerel Dizin / Yüklemeler Eşleşmesi)`).join('\n\n')
+            return `### pgvector indeksinde bulunamadı, ancak yerel çalışma alanında & yüklemelerde ${unique.length} görsel bulundu:\n\n${formatted}`
+          }
+
+          return `No matching images found for query: "${query || imagePath}". (İpucu: Görsel içeren klasörlerinizi 🧠 RAG modalından indeksleyebilirsiniz)`
         } catch (err: any) {
           return `Image search error: ${err.message}`
         }
@@ -172,4 +225,3 @@ export function apply(ctx: Context) {
     })
   )
 }
-

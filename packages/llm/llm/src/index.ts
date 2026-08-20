@@ -54,15 +54,59 @@ export class LlmService extends Service {
       headers['Authorization'] = `Bearer ${apiKey}`
     }
 
+    // Strictly sanitize messages for vLLM / OpenAI chat template:
+    // 1. Only index 0 can be 'system'
+    // 2. Any subsequent 'system' message is converted to 'user' with '[System Note]:'
+    const sanitizedMessages = messages.map((m, idx) => {
+      let role = m.role
+      let content = m.content || ''
+
+      if (role === 'system' && idx > 0) {
+        role = 'user'
+        content = `[Sistem Notu / Bağlam Özeti]:\n${content}`
+      }
+
+      // Inject explicit thinking instruction into system prompt (index 0) if present
+      if (role === 'system' && idx === 0) {
+        if (options.enableThinking === true) {
+          content += '\n\n[DÜŞÜNME / AKIL YÜRÜTME MODU: AÇIK]\nKullanıcının isteklerini yanıtlamadan önce adım adım mantığınızı ve planınızı <thought>...</thought> etiketleri içerisinde detaylı şekilde açıklayın.'
+        } else if (options.enableThinking === false) {
+          content += '\n\n[DÜŞÜNME MODU: KAPALI]\nDoğrudan, net ve öz bir yanıt verin. <thought> veya iç akıl yürütme etiketi üretmeyin.'
+        }
+      }
+
+      const item: any = { role, content }
+
+      if (m.tool_calls && Array.isArray(m.tool_calls)) {
+        item.tool_calls = m.tool_calls.map((tc: any) => {
+          let rawArgs = tc.function?.arguments || tc.arguments || '{}'
+          if (typeof rawArgs !== 'string') {
+            rawArgs = JSON.stringify(rawArgs)
+          }
+          try {
+            JSON.parse(rawArgs)
+          } catch {
+            rawArgs = JSON.stringify({ raw: String(rawArgs) })
+          }
+          return {
+            id: tc.id || `call_${Date.now()}`,
+            type: tc.type || 'function',
+            function: {
+              name: tc.function?.name || tc.name || 'tool',
+              arguments: rawArgs
+            }
+          }
+        })
+      }
+
+      if (m.tool_call_id) item.tool_call_id = m.tool_call_id
+      if (m.name) item.name = m.name
+      return item
+    })
+
     const body: Record<string, any> = {
       model: modelId,
-      messages: messages.map(m => {
-        const item: any = { role: m.role, content: m.content || '' }
-        if (m.tool_calls) item.tool_calls = m.tool_calls
-        if (m.tool_call_id) item.tool_call_id = m.tool_call_id
-        if (m.name) item.name = m.name
-        return item
-      }),
+      messages: sanitizedMessages,
       stream: true
     }
 
@@ -71,22 +115,21 @@ export class LlmService extends Service {
       body.enable_thinking = false
       body.thinking = { type: 'disabled' }
       body.reasoning_effort = 'none'
-    } else {
-      // Keep thinking strictly budgeted/constrained
-      const budget = options.thinkingBudgetTokens || 1024
+    } else if (options.enableThinking === true) {
+      const budget = options.thinkingBudgetTokens || 2048
       body.enable_thinking = true
       body.thinking = { type: 'enabled', budget_tokens: budget }
-      body.reasoning_effort = 'low'
+      body.reasoning_effort = 'medium'
       body.max_thinking_tokens = budget
     }
 
     // Dynamically calculate safe max_tokens so (input_tokens + max_tokens) never exceeds model contextWindow
-    const contextLimit = model?.contextWindow || 24576
-    const totalPayloadChars = JSON.stringify(messages).length + JSON.stringify(options.tools || []).length
+    const contextLimit = model?.contextWindow || 32768
+    const totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
     const approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
-    const safeRemainingTokens = Math.max(256, contextLimit - approxInputTokens - 512)
-    // Coding agent turns only need up to 2048 tokens per turn
-    const targetMaxTokens = Math.min(model?.maxTokens || 2048, 2048)
+    const safeRemainingTokens = Math.max(512, contextLimit - approxInputTokens - 256)
+    // Use model's configured maxTokens (default 8192), safely constrained by context window
+    const targetMaxTokens = model?.maxTokens || 8192
 
     body.max_tokens = Math.min(targetMaxTokens, safeRemainingTokens)
     body.temperature = 0.2
@@ -171,32 +214,29 @@ export class LlmService extends Service {
                 const text = delta.content
                 fullAssistantText += text
 
-                if (text.includes('<thought>') || text.includes('<think>')) {
+                if (text.includes('<thought>') || text.includes('<think>') || text.includes('<commentary>') || text.includes('<conclusion>')) {
                   inThoughtTag = true
                 }
 
                 if (inThoughtTag) {
-                  yield { type: 'thought', content: text.replace(/<\/?think>|<\/?thought>/g, '') }
-                  if (text.includes('</thought>') || text.includes('</think>')) {
+                  const cleanedThought = text.replace(/<\/?think>|<\/?thought>|<\/?commentary>|<\/?conclusion>|<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>/g, '')
+                  if (cleanedThought.trim()) {
+                    yield { type: 'thought', content: cleanedThought }
+                  }
+                  if (text.includes('</thought>') || text.includes('</think>') || text.includes('</commentary>') || text.includes('</conclusion>') || text.includes('<|im_end|>')) {
                     inThoughtTag = false
                   }
                 } else {
-                  yield { type: 'chunk', content: text }
+                  const cleanedText = text.replace(/<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>|<\/?commentary>|<\/?conclusion>/g, '')
+                  if (cleanedText) {
+                    yield { type: 'chunk', content: cleanedText }
+                  }
                 }
 
-                // Fast anti-loop guard: Break stream if fake tool outputs or repetitive blocks appear
+                // Fast anti-loop guard: Break stream if fake hallucinated raw tool delimiters appear
                 if (text.includes('eget_tool_output') || text.includes('eget_tool_call')) {
                   await reader.cancel()
                   break
-                }
-
-                if (fullAssistantText.length > 100) {
-                  const sample = fullAssistantText.slice(-35)
-                  const count = fullAssistantText.split(sample).length - 1
-                  if (count >= 3) {
-                    await reader.cancel()
-                    break
-                  }
                 }
               }
 
@@ -227,7 +267,6 @@ export class LlmService extends Service {
           if (toolName.includes('edit_file') || toolName === 'eget_file') toolName = 'edit_file'
           else if (toolName.includes('read_file') || toolName.includes('file_content')) toolName = 'read_file'
           else if (toolName.includes('write_file')) toolName = 'write_file'
-          else if (toolName.includes('finish')) toolName = 'finish_task'
           
           const rawArgs = match[2].trim()
 

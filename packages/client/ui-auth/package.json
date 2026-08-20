@@ -1,0 +1,12 @@
+{
+  "name": "@custom-harness/client-ui-auth",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "dependencies": {
+    "@custom-harness/client-ui-primitives": "workspace:*",
+    "@custom-harness/core-types": "workspace:*",
+    "react": "^18.3.1"
+  }
+}

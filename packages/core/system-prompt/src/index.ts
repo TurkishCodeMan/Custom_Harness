@@ -15,6 +15,7 @@ export class SystemPromptService extends Service {
   static inject = ['settings', 'tools']
   private sections: Map<string, PromptSection> = new Map()
   public currentSessionWorkspace?: string
+  public currentSessionAllowedTools?: string[]
 
   constructor(ctx: Context) {
     super(ctx, 'systemPrompt')
@@ -23,6 +24,10 @@ export class SystemPromptService extends Service {
 
   public setSessionWorkspace(ws: string) {
     this.currentSessionWorkspace = ws
+  }
+
+  public setAllowedTools(tools?: string[]) {
+    this.currentSessionAllowedTools = tools && tools.length > 0 ? tools : undefined
   }
 
   private registerDefaults() {
@@ -43,7 +48,7 @@ export class SystemPromptService extends Service {
       text: () => {
         const settings = this.ctx.settings?.getSettings()
         const cwd = this.currentSessionWorkspace || settings?.workspace || process.cwd()
-        return `Operating System: ${process.platform} (${process.arch})\nCurrent Working Directory: ${cwd}\nRepository Root: ${cwd}`
+        return `Operating System: ${process.platform} (${process.arch})\nCurrent Working Directory: ${cwd}\nRepository Root: ${cwd}\n\nSTRICT WORKSPACE CONFINEMENT:\n- You are STRICTLY sandboxed inside the active workspace directory: ${cwd}\n- You must ONLY search, read, write, edit, and execute commands within this workspace directory.\n- NEVER attempt to inspect or run commands on root/system folders (/etc, /root, /usr, /var, /home/user outside workspace). Sudo and privileged commands are forbidden.`
       }
     })
 
@@ -52,14 +57,43 @@ export class SystemPromptService extends Service {
       name: 'tool-guidelines',
       order: 100,
       text: () => {
-        const activeTools = this.ctx.tools?.getActiveTools() || []
+        let activeTools = this.ctx.tools?.getActiveTools() || []
+        if (this.currentSessionAllowedTools && this.currentSessionAllowedTools.length > 0) {
+          const allowedSet = new Set(this.currentSessionAllowedTools)
+          activeTools = activeTools.filter(t => allowedSet.has(t.name))
+        }
         const toolList = activeTools.map(t => `- **${t.name}**: ${t.description}`).join('\n')
         const toolNames = activeTools.map(t => `'${t.name}'`).join(', ')
         return `AVAILABLE TOOLS (${activeTools.length} Tools Currently Active):\n${toolList || '(No tools enabled)'}\n\nCRITICAL OPERATIONAL RULES:
 - You ONLY have access to the active tools listed above (${toolNames}). Do NOT attempt to invoke any other tool name.
 - ALWAYS invoke the real tool call (e.g. ${toolNames}).
 - NEVER merely write commands in plain text.
-- Inspect results, apply necessary changes, and conclude your work.`
+- Inspect tool execution results, apply necessary changes, and always provide a clear, helpful, natural language response directly to the user summarizing the result or explaining any issues.
+- When running Python scripts in bash/terminal, ALWAYS use the \`python3\` binary (e.g. \`python3 script.py\`). Do NOT use unaliased \`python\`.
+- **AD-HOC DATA ANALYSIS & EDA RULE**: When performing data analysis, EDA, SQL querying, or calculations, DO NOT litter the workspace with temporary python files unless the user explicitly asks to save a file. Run your Python code dynamically in-memory using bash (\`python3 -c "..."\` or \`python3 << 'EOF' ... EOF\`).`
+      }
+    })
+
+    // 4. Specialized Skills Catalog (110)
+    this.section({
+      name: 'skills-catalog',
+      order: 110,
+      text: () => {
+        const skillsService = (this.ctx as any).skills
+        if (!skillsService) return ''
+        const skillsList = skillsService.listActiveSkills
+          ? skillsService.listActiveSkills()
+          : (skillsService.listSkills?.() || []).filter((s: any) => s.enabled !== false)
+        if (!skillsList || skillsList.length === 0) return ''
+        const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Uzmanlık talimatı'} (Çağırmak için: \`skill(action: 'read', skillName: '${s.name}')\`)`).join('\n')
+        return `### ⚡ MEVCUT UZMANLIK BECERİLERİ (Specialized Skills Catalog):
+Aşağıda sistemde kayıtlı ve aktif uzmanlık becerileri listelenmiştir:
+${items}
+
+🚨 ZORUNLU İLK ADIM KURALI (MANDATORY SKILL PRE-LOADING):
+1. Kullanıcıdan bir görev geldiğinde (örneğin veri analizi, EDA, makine öğrenmesi, veritabanı sorgusu, grafik çizimi, model eğitme vb.), İLK İŞ OLARAK yukarıdaki beceri kataloğunu kontrol et.
+2. Görevle ilgili BİR veya BİRDEN FAZLA beceri varsa (örneğin veritabanı şeması becerisi ve pandas/ML analiz becerisi), İŞLEME BAŞLAMADAN ÖNCE mutlaka \`skill(action: 'read', skillName: '...')\` aracını çağırarak o becerilerin tam kural ve şablonlarını yükle.
+3. Becerileri yükledikten sonra, becerilerde belirtilen veritabanı bağlantılarını, doğru tablo/kolon adlarını, Python kütüphanelerini ve analiz yönergelerini eksiksiz uygulayarak görevi tamamla.`
       }
     })
   }

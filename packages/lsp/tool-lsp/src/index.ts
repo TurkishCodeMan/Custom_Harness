@@ -4,7 +4,7 @@ import type { LspOperation, LspQueryResult } from '@custom-harness/lsp'
 import path from 'node:path'
 
 export const name = 'tool-lsp'
-export const inject = ['tools', 'lsp']
+export const inject = ['tools', 'lsp', 'settings']
 
 export const LSP_OPERATIONS: readonly LspOperation[] = ['goToDefinition', 'findReferences', 'goToImplementation', 'hover']
 
