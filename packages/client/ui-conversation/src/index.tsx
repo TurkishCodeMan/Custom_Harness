@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, FormEvent, KeyboardEvent, ChangeEvent, MouseEvent } from 'react'
-import { Button, IconSend, IconStop, IconBrain, IconTerminal, IconCheck, IconCopy } from '@custom-harness/client-ui-primitives'
+import { Button, IconSend, IconStop, IconBrain, IconTerminal, IconCheck, IconCopy, IconPlus } from '@custom-harness/client-ui-primitives'
 
 export interface ToolResultItem {
   id: string
@@ -34,16 +34,20 @@ export interface ConversationTimelineProps {
   messages: ChatMessageItem[]
   isStreaming: boolean
   activePresetName?: string
+  activeModelName?: string
   pendingApproval?: ApprovalItem | null
   onRespondApproval?: (id: string, outcome: 'allow_once' | 'allow_always' | 'deny') => void
+  onQuickAction?: (promptText: string) => void
 }
 
 export function ConversationTimeline({
   messages,
   isStreaming,
-  activePresetName,
+  activePresetName = 'Full-Stack Developer',
+  activeModelName = 'Gemma 4 (27B)',
   pendingApproval,
-  onRespondApproval
+  onRespondApproval,
+  onQuickAction
 }: ConversationTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -53,64 +57,109 @@ export function ConversationTimeline({
 
   if (messages.length === 0 && !pendingApproval) {
     return (
-      <div className="welcome-hero">
-        <div className="welcome-tag">
-          <span>⚡</span>
-          <span>DeepSeek Harness Otonom Ajan</span>
+      <div className="welcome-chatgpt-hero">
+        <div className="welcome-hero-badge">
+          <span className="badge-sparkle">⚡</span>
+          <span>ArtificaX · Enterprise GPT ({activeModelName})</span>
         </div>
-        <h1 className="welcome-title">Size nasıl yardımcı olabilirim?</h1>
-        <p className="welcome-desc">
-          Kod yazma, hata ayıklama, dosya düzenleme ve terminal komutlarını otonom olarak yöneten
-          yeni nesil yapay zekâ asistanınız hazır.
+
+        <h1 className="welcome-chatgpt-title">Bugün ne inşa etmek istersiniz?</h1>
+        <p className="welcome-chatgpt-subtitle">
+          ArtificaX Enterprise GPT ile otonom kodlama, mimari analiz, hata ayıklama ve terminal yönetimi parmaklarınızın ucunda.
         </p>
-        <div className="welcome-suggestions">
-          <div className="suggestion-pill">📁 "Projedeki dosyaları listele ve incele"</div>
-          <div className="suggestion-pill">⚡ "FastAPI endpointlerine birim test yaz"</div>
-          <div className="suggestion-pill">🔍 "Son yapılan değişiklikleri kontrol et"</div>
+
+        <div className="welcome-cards-grid">
+          <div
+            className="welcome-action-card"
+            onClick={() => onQuickAction?.('Projedeki kod yapısını incele, mimariyi analiz et ve iyileştirme öner.')}
+          >
+            <div className="card-icon">🔍</div>
+            <div className="card-title">Kod Analizi & İnceleme</div>
+            <div className="card-desc">Mimariyi tara, dosya yapısını özetle ve optimizasyon önerileri sun.</div>
+          </div>
+
+          <div
+            className="welcome-action-card"
+            onClick={() => onQuickAction?.('Mevcut projedeki hataları tespit et, testleri çalıştır ve hata ayıklama yap.')}
+          >
+            <div className="card-icon">🐛</div>
+            <div className="card-title">Hata Ayıklama (Debug)</div>
+            <div className="card-desc">Logları ve hata çıktılarını inceleyerek sorunu kökünden çöz.</div>
+          </div>
+
+          <div
+            className="welcome-action-card"
+            onClick={() => onQuickAction?.('Projeye yeni bir özellik ve birim testler (unit tests) ekle.')}
+          >
+            <div className="card-icon">⚡</div>
+            <div className="card-title">Yeni Özellik Geliştir</div>
+            <div className="card-desc">Temiz kod prensipleriyle yeni fonksiyonlar ve API endpointleri yaz.</div>
+          </div>
+
+          <div
+            className="welcome-action-card"
+            onClick={() => onQuickAction?.('/goal Proje için detaylı mimari plan oluştur ve doğrulama adımlarını belirle')}
+          >
+            <div className="card-icon">📋</div>
+            <div className="card-title">Mimari Plan & Hedef</div>
+            <div className="card-desc">Büyük görevler için planlama modunu başlat ve adım adım yürüt.</div>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="chat-messages">
-      {messages.map((msg, index) => {
-        if (msg.compactionInfo) {
-          return <CompactionCard key={`compaction-${index}`} info={msg.compactionInfo} />
-        }
+    <div className="chat-messages-container">
+      <div className="chat-messages-timeline">
+        {messages.map((msg, index) => {
+          if (msg.compactionInfo) {
+            return <CompactionCard key={`compaction-${index}`} info={msg.compactionInfo} />
+          }
 
-        if (msg.role === 'user') {
-          return <UserMessageBubble key={`user-${index}`} content={msg.content || ''} />
-        }
+          if (msg.role === 'user') {
+            return <UserMessageBubble key={`user-${index}`} content={msg.content || ''} />
+          }
 
-        if (msg.role === 'assistant') {
-          return (
-            <AssistantMessageBubble
-              key={`asst-${index}`}
-              message={msg}
-              activePresetName={activePresetName}
-            />
-          )
-        }
+          if (msg.role === 'assistant') {
+            return (
+              <AssistantMessageBubble
+                key={`asst-${index}`}
+                message={msg}
+                activePresetName={activePresetName}
+              />
+            )
+          }
 
-        return null
-      })}
+          return null
+        })}
 
-      {pendingApproval && onRespondApproval && (
-        <ApprovalCard approval={pendingApproval} onRespond={onRespondApproval} />
-      )}
+        {pendingApproval && onRespondApproval && (
+          <ApprovalCard approval={pendingApproval} onRespond={onRespondApproval} />
+        )}
 
-      <div ref={bottomRef} />
+        <div ref={bottomRef} style={{ height: 40 }} />
+      </div>
     </div>
   )
 }
 
 export function UserMessageBubble({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <div className="msg-row user">
-      <div className="msg-avatar user">👤</div>
-      <div className="msg-content user">
-        <div className="msg-bubble user">{content}</div>
+    <div className="msg-row user-row">
+      <div className="user-bubble-container">
+        <div className="user-bubble-content">{content}</div>
+        <button className="btn-msg-copy" onClick={handleCopy} title="Metni Kopyala">
+          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+        </button>
       </div>
     </div>
   )
@@ -118,21 +167,34 @@ export function UserMessageBubble({ content }: { content: string }) {
 
 export function AssistantMessageBubble({
   message,
-  activePresetName = 'Deep'
+  activePresetName = 'Full-Stack Developer'
 }: {
   message: ChatMessageItem
   activePresetName?: string
 }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    if (message.content) {
+      navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   return (
-    <div className="msg-row assistant">
-      <div className="msg-avatar assistant">⚡</div>
-      <div className="msg-content assistant">
-        <div className="msg-author-tag">
-          <span>🤖</span>
-          <span>{activePresetName}</span>
+    <div className="msg-row assistant-row">
+      <div className="assistant-avatar">
+        <span className="avatar-icon">⚡</span>
+      </div>
+
+      <div className="assistant-content-wrapper">
+        <div className="assistant-meta-header">
+          <span className="assistant-name">{activePresetName}</span>
+          {message.isStreaming && <span className="streaming-dot-pulse" title="Yanıt yazılıyor..." />}
         </div>
 
-        {/* 1. Collapsible Thinking Reasoning Accordion */}
+        {/* 1. Reasoning / Thinking Accordion */}
         {message.reasoning_content && (
           <ThinkingCard reasoning={message.reasoning_content} isStreaming={message.isStreaming} />
         )}
@@ -148,8 +210,17 @@ export function AssistantMessageBubble({
 
         {/* 3. Assistant Text Content */}
         {message.content && (
-          <div className="msg-bubble assistant">
-            <div className="markdown-body" dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }} />
+          <div className="assistant-markdown-bubble">
+            <div
+              className="markdown-body"
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+            />
+            <div className="message-footer-actions">
+              <button className="btn-msg-action" onClick={handleCopy} title="Yanıtı Kopyala">
+                {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                <span>{copied ? 'Kopyalandı' : 'Kopyala'}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -180,7 +251,7 @@ export function ThinkingCard({ reasoning, isStreaming }: { reasoning: string; is
         <div className="thinking-summary-left">
           <span className="thinking-toggle-arrow">{isOpen ? '▾' : '▸'}</span>
           <IconBrain size={15} />
-          <span className="thinking-title">Düşünce Süreci (Reasoning)</span>
+          <span className="thinking-title">Düşünce Süreci (Thinking)</span>
           {isStreaming && <span className="thinking-pulse" />}
         </div>
         <div className="thinking-summary-right">
@@ -197,11 +268,7 @@ export function ThinkingCard({ reasoning, isStreaming }: { reasoning: string; is
   )
 }
 
-export function ToolCard({
-  tool
-}: {
-  tool: ToolResultItem
-}) {
+export function ToolCard({ tool }: { tool: ToolResultItem }) {
   const isDone = tool.status === 'done' || (tool.output !== undefined && tool.status !== 'error')
   const isError = tool.status === 'error'
   const pillClass = isDone ? 'done' : isError ? 'error' : 'running'
@@ -292,7 +359,7 @@ const UI_SLASH_COMMANDS = [
   { cmd: '/yolo', desc: 'YOLO / Auto-Approve modu (Tüm izinleri otomatik onayla)', icon: '⚡' },
   { cmd: '/think ', desc: 'Model düşünme yeteneğini aç/kapat (/think on|off)', icon: '💭' },
   { cmd: '/goal ', desc: 'Otonom hedef tanımla ve çalıştır (/goal <hedef>)', icon: '🎯' },
-  { cmd: '/mode ', desc: 'Çalışma motorunu değiştir (/mode full | minimal | code)', icon: '⚙️ ' },
+  { cmd: '/mode ', desc: 'Çalışma motorunu değiştir (/mode full | minimal | code)', icon: '⚙️' },
   { cmd: '/compact', desc: 'Sohbet geçmişini özetle ve bağlamı temizle', icon: '📦' },
   { cmd: '/tokens', desc: 'Canlı token tüketimini ölç', icon: '📊' },
   { cmd: '/clear', desc: 'Sohbet ekranını temizle', icon: '🧹' },
@@ -304,9 +371,16 @@ export interface InputAreaProps {
   onStop: () => void
   isStreaming: boolean
   disabled?: boolean
+  tokenInfo?: { usedTokens?: number; maxTokens?: number; pct?: number }
 }
 
-export function InputArea({ onSendMessage, onStop, isStreaming, disabled }: InputAreaProps) {
+export function InputArea({
+  onSendMessage,
+  onStop,
+  isStreaming,
+  disabled,
+  tokenInfo
+}: InputAreaProps) {
   const [text, setText] = useState('')
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -342,7 +416,7 @@ export function InputArea({ onSendMessage, onStop, isStreaming, disabled }: Inpu
     setText(val)
     setShowSlashMenu(val.startsWith('/'))
     e.target.style.height = 'auto'
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 220)}px`
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
   }
 
   const handleSelectCommand = (cmd: string) => {
@@ -354,7 +428,7 @@ export function InputArea({ onSendMessage, onStop, isStreaming, disabled }: Inpu
   }
 
   return (
-    <div className="input-container-wrapper">
+    <div className="floating-input-pill-wrapper">
       {showSlashMenu && filteredCommands.length > 0 && (
         <div className="slash-menu-popup">
           <div className="slash-menu-header">
@@ -377,36 +451,73 @@ export function InputArea({ onSendMessage, onStop, isStreaming, disabled }: Inpu
         </div>
       )}
 
-      <form className="input-card" onSubmit={handleSubmit}>
+      {/* ChatGPT / OpenWebUI Floating Pill Input */}
+      <form className="floating-input-pill" onSubmit={handleSubmit}>
+        <div className="pill-left-actions">
+          <button
+            type="button"
+            className="btn-pill-icon"
+            title="Komut Menüsü (/)"
+            onClick={() => {
+              setText('/')
+              setShowSlashMenu(true)
+              textareaRef.current?.focus()
+            }}
+          >
+            <IconPlus size={16} />
+          </button>
+        </div>
+
         <textarea
           ref={textareaRef}
-          className="prompt-textarea"
-          placeholder="Bir görev verin veya soru sorun... (/ yazarak komut menüsünü açabilirsiniz)"
+          className="pill-textarea"
+          placeholder="Bir görev verin, kod yazdırın veya soru sorun... (/ ile komutlar)"
           rows={1}
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           disabled={disabled}
         />
-        <div className="input-controls">
-          <div className="input-hint">
-            <kbd>↵</kbd> Gönder &nbsp;·&nbsp; <kbd>/</kbd> Komut Menüsü &nbsp;·&nbsp; <kbd>Shift</kbd> + <kbd>↵</kbd> Yeni Satır
-          </div>
-          <div className="input-actions">
-            {isStreaming ? (
-              <Button variant="danger" size="sm" onClick={onStop} title="Durdur">
-                <IconStop size={15} />
-                <span>Durdur</span>
-              </Button>
-            ) : (
-              <Button variant="primary" size="sm" type="submit" disabled={!text.trim() || disabled}>
-                <IconSend size={15} />
-                <span>Gönder</span>
-              </Button>
-            )}
-          </div>
+
+        <div className="pill-right-actions">
+          {isStreaming ? (
+            <button
+              type="button"
+              className="btn-pill-stop"
+              onClick={onStop}
+              title="Üretimi Durdur"
+            >
+              <div className="stop-square" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className={`btn-pill-send ${text.trim() ? 'active' : ''}`}
+              disabled={!text.trim() || disabled}
+              title="Gönder (Enter)"
+            >
+              <IconSend size={16} />
+            </button>
+          )}
         </div>
       </form>
+
+      {/* Minimal Token Meter & Hint bar below the input */}
+      <div className="input-sub-bar">
+        <div className="input-sub-hint">
+          <span><kbd>Enter</kbd> Gönder</span>
+          <span><kbd>Shift+Enter</kbd> Yeni Satır</span>
+          <span><kbd>/</kbd> Komutlar</span>
+        </div>
+
+        {tokenInfo && tokenInfo.usedTokens !== undefined && (
+          <div className="input-sub-tokens">
+            <span className="token-dot" />
+            <span>{tokenInfo.usedTokens.toLocaleString()} / {(tokenInfo.maxTokens || 32768).toLocaleString()} tokens</span>
+            {tokenInfo.pct !== undefined && <span className="token-pct">({tokenInfo.pct}%)</span>}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -418,13 +529,18 @@ function formatMarkdown(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
 
-  // Code blocks
+  // Code blocks with header and language
   html = html.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, (_match, lang, code) => {
-    return `<div class="code-block-wrapper"><div class="code-header"><span>${lang || 'code'}</span></div><pre><code>${code}</code></pre></div>`
+    return `<div class="code-block-wrapper"><div class="code-header"><span class="code-lang">${lang || 'text'}</span><button class="btn-code-copy" onclick="navigator.clipboard.writeText(this.closest('.code-block-wrapper').querySelector('code').innerText);this.innerText='Kopyalandı!';setTimeout(()=>this.innerText='Kopyala',2000)">Kopyala</button></div><pre><code>${code}</code></pre></div>`
   })
 
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>')
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>')
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>')
 
   // Bold & Italic
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')

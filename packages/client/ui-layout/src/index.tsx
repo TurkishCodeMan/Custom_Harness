@@ -1,15 +1,24 @@
-import React, { ReactNode, useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Button, IconSettings, Badge, Modal } from '@custom-harness/client-ui-primitives'
 
+export type ReactNode = any
+
 export interface AppFrameProps {
-  sidebar: ReactNode
-  header: ReactNode
-  children: ReactNode
+  sidebar: any
+  header: any
+  children: any
+  isSidebarOpen?: boolean
+  onToggleSidebar?: () => void
 }
 
-export function AppFrame({ sidebar, header, children }: AppFrameProps) {
+export function AppFrame({
+  sidebar,
+  header,
+  children,
+  isSidebarOpen = true
+}: AppFrameProps) {
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
       {sidebar}
       <div className="main-content">
         {header}
@@ -23,52 +32,186 @@ export interface HeaderProps {
   workspace: string
   activeModelName?: string
   activePresetName?: string
+  availableModels?: string[]
+  onSelectModel?: (model: string) => void
+  availablePresets?: string[]
+  onSelectPreset?: (preset: string) => void
   onOpenSettings: () => void
   onOpenWorkspace?: () => void
+  onOpenRag?: () => void
+  onOpenSkills?: () => void
+  isRagActive?: boolean
   isConnected: boolean
+  isSidebarOpen?: boolean
+  onToggleSidebar?: () => void
 }
 
 export function Header({
   workspace,
-  activeModelName = 'Custom LLM',
+  activeModelName = 'Gemma 4 (27B)',
   activePresetName = 'Full-Stack Developer',
+  availableModels = ['gemma-4-abliterated', 'Qwen3.8-27B', 'DeepSeek-V3', 'Claude-3.5-Sonnet'],
+  onSelectModel,
+  availablePresets = ['Full-Stack Developer', 'Architect & Planner', 'Bug Hunter & QA', 'Code Reviewer'],
+  onSelectPreset,
   onOpenSettings,
   onOpenWorkspace,
-  isConnected
+  onOpenRag,
+  onOpenSkills,
+  isRagActive = false,
+  isConnected,
+  isSidebarOpen = true,
+  onToggleSidebar
 }: HeaderProps) {
-  const folderName = workspace.split('/').filter(Boolean).pop() || workspace || 'Workspace'
+  const folderName = workspace ? (workspace.split('/').filter(Boolean).pop() || workspace) : 'Workspace'
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
+  const [isPresetDropdownOpen, setIsPresetDropdownOpen] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+  const presetMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false)
+      }
+      if (presetMenuRef.current && !presetMenuRef.current.contains(e.target as Node)) {
+        setIsPresetDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <header className="app-header">
+      {/* Left: Sidebar Toggle & Model Selector */}
       <div className="header-left">
-        <div
-          className="workspace-badge"
-          title={`Çalışma alanını değiştirmek için tıklayın: ${workspace}`}
-          onClick={onOpenWorkspace}
-          style={{ cursor: 'pointer' }}
-        >
-          <span className="ws-icon">📂</span>
-          <span className="ws-name">{folderName}</span>
-          <span className="ws-edit-hint">✎</span>
+        {onToggleSidebar && (
+          <button
+            className="btn-sidebar-toggle"
+            onClick={onToggleSidebar}
+            title={isSidebarOpen ? 'Kenar Çubuğunu Gizle' : 'Kenar Çubuğunu Göster'}
+          >
+            <span className="toggle-icon">☰</span>
+          </button>
+        )}
+
+        {/* Model Selector Dropdown (ChatGPT / OpenWebUI Style) */}
+        <div className="header-model-selector" ref={modelMenuRef}>
+          <button
+            className="btn-model-dropdown"
+            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+            title="Aktif Yapay Zeka Modelini Değiştir"
+          >
+            <span className="model-logo-icon">⚡</span>
+            <span className="model-dropdown-name">{activeModelName}</span>
+            <span className="dropdown-arrow">{isModelDropdownOpen ? '▴' : '▾'}</span>
+          </button>
+
+          {isModelDropdownOpen && (
+            <div className="model-dropdown-menu">
+              <div className="dropdown-header">Modeller & Sağlayıcılar</div>
+              {availableModels.map(m => (
+                <div
+                  key={m}
+                  className={`model-menu-item ${m === activeModelName ? 'selected' : ''}`}
+                  onClick={() => {
+                    onSelectModel?.(m)
+                    setIsModelDropdownOpen(false)
+                  }}
+                >
+                  <span className="model-item-icon">⚡</span>
+                  <div className="model-item-details">
+                    <span className="model-item-title">{m}</span>
+                    <span className="model-item-sub">Yerel & Yüksek Performans</span>
+                  </div>
+                  {m === activeModelName && <span className="item-check">✓</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="header-divider" />
-        <div className="model-status-pill">
-          <span className="model-icon">⚡</span>
-          <span className="model-name">{activeModelName}</span>
+
+        {/* Persona / Preset Dropdown */}
+        <div className="header-preset-selector" ref={presetMenuRef}>
+          <button
+            className="btn-preset-dropdown"
+            onClick={() => setIsPresetDropdownOpen(!isPresetDropdownOpen)}
+            title="Ajan Rolünü / Uzmanlığını Değiştir"
+          >
+            <span className="preset-icon">👤</span>
+            <span className="preset-name">{activePresetName}</span>
+            <span className="dropdown-arrow">{isPresetDropdownOpen ? '▴' : '▾'}</span>
+          </button>
+
+          {isPresetDropdownOpen && (
+            <div className="model-dropdown-menu">
+              <div className="dropdown-header">Ajan Uzmanlık Rolleri</div>
+              {availablePresets.map(p => (
+                <div
+                  key={p}
+                  className={`model-menu-item ${p === activePresetName ? 'selected' : ''}`}
+                  onClick={() => {
+                    onSelectPreset?.(p)
+                    setIsPresetDropdownOpen(false)
+                  }}
+                >
+                  <span className="model-item-icon">🎯</span>
+                  <div className="model-item-details">
+                    <span className="model-item-title">{p}</span>
+                  </div>
+                  {p === activePresetName && <span className="item-check">✓</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Right: Workspace, RAG, Skills, Status & Settings */}
       <div className="header-right">
-        <Badge variant="purple" icon="👤">
-          {activePresetName}
-        </Badge>
-        <div className="connection-status">
+        {workspace && (
+          <div
+            className="workspace-badge"
+            title={`Çalışma Alanı: ${workspace}`}
+            onClick={onOpenWorkspace}
+          >
+            <span className="ws-icon">📂</span>
+            <span className="ws-name">{folderName}</span>
+          </div>
+        )}
+
+        {onOpenSkills && (
+          <button
+            className="btn-header-action"
+            onClick={onOpenSkills}
+            title="Uzmanlık Becerileri (Skills)"
+          >
+            <span className="action-icon">✨</span>
+            <span className="action-label">Beceriler</span>
+          </button>
+        )}
+
+        {onOpenRag && (
+          <button
+            className={`btn-header-action ${isRagActive ? 'rag-active' : ''}`}
+            onClick={onOpenRag}
+            title="RAG Bilgi Tabanı & Vektör Bellek"
+          >
+            <span className="action-icon">🧠</span>
+            <span className="action-label">RAG</span>
+            {isRagActive && <span className="action-dot" />}
+          </button>
+        )}
+
+        <div className="connection-status" title={isConnected ? 'Sunucuya Bağlı' : 'Bağlantı Kesildi'}>
           <span className={`status-pulse ${isConnected ? 'online' : 'offline'}`} />
-          <span className="status-label">{isConnected ? 'Bağlandı' : 'Bağlantı Kesildi'}</span>
+          <span className="status-label">{isConnected ? 'Online' : 'Offline'}</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={onOpenSettings} title="Ayarlar">
-          <IconSettings size={18} />
-        </Button>
+
+        <button className="btn-header-settings" onClick={onOpenSettings} title="Sistem Ayarları">
+          <IconSettings size={17} />
+        </button>
       </div>
     </header>
   )

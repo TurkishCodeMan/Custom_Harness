@@ -108,6 +108,19 @@ export class SessionService extends Service {
     }
   }
 
+  public clearAllSessions() {
+    this.sessions.clear()
+    this.ensureDir()
+    try {
+      const files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'))
+      for (const f of files) {
+        try {
+          fs.unlinkSync(path.join(SESSIONS_DIR, f))
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
   public setSessionWorkspace(sessionId: string, workspace: string) {
     const session = this.getSession(sessionId)
     if (session) {

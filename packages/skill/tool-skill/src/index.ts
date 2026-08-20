@@ -21,41 +21,34 @@ export class SkillsService extends Service {
     this.discover()
   }
 
-  public discover(targetDir?: string) {
-    this.skills.clear()
-
-    const activeWorkspace = targetDir || process.env.WORKSPACE_DIR || process.cwd()
-    const searchDirs: string[] = []
-
-    // 1. custom-harness ana çalıştırma dizini (.agents/skills)
-    let frameworkRoot = path.resolve(__dirname)
-    while (frameworkRoot && frameworkRoot !== path.dirname(frameworkRoot)) {
-      const harnessSkills = path.join(frameworkRoot, '.agents', 'skills')
-      if (fs.existsSync(harnessSkills) && !searchDirs.includes(harnessSkills)) {
-        searchDirs.push(harnessSkills)
-        break
-      }
-      frameworkRoot = path.dirname(frameworkRoot)
-    }
-
-    // 2. Aktif çalışılan proje/workspace dizini (.agents/skills)
-    let cur = path.resolve(activeWorkspace)
+  public getHarnessRoot(): string {
+    let cur = path.resolve(__dirname)
     while (cur && cur !== path.dirname(cur)) {
-      const candidate = path.join(cur, '.agents', 'skills')
-      if (fs.existsSync(candidate) && !searchDirs.includes(candidate)) {
-        searchDirs.push(candidate)
+      if (fs.existsSync(path.join(cur, 'package.json')) && fs.existsSync(path.join(cur, 'packages'))) {
+        return cur
       }
       cur = path.dirname(cur)
     }
+    return process.env.WORKSPACE_DIR || process.cwd()
+  }
 
-    // 3. Global kullanıcı dizini (~/.agents/skills)
-    const userGlobalSkills = path.join(os.homedir(), '.agents', 'skills')
-    if (fs.existsSync(userGlobalSkills) && !searchDirs.includes(userGlobalSkills)) {
-      searchDirs.push(userGlobalSkills)
+  public discover(targetDir?: string) {
+    this.skills.clear()
+
+    const harnessRoot = this.getHarnessRoot()
+    const searchDirs: string[] = []
+
+    const addCandidate = (p: string) => {
+      if (p && !searchDirs.includes(p) && fs.existsSync(p)) {
+        searchDirs.push(p)
+      }
     }
 
+    // Yalnızca custom-harness proje ana dizinindeki .agents/skills ve skills klasörleri
+    addCandidate(path.join(harnessRoot, '.agents', 'skills'))
+    addCandidate(path.join(harnessRoot, 'skills'))
+
     for (const baseDir of searchDirs) {
-      if (!fs.existsSync(baseDir)) continue
       try {
         const entries = fs.readdirSync(baseDir, { withFileTypes: true })
         for (const entry of entries) {
@@ -79,14 +72,17 @@ export class SkillsService extends Service {
       let description = ''
       let content = raw
 
-      if (raw.startsWith('---')) {
-        const parts = raw.split('---')
+      const trimmed = raw.trim()
+      if (trimmed.startsWith('---')) {
+        const parts = trimmed.split('---')
         if (parts.length >= 3) {
-          const frontmatter = YAML.parse(parts[1])
-          if (frontmatter) {
-            name = frontmatter.name || id
-            description = frontmatter.description || ''
-          }
+          try {
+            const frontmatter = YAML.parse(parts[1])
+            if (frontmatter && typeof frontmatter === 'object') {
+              name = frontmatter.name || id
+              description = frontmatter.description || ''
+            }
+          } catch {}
           content = parts.slice(2).join('---').trim()
         }
       }
@@ -109,6 +105,140 @@ export class SkillsService extends Service {
 
   public getSkill(id: string): SkillItem | undefined {
     return this.skills.get(id)
+  }
+
+  public getSkillRaw(id: string): { raw: string; filePath: string } | undefined {
+    const skill = this.skills.get(id)
+    if (!skill || !skill.filePath || !fs.existsSync(skill.filePath)) return undefined
+    return {
+      raw: fs.readFileSync(skill.filePath, 'utf8'),
+      filePath: skill.filePath
+    }
+  }
+
+  public getDefaultTemplate(name = 'yeni-beceri', description = 'Bu becerinin ne yaptığı ve ne zaman kullanılacağı'): string {
+    return `---
+name: ${name}
+description: ${description}
+version: 1.0.0
+---
+
+# ${name.toUpperCase()} Uzmanlık Becerisi
+
+Bu beceri aktif edildiğinde aşağıdaki adımları ve kuralları izleyin:
+
+## 1. Amaç & Kapsam
+${description}
+
+## 2. Talimatlar ve İş Akışı
+1. Kullanıcıdan gelen isteği ve ilgili dosyaları analiz et.
+2. İşlemi en iyi standartlara uygun olarak tamamla.
+3. Çıktıyı açık ve anlaşılır şekilde kullanıcıya sun.
+`
+  }
+
+  public createSkill(params: {
+    id: string
+    name: string
+    description: string
+    content?: string
+    rawContent?: string
+    isGlobal?: boolean
+    workspaceDir?: string
+  }): SkillItem {
+    const skillId = params.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    if (!skillId) throw new Error('Geçerli bir beceri ID/adı belirtilmelidir.')
+
+    const harnessRoot = this.getHarnessRoot()
+    const baseDir = path.join(harnessRoot, '.agents', 'skills')
+
+    const skillDir = path.join(baseDir, skillId)
+    if (!fs.existsSync(skillDir)) {
+      fs.mkdirSync(skillDir, { recursive: true })
+    }
+
+    const filePath = path.join(skillDir, 'SKILL.md')
+    const finalContent = params.rawContent || `---
+name: ${params.name || skillId}
+description: ${params.description || ''}
+version: 1.0.0
+---
+
+${params.content || this.getDefaultTemplate(params.name || skillId, params.description)}`
+
+    fs.writeFileSync(filePath, finalContent, 'utf8')
+    this.discover()
+
+    const created = this.getSkill(skillId)
+    if (!created) {
+      throw new Error(`Beceri oluşturuldu ancak yüklenemedi: ${skillId}`)
+    }
+    return created
+  }
+
+  public updateSkill(id: string, params: {
+    name?: string
+    description?: string
+    content?: string
+    rawContent?: string
+    workspaceDir?: string
+  }): SkillItem {
+    this.discover()
+    let skill = this.skills.get(id) || Array.from(this.skills.values()).find(s => s.name === id || s.id === id)
+    if (!skill || !skill.filePath) {
+      const candidate = path.join(this.getHarnessRoot(), '.agents', 'skills', id, 'SKILL.md')
+      if (fs.existsSync(candidate)) {
+        this.loadSkill(id, candidate)
+        skill = this.skills.get(id)
+      }
+    }
+    if (!skill || !skill.filePath) {
+      throw new Error(`Güncellenecek beceri bulunamadı: ${id}`)
+    }
+
+    let finalContent = ''
+    if (params.rawContent) {
+      finalContent = params.rawContent
+    } else {
+      const name = params.name || skill.name || id
+      const description = params.description !== undefined ? params.description : (skill.description || '')
+      const body = params.content !== undefined ? params.content : skill.content
+      finalContent = `---
+name: ${name}
+description: ${description}
+---
+
+${body}`
+    }
+
+    fs.writeFileSync(skill.filePath, finalContent, 'utf8')
+    this.discover()
+
+    return this.getSkill(id) || skill
+  }
+
+  public deleteSkill(id: string, workspaceDir?: string): boolean {
+    this.discover()
+    let skill = this.skills.get(id) || Array.from(this.skills.values()).find(s => s.name === id || s.id === id)
+    if (!skill || !skill.filePath) {
+      const candidate = path.join(this.getHarnessRoot(), '.agents', 'skills', id, 'SKILL.md')
+      if (fs.existsSync(candidate)) {
+        this.loadSkill(id, candidate)
+        skill = this.skills.get(id)
+      }
+    }
+    if (!skill || !skill.filePath) {
+      throw new Error(`Silinecek beceri bulunamadı: ${id}`)
+    }
+
+    const skillDir = path.dirname(skill.filePath)
+    if (fs.existsSync(skillDir)) {
+      fs.rmSync(skillDir, { recursive: true, force: true })
+    }
+
+    this.skills.delete(id)
+    this.discover()
+    return true
   }
 }
 

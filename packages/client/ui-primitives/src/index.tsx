@@ -1,10 +1,12 @@
-import React, { ReactNode, useEffect } from 'react'
+import React, { useEffect } from 'react'
+
+export type ReactNode = any
 
 // --- 1. Button Component ---
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'icon'
   size?: 'sm' | 'md' | 'lg'
-  children: ReactNode
+  children?: any
 }
 
 export function Button({ variant = 'secondary', size = 'md', className = '', children, ...props }: ButtonProps) {
@@ -19,9 +21,9 @@ export function Button({ variant = 'secondary', size = 'md', className = '', chi
 // --- 2. Badge Component ---
 export interface BadgeProps {
   variant?: 'default' | 'success' | 'warning' | 'purple' | 'cyan' | 'danger'
-  children: ReactNode
+  children: any
   className?: string
-  icon?: ReactNode
+  icon?: any
 }
 
 export function Badge({ variant = 'default', children, className = '', icon }: BadgeProps) {
@@ -37,9 +39,9 @@ export function Badge({ variant = 'default', children, className = '', icon }: B
 export interface ModalProps {
   isOpen: boolean
   onClose: () => void
-  title: ReactNode
-  children: ReactNode
-  footer?: ReactNode
+  title: any
+  children: any
+  footer?: any
   maxWidth?: string
 }
 

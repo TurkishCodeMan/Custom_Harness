@@ -13,6 +13,7 @@ import type { RepeatToolGuardService } from '@custom-harness/guard-repeat-tool-r
 import type { ToolResultPrunerService } from '@custom-harness/compaction-tool-result-pruner'
 import type { CompactionBasicService } from '@custom-harness/compaction-basic'
 import type { SpillService } from '@custom-harness/spill'
+import type { RagService } from '@custom-harness/rag'
 
 declare module 'cordis' {
   interface Events {
@@ -48,6 +49,7 @@ declare module 'cordis' {
     subprocess: any
     approval: any
     spillStore: SpillService
+    rag: RagService
   }
 }
 

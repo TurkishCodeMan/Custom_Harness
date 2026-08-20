@@ -9,6 +9,8 @@
     "start": "pnpm --filter @custom-harness/cli start",
     "web": "pnpm --filter @custom-harness/web dev",
     "cli": "pnpm --filter @custom-harness/cli dev",
+    "rag:db": "docker compose -f docker-compose.rag.yml up -d",
+    "rag:db:stop": "docker compose -f docker-compose.rag.yml down",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

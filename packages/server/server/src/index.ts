@@ -20,7 +20,7 @@ const possibleUiDirs = [
 const UI_DIR = possibleUiDirs.find((d: string) => fs.existsSync(path.join(d, 'index.html'))) || possibleUiDirs[0]
 
 export const name = 'server'
-export const inject = ['settings', 'tools', 'llm', 'agent', 'session', 'skills', 'tokenMeter', 'agentPresets', 'persona', 'userQuestions', 'approval']
+export const inject = ['settings', 'tools', 'llm', 'agent', 'session', 'skills', 'tokenMeter', 'agentPresets', 'persona', 'userQuestions', 'approval', 'rag']
 
 export function apply(ctx: Context) {
   const app = express()
@@ -130,6 +130,16 @@ export function apply(ctx: Context) {
     res.json({ success: true })
   })
 
+  app.delete('/api/sessions', (req, res) => {
+    ctx.session.clearAllSessions()
+    res.json({ success: true })
+  })
+
+  app.post('/api/sessions/clear', (req, res) => {
+    ctx.session.clearAllSessions()
+    res.json({ success: true })
+  })
+
   // 3. Workspace Endpoints
   app.get('/api/workspace', (req, res) => {
     const settings = ctx.settings.getSettings()
@@ -155,16 +165,26 @@ export function apply(ctx: Context) {
       }
       targetPath = path.resolve(targetPath)
 
-      const entries = fs.readdirSync(targetPath, { withFileTypes: true })
+      // If targetPath is a file, use its dirname for browsing
+      const stat = fs.statSync(targetPath)
+      const dirToRead = stat.isFile() ? path.dirname(targetPath) : targetPath
+
+      const entries = fs.readdirSync(dirToRead, { withFileTypes: true })
       const directories = entries
         .filter(e => e.isDirectory() && !e.name.startsWith('.'))
         .map(e => e.name)
         .sort()
 
+      const files = entries
+        .filter(e => e.isFile() && !e.name.startsWith('.'))
+        .map(e => e.name)
+        .sort()
+
       res.json({
-        current: targetPath,
-        parent: path.dirname(targetPath),
-        directories
+        current: dirToRead,
+        parent: path.dirname(dirToRead),
+        directories,
+        files
       })
     } catch (e: any) {
       res.status(500).json({ error: e.message })
@@ -183,13 +203,6 @@ export function apply(ctx: Context) {
       return res.json({ success: true, workspace: resolved, skills: ctx.skills.listSkills() })
     }
     res.status(400).json({ error: 'Geçersiz dizin yolu' })
-  })
-
-  // 4. Skills Endpoints
-  app.get('/api/skills', (req, res) => {
-    const ws = (req.query.workspace as string) || ctx.settings.getWorkspace()
-    ctx.skills.discover(ws)
-    res.json(ctx.skills.listSkills())
   })
 
   // 5. Token Meter & Context Endpoints
@@ -276,7 +289,250 @@ export function apply(ctx: Context) {
     }
   })
 
+  // 6.5. Skills Management Endpoints
+  const getSkillsService = () => (ctx.root as any)?.skills || (ctx as any)?.skills || (ctx as any)?.get?.('skills')
+
+  app.get('/api/skills', (req, res) => {
+    try {
+      const skills = getSkillsService()
+      if (!skills) return res.status(503).json({ error: 'Skills service not loaded' })
+      const list = skills.listSkills().map((s: any) => {
+        const rawInfo = skills.getSkillRaw(s.id)
+        return {
+          ...s,
+          rawContent: rawInfo?.raw || `---
+name: ${s.name}
+description: ${s.description}
+---
+
+${s.content}`
+        }
+      })
+      res.json({
+        skills: list,
+        template: skills.getDefaultTemplate()
+      })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.get('/api/skills/template', (req, res) => {
+    try {
+      const skills = getSkillsService()
+      const name = (req.query.name as string) || 'yeni-beceri'
+      const desc = (req.query.description as string) || 'Bu becerinin ne yaptığı ve ne zaman kullanılacağı'
+      const tpl = skills ? skills.getDefaultTemplate(name, desc) : `---
+name: ${name}
+description: ${desc}
+version: 1.0.0
+---
+
+# ${name.toUpperCase()} Uzmanlık Becerisi
+`
+      res.json({ template: tpl })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/skills', (req, res) => {
+    try {
+      const skills = getSkillsService()
+      if (!skills) return res.status(503).json({ error: 'Skills service not loaded' })
+      const { id, name, description, content, rawContent, isGlobal } = req.body
+      if (!name && !id) return res.status(400).json({ error: 'Beceri adı/ID zorunludur' })
+      const skillId = (id || name).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+      const ws = (req.query.workspace as string) || ctx.settings.getWorkspace()
+      const created = skills.createSkill({
+        id: skillId,
+        name: name || skillId,
+        description: description || '',
+        content,
+        rawContent,
+        isGlobal: Boolean(isGlobal),
+        workspaceDir: ws
+      })
+      res.json({ success: true, skill: created })
+    } catch (e: any) {
+      res.status(400).json({ error: e.message })
+    }
+  })
+
+  app.put('/api/skills/:id', (req, res) => {
+    try {
+      const skills = getSkillsService()
+      if (!skills) return res.status(503).json({ error: 'Skills service not loaded' })
+      const { name, description, content, rawContent } = req.body
+      const ws = (req.query.workspace as string) || ctx.settings.getWorkspace()
+      const updated = skills.updateSkill(req.params.id, {
+        name,
+        description,
+        content,
+        rawContent,
+        workspaceDir: ws
+      })
+      res.json({ success: true, skill: updated })
+    } catch (e: any) {
+      res.status(400).json({ error: e.message })
+    }
+  })
+
+  app.delete('/api/skills/:id', (req, res) => {
+    try {
+      const skills = getSkillsService()
+      if (!skills) return res.status(503).json({ error: 'Skills service not loaded' })
+      const ws = (req.query.workspace as string) || ctx.settings.getWorkspace()
+      skills.deleteSkill(req.params.id, ws)
+      res.json({ success: true })
+    } catch (e: any) {
+      res.status(400).json({ error: e.message })
+    }
+  })
+
   let basePort = process.env.PORT ? parseInt(process.env.PORT) : 3080
+
+  // 7. RAG Knowledge & pgvector Endpoints
+  const getRagService = () => (ctx.root as any)?.rag || (ctx as any)?.rag || (ctx as any)?.get?.('rag')
+
+  app.get('/api/rag/status', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const status = await rag.getStatus()
+      res.json(status)
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/index', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const { path: folderPath, config } = req.body
+      if (!folderPath) return res.status(400).json({ error: 'folderPath is required' })
+      const source = await rag.addAndIndexFolder(folderPath, config)
+      res.json({ success: true, source })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/search', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const { query, topK, filePathPrefix } = req.body
+      if (!query) return res.status(400).json({ error: 'query is required' })
+      const results = await rag.search({ query, topK, filePathPrefix })
+      res.json({ results })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/search-images', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const { textQuery, imagePath, topK } = req.body
+      if (!textQuery && !imagePath) return res.status(400).json({ error: 'textQuery or imagePath is required' })
+      const results = await rag.searchImages({ textQuery, imagePath, topK })
+      res.json({ results })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/remove', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const { id, path: folderPath } = req.body
+      await rag.removeFolder(id || folderPath)
+      res.json({ success: true })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/clear', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      await rag.clearAll()
+      res.json({ success: true })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/mode', (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      const { enabled } = req.body
+      rag.setRagMode(Boolean(enabled))
+      res.json({ success: true, ragMode: rag.isRagMode() })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/config', (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      rag.setResourceConfig(req.body || {})
+      res.json({ success: true })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.get('/api/rag/progress', (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      res.json(rag.getProgress ? rag.getProgress() : { status: 'idle', percent: 0 })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/pause', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      if (rag.pauseIndexing) await rag.pauseIndexing()
+      res.json({ success: true, progress: rag.getProgress?.() })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/resume', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      if (rag.resumeIndexing) await rag.resumeIndexing()
+      res.json({ success: true, progress: rag.getProgress?.() })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  app.post('/api/rag/cancel', async (req, res) => {
+    try {
+      const rag = getRagService()
+      if (!rag) return res.status(503).json({ error: 'RAG service not loaded' })
+      if (rag.cancelIndexing) await rag.cancelIndexing()
+      res.json({ success: true, progress: rag.getProgress?.() })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
 
   function startListening(targetPort: number) {
     const server = http.createServer(app)
@@ -326,6 +582,14 @@ export function apply(ctx: Context) {
       for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({ type: 'approval_request', request }))
+        }
+      }
+    })
+
+    ctx.on('rag/progress' as any, (progress: any) => {
+      for (const client of wss.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'rag_progress', progress }))
         }
       }
     })

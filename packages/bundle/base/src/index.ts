@@ -34,6 +34,9 @@ import * as mcpClient from '@custom-harness/mcp-client'
 import * as toolGoal from '@custom-harness/tool-goal'
 import * as toolSessionQuery from '@custom-harness/tool-session-query'
 import * as toolFsSearch from '@custom-harness/tool-fs-search'
+import * as rag from '@custom-harness/rag'
+import * as ragPgVector from '@custom-harness/rag-pgvector'
+import * as toolRag from '@custom-harness/tool-rag'
 
 export const name = 'bundle-base'
 
@@ -48,6 +51,8 @@ export async function apply(ctx: Context) {
   await ctx.plugin(userApproval)
   await ctx.plugin(userQuestions)
   await ctx.plugin(lsp)
+  await ctx.plugin(rag)
+  await ctx.plugin(ragPgVector)
 
   // 2. Core Infrastructure & Services
   await ctx.plugin(settings)
@@ -78,5 +83,7 @@ export async function apply(ctx: Context) {
   await ctx.plugin(toolSubagent)
   await ctx.plugin(toolSessionQuery)
   await ctx.plugin(toolFsSearch)
+  await ctx.plugin(toolRag)
 }
+
 

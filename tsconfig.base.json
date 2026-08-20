@@ -70,7 +70,11 @@
       "@custom-harness/mcp-client": ["./packages/mcp/mcp-client/src/index.ts"],
       "@custom-harness/tool-goal": ["./packages/goal/tool-goal/src/index.ts"],
       "@custom-harness/tool-session-query": ["./packages/session-query/tool-session-query/src/index.ts"],
-      "@custom-harness/tool-fs-search": ["./packages/fs/tool-fs-search/src/index.ts"]
+      "@custom-harness/tool-fs-search": ["./packages/fs/tool-fs-search/src/index.ts"],
+      "@custom-harness/rag": ["./packages/rag/rag/src/index.ts"],
+      "@custom-harness/rag-vllm": ["./packages/rag/rag-vllm/src/index.ts"],
+      "@custom-harness/rag-pgvector": ["./packages/rag/rag-pgvector/src/index.ts"],
+      "@custom-harness/tool-rag": ["./packages/rag/tool-rag/src/index.ts"]
     }
   }
 }

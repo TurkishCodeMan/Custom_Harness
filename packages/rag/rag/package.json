@@ -1,0 +1,11 @@
+{
+  "name": "@custom-harness/rag",
+  "version": "0.1.0",
+  "description": "Abstract RAG (Retrieval-Augmented Generation) capability seam and contracts for Custom Harness",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "cordis": "^3.18.1"
+  }
+}

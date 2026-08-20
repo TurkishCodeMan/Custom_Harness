@@ -1,0 +1,625 @@
+import type { Context } from '@custom-harness/core-context'
+import {
+  RagService,
+  type DocumentChunk,
+  type RagSearchQuery,
+  type RagResourceConfig,
+  type RagSourceFolder,
+  type RagStatus,
+  type ImageSearchResult,
+  type ImageSearchQuery,
+  type IndexingProgress
+} from '@custom-harness/rag'
+import { VllmEmbeddingClient, VllmVisionOcrClient, TextSplitter, PdfExtractor, SigLipClient } from '@custom-harness/rag-vllm'
+import { PgVectorDatabase } from './db.js'
+import { RagIndexingQueue, type IndexJob } from './queue.js'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import crypto from 'node:crypto'
+
+export const name = 'rag-pgvector'
+
+export class PgVectorRagService extends RagService {
+  private db: PgVectorDatabase
+  private embeddingClient: VllmEmbeddingClient
+  private visionClient: VllmVisionOcrClient
+  private siglipClient: SigLipClient
+  private splitter: TextSplitter
+  private queue: RagIndexingQueue
+  private ragModeActive = false
+  private activeIndexingJobs = 0
+
+  private resourceConfig: RagResourceConfig = {
+    batchSize: 32,
+    concurrency: 2,
+    workerConcurrency: 4,
+    indexingMode: 'standard',
+    chunkSize: 1000,
+    chunkOverlap: 150,
+    bulkInsertSize: 50,
+    throttleDelayMs: 0,
+    embeddingModel: process.env.VLLM_EMBEDDING_MODEL || 'Qwen/Qwen3-Embedding-0.6B',
+    embeddingEndpoint: process.env.VLLM_EMBEDDING_URL || 'http://localhost:8001/v1',
+    visionModel: process.env.VLLM_VISION_MODEL || 'zai-org/GLM-OCR',
+    visionEndpoint: process.env.VLLM_VISION_URL || 'http://localhost:8010/v1',
+    imageSearchEndpoint: process.env.IMAGE_SEARCH_URL || 'http://localhost:8011',
+    autoThrottling: true
+  }
+
+  constructor(ctx: Context) {
+    super(ctx)
+    this.db = new PgVectorDatabase()
+    this.embeddingClient = new VllmEmbeddingClient({
+      endpoint: this.resourceConfig.embeddingEndpoint,
+      model: this.resourceConfig.embeddingModel,
+      batchSize: this.resourceConfig.batchSize
+    })
+    this.visionClient = new VllmVisionOcrClient({
+      endpoint: this.resourceConfig.visionEndpoint,
+      model: this.resourceConfig.visionModel,
+      apiKey: process.env.VLLM_VISION_API_KEY || 'sk-agent-key'
+    })
+    this.siglipClient = new SigLipClient({
+      endpoint: this.resourceConfig.imageSearchEndpoint
+    })
+    this.splitter = new TextSplitter({
+      chunkSize: this.resourceConfig.chunkSize,
+      chunkOverlap: this.resourceConfig.chunkOverlap
+    })
+    this.queue = new RagIndexingQueue({
+      concurrency: this.resourceConfig.workerConcurrency || 4
+    })
+    this.queue.on('progress', (prog: IndexingProgress) => {
+      this.ctx.emit('rag/progress' as any, prog)
+    })
+  }
+
+  public async initialize(config?: any): Promise<void> {
+    await this.db.initSchema()
+  }
+
+  public setRagMode(enabled: boolean): void {
+    this.ragModeActive = enabled
+  }
+
+  public isRagMode(): boolean {
+    return this.ragModeActive
+  }
+
+  public getProgress(): IndexingProgress {
+    return this.queue.getProgress()
+  }
+
+  public async pauseIndexing(): Promise<void> {
+    this.queue.pause()
+  }
+
+  public async resumeIndexing(): Promise<void> {
+    this.queue.resume()
+  }
+
+  public async cancelIndexing(): Promise<void> {
+    this.queue.cancel()
+  }
+
+  public setResourceConfig(config: Partial<RagResourceConfig>): void {
+    // Mode Presets
+    if (config.indexingMode === 'turbo') {
+      config.workerConcurrency = config.workerConcurrency || 8
+      config.batchSize = config.batchSize || 128
+      config.bulkInsertSize = config.bulkInsertSize || 200
+      config.throttleDelayMs = 0
+    } else if (config.indexingMode === 'standard') {
+      config.workerConcurrency = config.workerConcurrency || 2
+      config.batchSize = config.batchSize || 32
+      config.bulkInsertSize = config.bulkInsertSize || 50
+      config.throttleDelayMs = 25
+    }
+
+    this.resourceConfig = { ...this.resourceConfig, ...config }
+
+    if (this.resourceConfig.workerConcurrency) {
+      this.queue.setConcurrency(this.resourceConfig.workerConcurrency)
+    }
+
+    this.embeddingClient = new VllmEmbeddingClient({
+      endpoint: this.resourceConfig.embeddingEndpoint,
+      model: this.resourceConfig.embeddingModel,
+      batchSize: this.resourceConfig.batchSize
+    })
+    this.visionClient = new VllmVisionOcrClient({
+      endpoint: this.resourceConfig.visionEndpoint,
+      model: this.resourceConfig.visionModel,
+      apiKey: process.env.VLLM_VISION_API_KEY || 'sk-agent-key'
+    })
+    if (this.resourceConfig.imageSearchEndpoint) {
+      this.siglipClient.setEndpoint(this.resourceConfig.imageSearchEndpoint)
+    }
+    if (config.chunkSize || config.chunkOverlap) {
+      this.splitter = new TextSplitter({
+        chunkSize: this.resourceConfig.chunkSize,
+        chunkOverlap: this.resourceConfig.chunkOverlap
+      })
+    }
+  }
+
+  public getResourceConfig(): RagResourceConfig {
+    return { ...this.resourceConfig }
+  }
+
+  /**
+   * Recursively scans, parses, embeds, and indexes a folder or a single file into pgvector.
+   */
+  public async addAndIndexFolder(folderOrFilePath: string, options?: RagResourceConfig): Promise<RagSourceFolder> {
+    const resolvedPath = path.resolve(folderOrFilePath)
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`File or directory does not exist: ${resolvedPath}`)
+    }
+
+    if (options) {
+      this.setResourceConfig(options)
+    }
+
+    const stat = await fsp.stat(resolvedPath)
+    const isSingleFile = stat.isFile()
+    const sourceId = `src_${crypto.createHash('md5').update(resolvedPath).digest('hex').slice(0, 10)}`
+    
+    // Register or update source record
+    await this.db.query(`
+      INSERT INTO rag_sources (id, path, file_count, chunk_count, last_indexed_at, status, error)
+      VALUES ($1, $2, 0, 0, $3, 'indexing', NULL)
+      ON CONFLICT (path) DO UPDATE SET
+        status = 'indexing',
+        last_indexed_at = $3,
+        error = NULL
+      RETURNING *;
+    `, [sourceId, resolvedPath, Date.now()])
+
+    this.activeIndexingJobs++
+
+    try {
+      // 1. Discover all files or pick single file
+      let files = isSingleFile ? [resolvedPath] : await this.discoverFiles(resolvedPath)
+      if (this.resourceConfig.maxFiles && this.resourceConfig.maxFiles > 0) {
+        files = files.slice(0, this.resourceConfig.maxFiles)
+      }
+      const jobs: IndexJob[] = files.map(f => ({ filePath: f, sourceId, resolvedPath }))
+
+      console.log(`[RAG:Queue] Discovered ${files.length} indexable file(s) for "${resolvedPath}" (maxFiles limit: ${this.resourceConfig.maxFiles || 'unlimited'}). Starting worker pool (concurrency: ${this.queue.getConcurrency()})...`)
+
+      this.queue.reset(jobs)
+      await this.queue.start(async (job) => {
+        return this.processSingleFile(job)
+      })
+
+      const progress = this.queue.getProgress()
+
+      // Mark source as completed
+      const res = await this.db.query(`
+        UPDATE rag_sources
+        SET file_count = $1, chunk_count = $2, status = 'idle', error = NULL
+        WHERE id = $3
+        RETURNING *;
+      `, [progress.processedFiles, progress.totalChunks, sourceId])
+
+      const row = res.rows[0]
+      return {
+        id: row.id,
+        path: row.path,
+        fileCount: Number(row.file_count),
+        chunkCount: Number(row.chunk_count),
+        lastIndexedAt: Number(row.last_indexed_at),
+        status: 'idle'
+      }
+    } catch (err: any) {
+      await this.db.query(`
+        UPDATE rag_sources
+        SET status = 'error', error = $1
+        WHERE id = $2;
+      `, [err.message, sourceId])
+      throw err
+    } finally {
+      this.activeIndexingJobs = Math.max(0, this.activeIndexingJobs - 1)
+    }
+  }
+
+  /**
+   * Processes a single file: extracts OCR/text, creates SigLIP/Qwen embeddings, and bulk inserts to DB.
+   */
+  private async processSingleFile(job: IndexJob): Promise<number> {
+    const { filePath, sourceId } = job
+    const ext = path.extname(filePath).toLowerCase()
+    let fileContent = ''
+    const docId = `doc_${crypto.createHash('md5').update(filePath).digest('hex').slice(0, 12)}`
+    let chunksStored = 0
+
+    const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp'])
+    const textExts = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.md', '.txt', '.yaml', '.yml', '.html', '.css', '.scss', '.sh', '.rs', '.go', '.java', '.c', '.cpp', '.h', '.sql', '.toml', '.xml'])
+
+    try {
+      let siglipVector: number[] | null = null
+
+      if (ext === '.pdf') {
+        fileContent = await PdfExtractor.extractText(filePath)
+
+        // If PDF contains no digital text (Scanned Book / Image-only PDF), forward directly to 8010 OCR microservice!
+        if (!fileContent || fileContent.trim().length < 50) {
+          console.log(`[RAG:Vision] Scanned PDF detected (no digital text): "${path.basename(filePath)}". Forwarding directly to 8010 GLM-OCR microservice...`)
+          try {
+            const ocrText = await this.visionClient.extractTextFromImage(filePath)
+            if (ocrText && ocrText.trim().length > 0 && !ocrText.startsWith('[Doküman:')) {
+              fileContent = ocrText
+            }
+          } catch (ocrErr: any) {
+            console.warn(`[RAG:Vision] 8010 OCR failed for "${filePath}":`, ocrErr.message)
+          }
+        }
+      } else if (imageExts.has(ext)) {
+        fileContent = await this.visionClient.extractTextFromImage(filePath)
+        try {
+          siglipVector = await this.siglipClient.extractImageEmbedding(filePath)
+        } catch (siglipErr: any) {
+          console.warn(`[RAG:SigLIP] SigLIP embedding extraction skipped:`, siglipErr.message)
+        }
+      } else if (textExts.has(ext) || ext === '') {
+        fileContent = await fsp.readFile(filePath, 'utf-8')
+      } else {
+        fileContent = await fsp.readFile(filePath, 'utf-8').catch(() => '')
+      }
+
+      if (!fileContent || fileContent.trim().length === 0) return 0
+
+      const docHash = crypto.createHash('sha256').update(fileContent).digest('hex')
+
+      // Skip unchanged files
+      if (this.resourceConfig.skipExistingUnchanged !== false) {
+        const existing = await this.db.query(`SELECT content_hash FROM rag_documents WHERE id = $1;`, [docId]).catch(() => ({ rows: [] }))
+        if (existing.rows[0]?.content_hash === docHash) {
+          const countRes = await this.db.query(`SELECT COUNT(*) AS c FROM rag_chunks WHERE document_id = $1;`, [docId]).catch(() => ({ rows: [{ c: 0 }] }))
+          return Number(countRes.rows[0]?.c || 0)
+        }
+      }
+
+      // 1. Upsert Document
+      await this.db.query(`
+        INSERT INTO rag_documents (id, source_id, file_path, file_type, last_modified, content_hash)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (id) DO UPDATE SET
+          last_modified = $5,
+          content_hash = $6;
+      `, [docId, sourceId, filePath, ext, Date.now(), docHash])
+
+      // 2. Upsert SigLIP Image Record
+      if (siglipVector && siglipVector.length === 768) {
+        const imgId = `img_${crypto.createHash('md5').update(filePath).digest('hex').slice(0, 12)}`
+        const vectorStr = `[${siglipVector.join(',')}]`
+        await this.db.query(`
+          INSERT INTO rag_images (id, document_id, file_path, ocr_text, embedding, created_at)
+          VALUES ($1, $2, $3, $4, $5::vector, $6)
+          ON CONFLICT (file_path) DO UPDATE SET
+            ocr_text = EXCLUDED.ocr_text,
+            embedding = EXCLUDED.embedding,
+            created_at = EXCLUDED.created_at;
+        `, [imgId, docId, filePath, fileContent, vectorStr, Date.now()])
+      }
+
+      // Delete existing chunks if re-indexing
+      await this.db.query(`DELETE FROM rag_chunks WHERE document_id = $1;`, [docId])
+
+      // 3. Chunk text
+      const chunks = this.splitter.splitText(fileContent, filePath)
+      if (chunks.length === 0) return 0
+
+      // 4. Generate embeddings
+      const embeddings = await this.embeddingClient.getEmbeddings(chunks)
+
+      // 5. Store chunks using Multi-Row Bulk Insert
+      const bulkSize = this.resourceConfig.bulkInsertSize || 50
+      for (let i = 0; i < chunks.length; i += bulkSize) {
+        const chunkBatch = chunks.slice(i, i + bulkSize)
+        const embeddingBatch = embeddings.slice(i, i + bulkSize)
+        const valuesSql: string[] = []
+        const params: any[] = []
+        let pIdx = 1
+
+        for (let j = 0; j < chunkBatch.length; j++) {
+          const cIdx = i + j
+          const chunkText = chunkBatch[j]
+          const vector = embeddingBatch[j]
+          const chunkId = `chk_${docId}_${cIdx}`
+          const vectorStr = vector ? `[${vector.join(',')}]` : null
+
+          valuesSql.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}::vector)`)
+          params.push(
+            chunkId,
+            docId,
+            filePath,
+            cIdx,
+            chunkText,
+            JSON.stringify({ filePath, ext, lineApprox: cIdx * 30 }),
+            vectorStr
+          )
+          pIdx += 7
+          chunksStored++
+        }
+
+        if (valuesSql.length > 0) {
+          await this.db.query(`
+            INSERT INTO rag_chunks (id, document_id, source_path, chunk_index, content, metadata, embedding)
+            VALUES ${valuesSql.join(', ')};
+          `, params)
+        }
+      }
+
+      // 6. Optional Throttling delay
+      if (this.resourceConfig.throttleDelayMs && this.resourceConfig.throttleDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, this.resourceConfig.throttleDelayMs))
+      }
+
+      return chunksStored
+    } catch (fileErr: any) {
+      console.warn(`[RAG:Worker] Skipping file ${filePath}:`, fileErr.message)
+      return 0
+    }
+  }
+
+  /**
+   * Performs Enterprise Hybrid RAG Search (Dense HNSW Vector + Lexical BM25 Full-Text + Reciprocal Rank Fusion).
+   */
+  public async search(query: RagSearchQuery): Promise<DocumentChunk[]> {
+    const topK = query.topK || 5
+    const minSim = query.minSimilarity || 0.3
+    const candidateLimit = Math.max(topK * 3, 15)
+    const pathFilter = query.filePathPrefix ? `${query.filePathPrefix}%` : null
+
+    // 1. Generate query embedding via vLLM
+    const [queryVector] = await this.embeddingClient.getEmbeddings([query.query])
+    if (!queryVector) {
+      throw new Error('Failed to generate embedding for query.')
+    }
+
+    const vectorStr = `[${queryVector.join(',')}]`
+
+    // 2. Parallel Execution: Dense Vector Search (HNSW) + Sparse Lexical Search (BM25)
+    const densePromise = this.db.query(`
+      SELECT 
+        id, 
+        document_id AS "documentId", 
+        source_path AS "sourcePath", 
+        chunk_index AS "chunkIndex", 
+        content, 
+        metadata,
+        1 - (embedding <=> $1::vector) AS similarity
+      FROM rag_chunks
+      WHERE ($2::text IS NULL OR source_path LIKE $2)
+      ORDER BY embedding <=> $1::vector
+      LIMIT $3;
+    `, [vectorStr, pathFilter, candidateLimit]).catch(() => ({ rows: [] }))
+
+    const lexicalPromise = this.db.query(`
+      SELECT 
+        id, 
+        document_id AS "documentId", 
+        source_path AS "sourcePath", 
+        chunk_index AS "chunkIndex", 
+        content, 
+        metadata,
+        ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', $1)) AS text_rank
+      FROM rag_chunks
+      WHERE to_tsvector('simple', content) @@ plainto_tsquery('simple', $1)
+        AND ($2::text IS NULL OR source_path LIKE $2)
+      ORDER BY text_rank DESC
+      LIMIT $3;
+    `, [query.query, pathFilter, candidateLimit]).catch(() => ({ rows: [] }))
+
+    const [denseRes, lexicalRes] = await Promise.all([densePromise, lexicalPromise])
+
+    // 3. Reciprocal Rank Fusion (RRF) Blending
+    const rrfMap = new Map<string, { chunk: DocumentChunk; rrfScore: number; isKeywordMatch: boolean }>()
+    const kRRF = 60 // Standard RRF smoothing constant
+
+    // Process Dense Rankings
+    denseRes.rows.forEach((r: any, rank: number) => {
+      const sim = parseFloat(r.similarity) || 0
+      const chunk: DocumentChunk = {
+        id: r.id,
+        documentId: r.documentId,
+        sourcePath: r.sourcePath,
+        chunkIndex: r.chunkIndex,
+        content: r.content,
+        metadata: r.metadata,
+        similarity: sim
+      }
+      const score = 0.6 / (kRRF + rank + 1)
+      rrfMap.set(r.id, { chunk, rrfScore: score, isKeywordMatch: false })
+    })
+
+    // Process Lexical / BM25 Rankings
+    lexicalRes.rows.forEach((r: any, rank: number) => {
+      const score = 0.4 / (kRRF + rank + 1)
+      if (rrfMap.has(r.id)) {
+        const existing = rrfMap.get(r.id)!
+        existing.rrfScore += score
+        existing.isKeywordMatch = true
+        // Boost similarity slightly for exact keyword hit
+        if (existing.chunk.similarity !== undefined) {
+          existing.chunk.similarity = Math.min(0.99, existing.chunk.similarity + 0.15)
+        }
+      } else {
+        const chunk: DocumentChunk = {
+          id: r.id,
+          documentId: r.documentId,
+          sourcePath: r.sourcePath,
+          chunkIndex: r.chunkIndex,
+          content: r.content,
+          metadata: r.metadata,
+          similarity: 0.70 // High confidence for exact lexical keyword hit
+        }
+        rrfMap.set(r.id, { chunk, rrfScore: score, isKeywordMatch: true })
+      }
+    })
+
+    // 4. Sort by blended RRF score and return topK
+    const fusedResults = Array.from(rrfMap.values())
+      .sort((a, b) => b.rrfScore - a.rrfScore)
+      .slice(0, topK)
+      .map(entry => entry.chunk)
+      .filter(chunk => (chunk.similarity ?? 0) >= minSim)
+
+    return fusedResults
+  }
+
+  /**
+   * Performs semantic visual search directly against our own custom pgvector database (rag_images table).
+   * Supports both English visual concepts (SigLIP) and multilingual/Turkish terms (GLM-OCR + Qwen3).
+   */
+  public async searchImages(query: ImageSearchQuery): Promise<ImageSearchResult[]> {
+    const topK = query.topK || 6
+    const resultMap = new Map<string, ImageSearchResult>()
+
+    // 1. SigLIP Visual / Concept Search (Port 8011)
+    try {
+      let siglipVector: number[] | null = null
+      if (query.textQuery && query.textQuery.trim()) {
+        siglipVector = await this.siglipClient.extractTextEmbedding(query.textQuery.trim())
+      } else if (query.imagePath) {
+        siglipVector = await this.siglipClient.extractImageEmbedding(query.imagePath)
+      }
+
+      if (siglipVector && siglipVector.length === 768) {
+        const vectorStr = `[${siglipVector.join(',')}]`
+        const sql = `
+          SELECT 
+            file_path AS "filePath",
+            ocr_text AS "ocrText",
+            1 - (embedding <=> $1::vector) AS similarity
+          FROM rag_images
+          ORDER BY embedding <=> $1::vector
+          LIMIT $2;
+        `
+        const res = await this.db.query(sql, [vectorStr, topK])
+        for (const r of res.rows) {
+          const sim = parseFloat(r.similarity)
+          resultMap.set(r.filePath, {
+            filePath: r.filePath,
+            ocrText: r.ocrText,
+            similarity: isNaN(sim) ? 0 : sim
+          })
+        }
+      }
+    } catch (err: any) {
+      console.warn('[RAG:SigLIP] SigLIP visual search notice:', err.message)
+    }
+
+    // 2. Multilingual / Turkish OCR Text Search via Qwen3 (Port 8001)
+    if (query.textQuery && query.textQuery.trim()) {
+      try {
+        const [qwenVector] = await this.embeddingClient.getEmbeddings([query.textQuery.trim()])
+        if (qwenVector) {
+          const vectorStr = `[${qwenVector.join(',')}]`
+          const sql = `
+            SELECT 
+              d.file_path AS "filePath",
+              c.content AS "ocrText",
+              1 - (c.embedding <=> $1::vector) AS similarity
+            FROM rag_chunks c
+            JOIN rag_documents d ON c.document_id = d.id
+            WHERE d.file_type IN ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
+            ORDER BY c.embedding <=> $1::vector
+            LIMIT $2;
+          `
+          const res = await this.db.query(sql, [vectorStr, topK])
+          for (const r of res.rows) {
+            const sim = parseFloat(r.similarity)
+            const existing = resultMap.get(r.filePath)
+            if (!existing || sim > (existing.similarity || 0)) {
+              resultMap.set(r.filePath, {
+                filePath: r.filePath,
+                ocrText: r.ocrText,
+                similarity: isNaN(sim) ? 0 : sim
+              })
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('[RAG:OCR] Multilingual search notice:', err.message)
+      }
+    }
+
+    // Sort combined results by similarity descending
+    return Array.from(resultMap.values())
+      .sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+      .slice(0, topK)
+  }
+
+  public async removeFolder(sourceIdOrPath: string): Promise<void> {
+    await this.db.query(`
+      DELETE FROM rag_sources WHERE id = $1 OR path = $1;
+    `, [sourceIdOrPath])
+  }
+
+  public async clearAll(): Promise<void> {
+    await this.db.query(`TRUNCATE TABLE rag_chunks, rag_documents, rag_sources CASCADE;`)
+  }
+
+  public async getStatus(): Promise<RagStatus> {
+    const sourcesRes = await this.db.query(`SELECT * FROM rag_sources ORDER BY last_indexed_at DESC;`).catch(() => ({ rows: [] }))
+    const countsRes = await this.db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM rag_documents) AS doc_count,
+        (SELECT COUNT(*) FROM rag_chunks) AS chunk_count;
+    `).catch(() => ({ rows: [{ doc_count: 0, chunk_count: 0 }] }))
+
+    const sources: RagSourceFolder[] = sourcesRes.rows.map(r => ({
+      id: r.id,
+      path: r.path,
+      fileCount: Number(r.file_count || 0),
+      chunkCount: Number(r.chunk_count || 0),
+      lastIndexedAt: Number(r.last_indexed_at || 0),
+      status: r.status,
+      error: r.error
+    }))
+
+    return {
+      isIndexing: this.queue.isBusy() || this.activeIndexingJobs > 0,
+      sources,
+      totalDocumentsCount: Number(countsRes.rows[0]?.doc_count || 0),
+      totalChunksCount: Number(countsRes.rows[0]?.chunk_count || 0),
+      ragModeActive: this.ragModeActive,
+      resourceConfig: this.resourceConfig,
+      progress: this.queue.getProgress(),
+      resourceUsage: {
+        activeJobs: this.activeIndexingJobs
+      }
+    }
+  }
+
+  private async discoverFiles(dir: string): Promise<string[]> {
+    const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache', 'coverage', '.turbo', '.system_generated'])
+    const files: string[] = []
+
+    async function walk(currentDir: string) {
+      const entries = await fsp.readdir(currentDir, { withFileTypes: true }).catch(() => [])
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!ignoredDirs.has(entry.name) && !entry.name.startsWith('.')) {
+            await walk(path.join(currentDir, entry.name))
+          }
+        } else if (entry.isFile()) {
+          files.push(path.join(currentDir, entry.name))
+        }
+      }
+    }
+
+    await walk(dir)
+    return files
+  }
+}
+
+export function apply(ctx: Context) {
+  ctx.set('rag', new PgVectorRagService(ctx))
+}
+
+export default PgVectorRagService
+

@@ -26,6 +26,10 @@ export interface AgentContextValue {
   selectSession: (sessionId: string) => void
   createNewSession: () => void
   deleteSession: (sessionId: string) => void
+  clearAllSessions: () => Promise<void>
+  renameSession: (sessionId: string, newTitle: string) => void
+  selectModel: (modelId: string) => void
+  selectPreset: (presetNameOrId: string) => void
   saveSettings: (newSettings: any) => Promise<void>
   savePreset: (preset: any) => Promise<void>
   setDefaultPreset: (presetId: string) => Promise<void>
@@ -55,6 +59,10 @@ const defaultContextValue: AgentContextValue = {
   selectSession: () => {},
   createNewSession: () => {},
   deleteSession: () => {},
+  clearAllSessions: async () => {},
+  renameSession: () => {},
+  selectModel: () => {},
+  selectPreset: () => {},
   saveSettings: async () => {},
   savePreset: async () => {},
   setDefaultPreset: async () => {},
@@ -508,6 +516,18 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const clearAllSessions = async () => {
+    try {
+      await fetch('/api/sessions/clear', { method: 'POST' })
+      setSessions([])
+      setMessages([])
+      createNewSession()
+      showToast('Tüm geçmiş sohbetler temizlendi', 'info')
+    } catch {
+      showToast('Sohbetler temizlenemedi', 'error')
+    }
+  }
+
   const saveSettings = async (newSettings: any) => {
     try {
       const res = await fetch('/api/settings', {
@@ -586,6 +606,26 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const renameSession = (sessionId: string, newTitle: string) => {
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s))
+    showToast('Sohbet başlığı güncellendi', 'info')
+  }
+
+  const selectModel = async (modelId: string) => {
+    const updated = { ...settings, defaultModel: modelId }
+    setSettings(updated)
+    await saveSettings(updated)
+    showToast(`Aktif Model: ${modelId}`, 'info')
+  }
+
+  const selectPreset = (presetNameOrId: string) => {
+    const found = presets.find((p) => p.id === presetNameOrId || p.name === presetNameOrId)
+    if (found) {
+      setActivePreset(found)
+      showToast(`Ajan Rolü: ${found.name}`, 'info')
+    }
+  }
+
   return (
     <ContextProvider
       value={{
@@ -610,6 +650,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         selectSession,
         createNewSession,
         deleteSession,
+        clearAllSessions,
+        renameSession,
+        selectModel,
+        selectPreset,
         saveSettings,
         savePreset,
         setDefaultPreset,

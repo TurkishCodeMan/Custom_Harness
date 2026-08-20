@@ -1,0 +1,49 @@
+services:
+  custom-harness-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: custom-harness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harness_user
+      POSTGRES_PASSWORD: harness_pass
+      POSTGRES_DB: custom_harness_rag
+    ports:
+      - "15432:5432"
+    command: >
+      postgres
+      -c shared_buffers=4GB
+      -c work_mem=128MB
+      -c maintenance_work_mem=2GB
+      -c max_parallel_maintenance_workers=8
+      -c effective_cache_size=12GB
+      -c max_connections=150
+      -c wal_buffers=32MB
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness_user -d custom_harness_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  custom-harness-redis:
+    image: redis:7-alpine
+    container_name: custom-harness-redis
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy noeviction
+    volumes:
+      - redis_rag_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgvector_data:
+    name: custom_harness_pgvector_data
+  redis_rag_data:
+    name: custom_harness_redis_rag_data
+

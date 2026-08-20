@@ -1,0 +1,13 @@
+{
+  "name": "@custom-harness/rag-vllm",
+  "version": "0.1.0",
+  "description": "vLLM-backed Embeddings and Multimodal Vision OCR Extractor for Custom Harness RAG",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "@custom-harness/rag": "workspace:*",
+    "cordis": "^3.18.1",
+    "pdf-parse": "^2.4.5"
+  }
+}
