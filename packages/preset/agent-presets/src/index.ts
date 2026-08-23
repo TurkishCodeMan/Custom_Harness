@@ -240,8 +240,8 @@ export class AgentPresetsService extends Service {
     }
     if (userId && this.ctx.settings?.updateSettingsForUser) {
       this.ctx.settings.updateSettingsForUser(userId, { defaultPreset: id }, false)
-    } else if (this.ctx.settings?.setDefaultPreset) {
-      this.ctx.settings.setDefaultPreset(id)
+    } else if (this.ctx.settings?.updateSettings) {
+      this.ctx.settings.updateSettings({ defaultPreset: id })
     }
     return preset
   }

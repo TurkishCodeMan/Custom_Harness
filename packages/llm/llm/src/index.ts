@@ -75,10 +75,28 @@ export class LlmService extends Service {
         }
       }
 
-      const item: any = { role, content }
+      const hasToolCalls = m.tool_calls && Array.isArray(m.tool_calls) && m.tool_calls.length > 0
 
-      if (m.tool_calls && Array.isArray(m.tool_calls)) {
-        item.tool_calls = m.tool_calls.map((tc: any) => {
+      const item: any = { role }
+
+      if (role === 'assistant' && hasToolCalls) {
+        // Assistant messages with tool_calls: only include content if it has actual text.
+        // Sending content: null or content: "" can lock vLLM/Ollama tokenizers (TextEncodeInput error).
+        // Omitting the key entirely is the safest approach for maximum model compatibility.
+        if (m.content && m.content.trim()) {
+          item.content = m.content.trim()
+        }
+        // else: content key is omitted entirely
+      } else if (role === 'tool') {
+        // Tool result messages: content must always be a non-empty string
+        item.content = content && content.trim() ? content.trim() : '[tool result]'
+      } else {
+        item.content = content
+      }
+
+
+      if (hasToolCalls) {
+        item.tool_calls = m.tool_calls!.map((tc: any) => {
           let rawArgs = tc.function?.arguments || tc.arguments || '{}'
           if (typeof rawArgs !== 'string') {
             rawArgs = JSON.stringify(rawArgs)
@@ -104,6 +122,7 @@ export class LlmService extends Service {
       return item
     })
 
+
     const body: Record<string, any> = {
       model: modelId,
       messages: sanitizedMessages,
@@ -124,7 +143,7 @@ export class LlmService extends Service {
     }
 
     // Dynamically calculate safe max_tokens so (input_tokens + max_tokens) never exceeds model contextWindow
-    const contextLimit = model?.contextWindow || 32768
+    const contextLimit = model?.contextWindow || 24576
     const totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
     const approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
     const safeRemainingTokens = Math.max(512, contextLimit - approxInputTokens - 256)
@@ -132,6 +151,7 @@ export class LlmService extends Service {
     const targetMaxTokens = model?.maxTokens || 8192
 
     body.max_tokens = Math.min(targetMaxTokens, safeRemainingTokens)
+
     body.temperature = 0.2
     body.frequency_penalty = 0.1
 
@@ -214,29 +234,42 @@ export class LlmService extends Service {
                 const text = delta.content
                 fullAssistantText += text
 
-                if (text.includes('<thought>') || text.includes('<think>') || text.includes('<commentary>') || text.includes('<conclusion>')) {
+                if (text.includes('<thought') || text.includes('<think') || text.includes('<commentary') || text.includes('<conclusion>')) {
                   inThoughtTag = true
                 }
 
                 if (inThoughtTag) {
-                  const cleanedThought = text.replace(/<\/?think>|<\/?thought>|<\/?commentary>|<\/?conclusion>|<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>/g, '')
-                  if (cleanedThought.trim()) {
+                  const cleanedThought = text.replace(/<\/?(?:think|thought|commentary|conclusion)(?:>|[\s\n\r])?/gi, '').replace(/<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>/g, '')
+                  if (cleanedThought) {
                     yield { type: 'thought', content: cleanedThought }
                   }
                   if (text.includes('</thought>') || text.includes('</think>') || text.includes('</commentary>') || text.includes('</conclusion>') || text.includes('<|im_end|>')) {
                     inThoughtTag = false
                   }
                 } else {
-                  const cleanedText = text.replace(/<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>|<\/?commentary>|<\/?conclusion>/g, '')
+                  const cleanedText = text.replace(/<\|im_end\|>|<\|im_start\|>|<\|endoftext\|>|<\/?(?:commentary|conclusion)>/g, '')
                   if (cleanedText) {
                     yield { type: 'chunk', content: cleanedText }
                   }
                 }
 
-                // Fast anti-loop guard: Break stream if fake hallucinated raw tool delimiters appear
+                // 🛑 Fast anti-loop guard 1: Break stream if fake hallucinated raw tool delimiters appear
                 if (text.includes('eget_tool_output') || text.includes('eget_tool_call')) {
                   await reader.cancel()
                   break
+                }
+
+                // 🛑 Fast anti-loop guard 2: Detect degenerative repeated sentences (e.g. Gemma loop)
+                const recentChunks = fullAssistantText.split('\n').map(l => l.trim()).filter(Boolean)
+                if (recentChunks.length >= 4) {
+                  const lastChunk = recentChunks[recentChunks.length - 1]
+                  if (lastChunk.length >= 15) {
+                    const matches = recentChunks.slice(-4).filter(c => c === lastChunk)
+                    if (matches.length >= 3) {
+                      await reader.cancel()
+                      break
+                    }
+                  }
                 }
               }
 

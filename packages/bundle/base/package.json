@@ -9,7 +9,10 @@
     "@custom-harness/core-types": "workspace:*",
     "@custom-harness/core-tools": "workspace:*",
     "@custom-harness/core-agent": "workspace:*",
+    "@custom-harness/agent-middleware": "workspace:*",
+    "@custom-harness/agent-middleware-builtin": "workspace:*",
     "@custom-harness/fs": "workspace:*",
+
     "@custom-harness/fs-local": "workspace:*",
     "@custom-harness/subprocess": "workspace:*",
     "@custom-harness/subprocess-local": "workspace:*",

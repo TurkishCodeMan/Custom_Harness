@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+transformers
+Pillow
+psycopg2-binary
+numpy
+pydantic-settings
+torch
+torchvision

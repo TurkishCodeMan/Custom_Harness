@@ -51,7 +51,9 @@ export interface AgentContextValue {
   selectPreset: (presetNameOrId: string) => void
   saveSettings: (newSettings: any) => Promise<void>
   savePreset: (preset: any) => Promise<void>
+  deletePreset: (presetId: string) => Promise<void>
   setDefaultPreset: (presetId: string) => Promise<void>
+
   togglePlugin: (pluginId: string, enabled: boolean) => Promise<void>
   setWorkspace: (newPath: string) => Promise<void>
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access'
@@ -104,7 +106,9 @@ const defaultContextValue: AgentContextValue = {
   selectPreset: () => {},
   saveSettings: async () => {},
   savePreset: async () => {},
+  deletePreset: async () => {},
   setDefaultPreset: async () => {},
+
   togglePlugin: async () => {},
   setWorkspace: async () => {},
   sandboxMode: 'workspace-write',
@@ -587,49 +591,86 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           }
         ]
       })
+    } else if (msg.type === 'ensure_assistant') {
+      // Server sends this before every tool_start to guarantee the UI has a CURRENT (streaming) assistant row.
+      // IMPORTANT: A completed (isStreaming:false) assistant row from a previous turn must NOT be reused.
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        // Only reuse if last message is an actively-streaming assistant row
+        if (last && last.role === 'assistant' && last.isStreaming) return prev
+        // Otherwise create a new streaming assistant row for this turn's tool cards
+        return [
+          ...prev,
+          {
+            role: 'assistant' as const,
+            content: '',
+            presetName: activePresetRef.current?.name || activePresetRef.current?.id || 'Full-Stack Developer',
+            modelName: settingsRef.current?.defaultModel || 'Qwen3.8-27B',
+            isStreaming: true,
+            toolResults: []
+          }
+        ]
+      })
     } else if (msg.type === 'tool_start') {
       setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant') {
-          const currentTools = last.toolResults || []
+        const newTool = {
+          id: msg.call?.id || `tool-${Date.now()}`,
+          name: msg.call?.name || 'unknown_tool',
+          status: 'running' as const,
+          args: msg.call?.args
+        }
+
+        // Find the last STREAMING assistant message — do NOT attach to completed previous turns
+        const lastStreamingIdx = [...prev].reverse().findIndex(m => m.role === 'assistant' && m.isStreaming)
+        const idx = lastStreamingIdx === -1 ? -1 : prev.length - 1 - lastStreamingIdx
+
+        // No streaming assistant row → create one (fallback if ensure_assistant wasn't processed yet)
+        if (idx === -1) {
           return [
-            ...prev.slice(0, -1),
+            ...prev,
             {
-              ...last,
-              toolResults: [
-                ...currentTools,
-                {
-                  id: msg.call?.id || `tool-${Date.now()}`,
-                  name: msg.call?.name || 'unknown_tool',
-                  status: 'running',
-                  args: msg.call?.args
-                }
-              ]
+              role: 'assistant' as const,
+              content: '',
+              presetName: activePresetRef.current?.name || activePresetRef.current?.id || 'Full-Stack Developer',
+              modelName: settingsRef.current?.defaultModel || 'Qwen3.8-27B',
+              isStreaming: true,
+              toolResults: [newTool]
             }
           ]
         }
-        return prev
+
+        const target = prev[idx]
+        const currentTools = target.toolResults || []
+        const updated = [...prev]
+        updated[idx] = { ...target, toolResults: [...currentTools, newTool] }
+        return updated
       })
+
     } else if (msg.type === 'tool_result') {
       setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant' && last.toolResults) {
-          const updated = [...last.toolResults]
-          const target = updated[updated.length - 1]
-          if (target) {
-            target.output = msg.result.output
-            target.status = 'done'
+        // Find the last STREAMING assistant message that has toolResults (current turn only)
+        let lastAssistantIdx = [...prev].reverse().findIndex(m => m.role === 'assistant' && m.isStreaming && m.toolResults && m.toolResults.length > 0)
+        // Fallback: any assistant with toolResults
+        if (lastAssistantIdx === -1) lastAssistantIdx = [...prev].reverse().findIndex(m => m.role === 'assistant' && m.toolResults && m.toolResults.length > 0)
+        const idx = lastAssistantIdx === -1 ? -1 : prev.length - 1 - lastAssistantIdx
+        if (idx === -1) return prev
+        const target = prev[idx]
+        const updatedTools = [...(target.toolResults || [])]
+        // Find matching tool by id, or fall back to last running tool
+        const toolIdx = msg.result?.id ? updatedTools.findIndex(t => t.id === msg.result.id) : -1
+        const resolvedIdx = toolIdx !== -1 ? toolIdx : updatedTools.length - 1
+        if (resolvedIdx >= 0 && updatedTools[resolvedIdx]) {
+          updatedTools[resolvedIdx] = {
+            ...updatedTools[resolvedIdx],
+            output: msg.result.output,
+            status: 'done'
           }
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...last,
-              toolResults: updated
-            }
-          ]
         }
-        return prev
+        const updated = [...prev]
+        updated[idx] = { ...target, toolResults: updatedTools }
+        return updated
       })
+
     } else if (msg.type === 'compaction') {
       setMessages((prev) => [
         ...prev,
@@ -1007,7 +1048,29 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const deletePreset = async (presetId: string) => {
+    try {
+      const uid = currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
+      const res = await fetch(`/api/presets/${encodeURIComponent(presetId)}`, {
+        method: 'DELETE',
+        headers: {
+          'X-User-Id': uid
+        }
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        showToast(data.error || 'Preset silinemedi', 'error')
+        return
+      }
+      showToast('Ajan profili başarıyla silindi', 'success')
+      await loadPresets()
+    } catch (e: any) {
+      showToast('Preset silinemedi: ' + e.message, 'error')
+    }
+  }
+
   const setDefaultPreset = async (presetId: string) => {
+
     try {
       const uid = currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
       await fetch('/api/presets/default', {
@@ -1191,7 +1254,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         selectPreset,
         saveSettings,
         savePreset,
+        deletePreset,
         setDefaultPreset,
+
         togglePlugin,
         setWorkspace,
         sandboxMode: settings.sandboxMode || 'workspace-write',

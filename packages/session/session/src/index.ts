@@ -37,11 +37,17 @@ export class SessionService extends Service {
     }
   }
 
-  public createSession(title: string = 'Yeni Sohbet', workspace?: string, userId?: string): SessionData {
+  public createSession(
+    title: string = 'Yeni Sohbet',
+    workspace?: string,
+    userId?: string,
+    clientType: 'web' | 'cli' | 'vscode' | string = 'web'
+  ): SessionData {
     const id = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const session: SessionData = {
       id,
       title,
+      clientType,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       workspace: workspace || this.ctx.settings.getSettings().workspace || process.cwd(),
@@ -114,8 +120,12 @@ export class SessionService extends Service {
     return undefined
   }
 
-  public listSessions(userId?: string, isAdmin?: boolean): { id: string; title: string; updatedAt: number; workspace: string; userId?: string }[] {
-    const list: { id: string; title: string; updatedAt: number; workspace: string; userId?: string }[] = []
+  public listSessions(
+    userId?: string,
+    isAdmin?: boolean,
+    clientType?: string
+  ): { id: string; title: string; updatedAt: number; workspace: string; userId?: string; clientType?: string }[] {
+    const list: { id: string; title: string; updatedAt: number; workspace: string; userId?: string; clientType?: string }[] = []
     const seenIds = new Set<string>()
 
     const addSessionFromPath = (filePath: string) => {
@@ -124,6 +134,13 @@ export class SessionService extends Service {
         if (seenIds.has(id)) return
         const session = this.getSession(id, userId)
         if (session) {
+          // If clientType filter is requested:
+          // Unspecified legacy sessions match 'web' by default
+          const sessionClientType = session.clientType || 'web'
+          if (clientType && clientType !== '*' && sessionClientType !== clientType) {
+            return
+          }
+
           if (isAdmin || !userId || !session.userId || session.userId === userId) {
             seenIds.add(id)
             list.push({
@@ -131,12 +148,14 @@ export class SessionService extends Service {
               title: session.title,
               updatedAt: session.updatedAt,
               workspace: session.workspace,
-              userId: session.userId || 'user_admin'
+              userId: session.userId || 'user_admin',
+              clientType: sessionClientType
             })
           }
         }
       } catch (e) {}
     }
+
 
     // 1. Scan tenant sessions
     const tenantsBase = path.join(os.homedir(), '.dsh', 'tenants')

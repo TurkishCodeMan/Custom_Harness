@@ -42,7 +42,7 @@ export function apply(ctx: Context) {
         }
 
         // 2. Prevent destructive recursive delete on root or home
-        if (/\brm\s+-[rfRF]{1,4}\s+(\/|\/\*|~|\$HOME|\.\.\/)\b/.test(command)) {
+        if (/\brm\s+-[rfRF]{1,4}\s+(\/|\/\*|~|\$HOME|\.\.\/)/.test(command)) {
           return `[Güvenlik Engeli]: Kök dizin veya çalışma alanı dışı silme komutları engellenmiştir.`
         }
 
@@ -58,7 +58,14 @@ export function apply(ctx: Context) {
             cwd,
             timeout: 60000,
             maxBuffer: 1024 * 1024 * 10,
-            signal: context?.signal
+            signal: context?.signal,
+            env: {
+              ...process.env,
+              PAGER: 'cat',
+              DEBIAN_FRONTEND: 'noninteractive',
+              GIT_TERMINAL_PROMPT: '0',
+              PYTHONUNBUFFERED: '1'
+            }
           }, (err, stdout, stderr) => {
             if (err) {
               if (context?.signal?.aborted) {

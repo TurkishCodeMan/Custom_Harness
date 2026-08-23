@@ -55,6 +55,7 @@ declare module 'cordis' {
     web: any
     jobs: any
     terminals: any
+    agentMiddleware: any
     workflowEngine: any
   }
 }

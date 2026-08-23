@@ -1,0 +1,19 @@
+{
+  "name": "@custom-harness/agent-middleware-builtin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@custom-harness/agent-middleware": "workspace:*",
+    "@custom-harness/core-context": "workspace:*",
+    "@custom-harness/core-types": "workspace:*",
+    "cordis": "^3.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

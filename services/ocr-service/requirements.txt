@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+transformers>=4.40.0
+Pillow
+accelerate
+pydantic
+pydantic-settings
+pymupdf
+pandas
+openpyxl
+python-docx
+python-multipart
+requests
+httpx

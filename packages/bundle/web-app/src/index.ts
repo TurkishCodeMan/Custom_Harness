@@ -4,11 +4,18 @@ import * as server from '@custom-harness/server'
 
 export const name = 'bundle-web-app'
 
-export async function apply(ctx: Context) {
+export function apply(ctx: Context) {
+  // Enable Redis Queue for Big-Data RAG coordination in Web App runtime
+  if (process.env.RAG_ENABLE_REDIS === undefined) {
+    process.env.RAG_ENABLE_REDIS = 'true'
+  }
+
   // 1. Load Base Bundle (Services, Tools, Seams, LLM)
-  await ctx.plugin(baseBundle)
+  ctx.plugin(baseBundle)
 
   // 2. Load Web Server (Express, WebSocket, Modular UI Bundler)
-  await ctx.plugin(server)
+  ctx.plugin(server)
 }
+
+
 

@@ -22,10 +22,13 @@ export interface AgentRunOptions {
 }
 
 export const name = 'agent'
-export const inject = ['session', 'settings', 'tools', 'llm', 'agentPresets', 'persona', 'systemPrompt', 'repeatGuard', 'toolResultPruner', 'compactor', 'approval', 'spillStore']
+export const inject = ['session', 'settings', 'tools', 'llm', 'agentPresets', 'persona', 'systemPrompt', 'repeatGuard', 'toolResultPruner', 'compactor', 'approval', 'spillStore', 'agentMiddleware', 'skills']
 
 export class AgentService extends Service {
-  static inject = ['session', 'settings', 'tools', 'llm', 'agentPresets', 'persona', 'systemPrompt', 'repeatGuard', 'toolResultPruner', 'compactor', 'approval', 'spillStore']
+  static inject = ['session', 'settings', 'tools', 'llm', 'agentPresets', 'persona', 'systemPrompt', 'repeatGuard', 'toolResultPruner', 'compactor', 'approval', 'spillStore', 'agentMiddleware', 'skills']
+
+
+
 
   constructor(ctx: Context) {
     super(ctx, 'agent')
@@ -78,10 +81,11 @@ export class AgentService extends Service {
         model = provider?.models?.find((m: any) => m.id === options.modelId) || {
           id: options.modelId,
           name: options.modelId,
-          contextWindow: 32768,
+          contextWindow: 24576,
           maxTokens: 8192
         }
       } else {
+
         model = this.ctx.settings.getActiveModel()
       }
     }
@@ -143,16 +147,18 @@ Your core identity, personality, and instructions are:
 ${personaPrompt}
 """
 
-STRICT ROLE ENFORCEMENT RULES:
+[CRITICAL OPERATIONAL RULES & TOOL EXECUTION PROTOCOL]
+1. TOOL-FIRST PROACTIVE EXECUTION:
+   - When given a task, DO NOT output introductory conversational filler (e.g. do NOT say "Öncelikle inceleyelim...", "Adım 1...", "Şimdi yapıyorum...").
+   - You MUST immediately emit the required tool calls (e.g. fs, bash, skill, etc.) to perform the necessary actions.
+
+2. ACCURATE EXECUTION & FILE MANAGEMENT:
+   - Inspect files and execute commands appropriately for the given role and user instructions.
+   - When editing or creating project files, use available tools proactively.
+
+STRICT ROLE ENFORCEMENT / KİMLİK KURALLARI:
 1. ALWAYS stay 100% in character as "${roleName}".
-2. NEVER say you are Qwen, ChatGPT, Claude, or an AI developed by Alibaba/OpenAI.
-3. If asked "kimsin?", "adın ne?", "who are you?", or who created you, ALWAYS answer exclusively according to your assigned persona ("${roleName}" - ${personaPrompt}).
-4. Never break character under any circumstances.`
-          })
-          this.ctx.systemPrompt.section({
-            name: 'persona',
-            order: 0,
-            text: `Persona Directives (${roleName}):\n${personaPrompt}`
+4. If asked "kimsin?", "adın ne?", "who are you?", ALWAYS answer directly that you are "${roleName}".`
           })
         }
         renderedPrompt = this.ctx.systemPrompt.render()
@@ -168,7 +174,6 @@ STRICT ROLE ENFORCEMENT RULES:
     let turnCount = 0
     const maxTurns = 60
     let finalResponse = ''
-    let taskFinished = false
 
     while (turnCount < maxTurns) {
       if (signal?.aborted) break
@@ -180,23 +185,38 @@ STRICT ROLE ENFORCEMENT RULES:
         const compactionRes = this.ctx.compactor.compact(compactedMessages)
         if (compactionRes.compacted) {
           compactedMessages = compactionRes.messages
-          const prunedCount = Math.max(1, session.messages.length - compactedMessages.length)
           // Persist back to session storage
           session.messages = compactedMessages
         }
       }
 
-      const messagesToSend = [systemPrompt, ...compactedMessages]
+      // Get all available tools; tool-filter middleware will narrow this list for the active preset
+      const toolsToPass = this.ctx.tools.getOpenAiSchemas()
 
-      // Call LLM
-      let toolsToPass = this.ctx.tools.getOpenAiSchemas()
-      if (activePreset?.enabledTools && Array.isArray(activePreset.enabledTools) && activePreset.enabledTools.length > 0) {
-        const allowedSet = new Set(activePreset.enabledTools)
-        toolsToPass = toolsToPass.filter((t: any) => {
-          const tName = t.function?.name || t.name
-          return allowedSet.has(tName)
-        })
+      // Execute Agent Middleware (beforeChat)
+      // IMPORTANT: capture as a named object so mutations to ctx.messages / ctx.tools
+      // by middlewares (skill-pruner, tool-filter, skill-reminder, etc.) are visible below.
+      const beforeChatCtx = {
+        sessionId,
+        userId,
+        preset: activePreset,
+        turnCount,
+        signal,
+        systemPrompt: renderedPrompt,
+        messages: compactedMessages,
+        tools: toolsToPass,
+        options: options as any,
+        availableSkills: this.ctx.skills
+          ? this.ctx.skills.listActiveSkills(userId).map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              description: s.description ?? ''
+            }))
+          : []
       }
+      await this.ctx.agentMiddleware.runBeforeChat(beforeChatCtx)
+
+      const messagesToSend = [systemPrompt, ...beforeChatCtx.messages]
 
       let currentAssistantContent = ''
       let currentThinking = ''
@@ -206,10 +226,11 @@ STRICT ROLE ENFORCEMENT RULES:
         provider,
         model,
         signal,
-        tools: toolsToPass,
+        tools: beforeChatCtx.tools,
         enableThinking: options.enableThinking,
         thinkingBudgetTokens: options.thinkingBudgetTokens
       })) {
+
         if (signal?.aborted) break
 
         if (event.type === 'thought') {
@@ -220,20 +241,43 @@ STRICT ROLE ENFORCEMENT RULES:
           if (event.content) options.onChunk?.(event.content)
         } else if (event.type === 'tool_call' && event.toolCall) {
           pendingToolCalls.push({
-            id: event.toolCall.id,
+            id: event.toolCall.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             name: event.toolCall.name,
-            arguments: event.toolCall.arguments
+            arguments: event.toolCall.arguments || ''
           })
-        } else if (event.type === 'error' && event.error) {
-          options.onChunk?.(`\n[Hata]: ${event.error}\n`)
-          currentAssistantContent += `\n[Hata]: ${event.error}\n`
+          options.onToolStart?.({
+            id: event.toolCall.id || '',
+            name: event.toolCall.name,
+            args: event.toolCall.arguments
+          })
+        }
+
+      }
+
+      finalResponse = currentAssistantContent
+      let finalContent = currentAssistantContent
+      let finalThinking = currentThinking
+
+      // Extract thoughts
+      if (finalContent.includes('<thought>') || finalContent.includes('<think>') || finalContent.includes('<commentary>')) {
+        const extracted: string[] = []
+        const regex = /<(?:thought|think|commentary)(?:>|[\s\n\r])([\s\S]*?)(?:<\/(?:thought|think|commentary)>|$)/gi
+        let match: RegExpExecArray | null
+        while ((match = regex.exec(finalContent)) !== null) {
+          if (match[1]?.trim()) {
+            extracted.push(match[1].trim())
+          }
+        }
+        if (extracted.length > 0) {
+          finalThinking = finalThinking ? `${finalThinking}\n\n${extracted.join('\n\n')}` : extracted.join('\n\n')
+          finalContent = finalContent.replace(/<(?:thought|think|commentary)(?:>|[\s\n\r])[\s\S]*?(?:<\/(?:thought|think|commentary)>|$)/gi, '').trim()
         }
       }
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: currentAssistantContent || undefined,
-        reasoning_content: currentThinking || undefined,
+        content: finalContent || undefined,
+        reasoning_content: finalThinking || undefined,
         presetName: activePreset?.name || activePreset?.id || 'Full-Stack Developer',
         modelName: model
       }
@@ -250,7 +294,26 @@ STRICT ROLE ENFORCEMENT RULES:
       }
 
       this.ctx.session.appendMessage(sessionId, assistantMsg)
+      
+      // Post-chat middleware check
       if (pendingToolCalls.length === 0) {
+        const chatOutcome = await this.ctx.agentMiddleware.runAfterChat({
+          sessionId,
+          userId,
+          preset: activePreset,
+          turnCount,
+          signal,
+          assistantMessage: assistantMsg
+        })
+        if (chatOutcome.shouldContinue && turnCount < maxTurns) {
+          if (chatOutcome.prompt) {
+            this.ctx.session.appendMessage(sessionId, {
+              role: 'user',
+              content: chatOutcome.prompt
+            })
+          }
+          continue
+        }
         if (options.autonomous && turnCount < maxTurns && !assistantMsg.content) {
           this.ctx.session.appendMessage(sessionId, {
             role: 'user',
@@ -261,29 +324,39 @@ STRICT ROLE ENFORCEMENT RULES:
         break
       }
 
+      // Execute Tools
       for (const call of pendingToolCalls) {
         if (signal?.aborted) break
-
-        // 3.1 Check Preset Tool Permission
-        if (activePreset?.enabledTools && Array.isArray(activePreset.enabledTools) && activePreset.enabledTools.length > 0) {
-          if (!activePreset.enabledTools.includes(call.name)) {
-            const forbiddenOutput = `[Erişim Engeli]: '${call.name}' aracı seçili ajan presetinde (${activePreset.name || activePreset.id}) devre dışı bırakılmıştır. Lütfen bu işlemi bellekte / bash komutları ile tamamlayın.`
-            options.onToolResult?.({ id: call.id, name: call.name, output: forbiddenOutput })
-            this.ctx.session.appendMessage(sessionId, {
-              role: 'tool',
-              tool_call_id: call.id,
-              name: call.name,
-              content: forbiddenOutput
-            })
-            continue
-          }
-        }
 
         let parsedArgs: any = {}
         try {
           parsedArgs = JSON.parse(call.arguments || '{}')
         } catch (e) {
           parsedArgs = { raw: call.arguments }
+        }
+
+        // Execute Agent Middleware (beforeTool)
+        // tool-guard and sql-safety-guard middlewares handle permission checks
+        const toolCheck = await this.ctx.agentMiddleware.runBeforeTool({
+          sessionId,
+          userId,
+          preset: activePreset,
+          turnCount,
+          signal,
+          toolName: call.name,
+          params: parsedArgs,
+          toolCallId: call.id
+        })
+        if (toolCheck.shouldBlock) {
+          const blockedOutput = toolCheck.output ?? `[Erişim Engeli]: '${call.name}' araç çağrısı güvenlik politikası gereği durduruldu.`
+          options.onToolResult?.({ id: call.id, name: call.name, output: blockedOutput })
+          this.ctx.session.appendMessage(sessionId, {
+            role: 'tool',
+            tool_call_id: call.id,
+            name: call.name,
+            content: blockedOutput
+          })
+          continue
         }
 
         // 4. Approval Check
@@ -314,25 +387,22 @@ STRICT ROLE ENFORCEMENT RULES:
           }
         }
 
-        // 5. Guardrail: Inspect for repetitive loops
-        const guardCheck = this.ctx.repeatGuard?.inspectCall(sessionId, call.name, parsedArgs)
-        if (guardCheck?.shouldBlock) {
-          const blockedOutput = guardCheck.reminder || `[Döngü Engellendi]: Bu araç çağrısı çok fazla tekrar ettiği için durduruldu.`
-          options.onToolResult?.({ id: call.id, name: call.name, output: blockedOutput })
-          this.ctx.session.appendMessage(sessionId, {
-            role: 'tool',
-            tool_call_id: call.id,
-            name: call.name,
-            content: blockedOutput
-          })
-          continue
+        // 5. Guardrail & Execute
+        let guardCheck: { isLooping: boolean; reminder?: string; shouldBlock?: boolean } | undefined = undefined
+        if (this.ctx.repeatGuard) {
+          guardCheck = this.ctx.repeatGuard.inspectCall(sessionId, call.name, parsedArgs)
+          if (guardCheck?.shouldBlock) {
+            const blockedOutput = guardCheck.reminder || `[Döngü Engellendi]: Bu araç çağrısı çok fazla tekrar ettiği için durduruldu.`
+            options.onToolResult?.({ id: call.id, name: call.name, output: blockedOutput })
+            this.ctx.session.appendMessage(sessionId, {
+              role: 'tool',
+              tool_call_id: call.id,
+              name: call.name,
+              content: blockedOutput
+            })
+            continue
+          }
         }
-
-        options.onToolStart?.({
-          id: call.id,
-          name: call.name,
-          args: parsedArgs
-        })
 
         let output: any = ''
         try {
@@ -341,13 +411,9 @@ STRICT ROLE ENFORCEMENT RULES:
           output = `Araç Çalıştırma Hatası: ${err.message}`
         }
 
-        options.onToolResult?.({
-          id: call.id,
-          name: call.name,
-          output
-        })
+        options.onToolResult?.({ id: call.id, name: call.name, output })
 
-        // 6. Spill / Pruning Policy
+        // 6. Pruning & Middleware
         let outputContent = typeof output === 'string' ? output : JSON.stringify(output, null, 2)
         if (this.ctx.spillStore?.processOutput) {
           const spill = await this.ctx.spillStore.processOutput(output, sessionId, call.name)
@@ -356,7 +422,18 @@ STRICT ROLE ENFORCEMENT RULES:
           outputContent = this.ctx.toolResultPruner.prune(outputContent).text
         }
 
-        // 7. If loop guard emitted an advisory reminder, append it to the result
+        outputContent = await this.ctx.agentMiddleware.runAfterTool({
+          sessionId,
+          userId,
+          preset: activePreset,
+          turnCount,
+          signal,
+          toolName: call.name,
+          params: parsedArgs,
+          toolCallId: call.id,
+          output: outputContent
+        })
+
         if (guardCheck?.isLooping && guardCheck.reminder) {
           outputContent += `\n\n${guardCheck.reminder}`
         }

@@ -291,7 +291,26 @@ export function AssistantMessageBubble({
 
   const hasTools = message.tool_calls && message.tool_calls.length > 0
   const hasToolResults = message.toolResults && message.toolResults.length > 0
-  const isPending = message.isStreaming && !message.content && !message.reasoning_content
+
+  // 🧠 Extract inline <thought> / <think> tags from content if present (e.g. Gemma, DeepSeek, Qwen)
+  let displayContent = message.content || ''
+  let displayReasoning = message.reasoning_content || ''
+
+  if (displayContent && (displayContent.includes('<thought') || displayContent.includes('<think') || displayContent.includes('<commentary'))) {
+    const thoughtRegex = /<(?:thought|think|commentary)(?:>|[\s\n\r])([\s\S]*?)(?:<\/(?:thought|think|commentary)>|$)/gi
+    let match: RegExpExecArray | null
+    const extracted: string[] = []
+    while ((match = thoughtRegex.exec(displayContent)) !== null) {
+      const inner = match[1].replace(/<\/?(?:thought|think|commentary)(?:>|[\s\n\r])?/gi, '').trim()
+      if (inner) extracted.push(inner)
+    }
+    if (extracted.length > 0) {
+      displayReasoning = displayReasoning ? `${displayReasoning}\n\n${extracted.join('\n\n')}` : extracted.join('\n\n')
+      displayContent = displayContent.replace(/<(?:thought|think|commentary)(?:>|[\s\n\r])[\s\S]*?(?:<\/(?:thought|think|commentary)>|$)/gi, '').trim()
+    }
+  }
+
+  const isPending = message.isStreaming && !displayContent && !displayReasoning
 
   return (
     <div className="msg-row assistant-row">
@@ -309,9 +328,9 @@ export function AssistantMessageBubble({
         </div>
 
         {/* Reasoning / Thinking Accordion */}
-        {message.reasoning_content && (
-          <ThinkingBlock reasoning={message.reasoning_content} isStreaming={message.isStreaming} />
-        )}
+        {displayReasoning ? (
+          <ThinkingBlock reasoning={displayReasoning} isStreaming={message.isStreaming} />
+        ) : null}
 
         {/* Tool Invocations */}
         {hasTools && (
@@ -332,10 +351,10 @@ export function AssistantMessageBubble({
         )}
 
         {/* Assistant Markdown Content */}
-        {message.content ? (
+        {displayContent ? (
           <div
             className="assistant-content-markdown"
-            dangerouslySetInnerHTML={{ __html: formatMarkdown(message.content) }}
+            dangerouslySetInnerHTML={{ __html: formatMarkdown(displayContent) }}
           />
         ) : isPending ? (
           <div className="streaming-cursor-loader">
@@ -345,7 +364,7 @@ export function AssistantMessageBubble({
           </div>
         ) : null}
 
-        {message.content && (
+        {displayContent && (
           <div className="assistant-bottom-actions">
             <button className="btn-action-small" onClick={handleCopy} title="Yanıtı Kopyala">
               {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
@@ -839,10 +858,11 @@ export function InputArea({
         {tokenInfo && tokenInfo.usedTokens !== undefined && (
           <div className="input-sub-tokens">
             <span className="token-dot" />
-            <span>{tokenInfo.usedTokens.toLocaleString()} / {(tokenInfo.maxTokens || 32768).toLocaleString()} tokens</span>
+            <span>{tokenInfo.usedTokens.toLocaleString()} / {(tokenInfo.maxTokens || 24576).toLocaleString()} tokens</span>
             {tokenInfo.pct !== undefined && <span className="token-pct">({tokenInfo.pct}%)</span>}
           </div>
         )}
+
       </div>
     </div>
   )

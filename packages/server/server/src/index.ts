@@ -360,12 +360,14 @@ export function apply(ctx: Context) {
     }
   })
 
-  // 2. Session Endpoints (Tenant-Isolated)
+  // 2. Session Endpoints (Tenant-Isolated & Client-Filtered)
   app.get('/api/sessions', (req, res) => {
     const user = req.user!
     const isAdmin = user.role === 'admin'
-    res.json(ctx.session.listSessions(user.id, isAdmin))
+    const clientType = (req.query.clientType as string) || 'web'
+    res.json(ctx.session.listSessions(user.id, isAdmin, clientType))
   })
+
 
   app.get('/api/sessions/:id', (req, res) => {
     const session = ctx.session.getSession(req.params.id)
@@ -1283,8 +1285,9 @@ version: 1.0.0
             activeRuns.set(ws, controller)
 
             const sessionUserId = userId || 'user_admin'
-            const activeSession = (sessionId && ctx.session.getSession(sessionId)) || ctx.session.createSession(undefined, undefined, sessionUserId)
+            const activeSession = (sessionId && ctx.session.getSession(sessionId)) || ctx.session.createSession(undefined, undefined, sessionUserId, 'web')
             const activeSessionId = activeSession.id
+
 
             // Send active session id and initial context measurement immediately
             if (ws.readyState === WebSocket.OPEN) {
@@ -1354,6 +1357,8 @@ version: 1.0.0
                 },
                 onToolStart: (call: { id: string; name: string; args: any }) => {
                   if (ws.readyState === WebSocket.OPEN) {
+                    // Ensure UI has an assistant message row before tool card arrives
+                    ws.send(JSON.stringify({ type: 'ensure_assistant', sessionId: activeSessionId }))
                     ws.send(JSON.stringify({ type: 'tool_start', call, sessionId: activeSessionId }))
                   }
                 },
@@ -1413,6 +1418,7 @@ version: 1.0.0
           wss.close()
           server.close()
         } catch (e) {}
+        isStarted = false
         startListening(targetPort + 1)
       } else {
         console.error('[Server] Başlatma Hatası:', err)
@@ -1427,7 +1433,18 @@ version: 1.0.0
     })
   }
 
+  let isStarted = false
+  const safeStart = (port: number) => {
+    if (isStarted) return
+    isStarted = true
+    startListening(port)
+  }
+
   ctx.on('ready', () => {
-    startListening(basePort)
+    safeStart(basePort)
   })
+
+  // Start immediately so the web port is bound without waiting for background services
+  safeStart(basePort)
 }
+

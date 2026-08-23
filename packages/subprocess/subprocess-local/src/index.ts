@@ -113,7 +113,6 @@ export class LocalSubprocessService extends SubprocessService {
           GIT_TERMINAL_PROMPT: '0',
           SUDO_ASKPASS: '/bin/false',
           SSH_ASKPASS: '/bin/false',
-          PGCONNECT_TIMEOUT: '3',
           PYTHONUNBUFFERED: '1'
         },
         stdio: ['pipe', 'pipe', 'pipe'],

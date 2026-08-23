@@ -51,10 +51,13 @@ export function AppRoot() {
   const usedTokens = agent.tokenMeasurement
     ? (agent.tokenMeasurement.totalTokens ?? (agent.tokenMeasurement as any).totalTokensUsed ?? 0)
     : 0
-  const maxTokens = agent.tokenMeasurement
-    ? (agent.tokenMeasurement.contextWindowSize ?? 32768)
-    : 32768
+  const maxTokens = agent.tokenMeasurement?.contextWindow 
+    ?? agent.tokenMeasurement?.contextPressure?.contextWindow 
+    ?? (agent.tokenMeasurement as any)?.contextWindowSize 
+    ?? 24576
   const tokenPct = maxTokens > 0 ? Math.round((usedTokens / maxTokens) * 100) : 0
+
+
 
   const isMustAuth = !agent.currentUser
 
@@ -197,9 +200,11 @@ export function AppRoot() {
         isAdmin={agent.currentUser?.role === 'admin'}
         onSaveSettings={agent.saveSettings}
         onSavePreset={agent.savePreset}
+        onDeletePreset={agent.deletePreset}
         onSetDefaultPreset={agent.setDefaultPreset}
         onTogglePlugin={agent.togglePlugin}
       />
+
 
       <WorkspaceModal
         isOpen={isWorkspaceOpen}

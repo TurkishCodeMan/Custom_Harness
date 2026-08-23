@@ -86,6 +86,12 @@ importers:
 
   packages/bundle/base:
     dependencies:
+      '@custom-harness/agent-middleware':
+        specifier: workspace:*
+        version: link:../../middleware/agent-middleware
+      '@custom-harness/agent-middleware-builtin':
+        specifier: workspace:*
+        version: link:../../middleware/agent-middleware-builtin
       '@custom-harness/compaction-basic':
         specifier: workspace:*
         version: link:../../compaction/compaction-basic
@@ -639,6 +645,41 @@ importers:
       cordis:
         specifier: ^3.18.1
         version: 3.18.1
+
+  packages/middleware/agent-middleware:
+    dependencies:
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      cordis:
+        specifier: ^3.4.0
+        version: 3.18.1
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  packages/middleware/agent-middleware-builtin:
+    dependencies:
+      '@custom-harness/agent-middleware':
+        specifier: workspace:*
+        version: link:../agent-middleware
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      cordis:
+        specifier: ^3.4.0
+        version: 3.18.1
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   packages/plan/plan-mode:
     dependencies:

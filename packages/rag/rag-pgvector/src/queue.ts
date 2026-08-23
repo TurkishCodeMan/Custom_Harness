@@ -12,6 +12,7 @@ export interface QueueConfig {
   redisHost?: string
   redisPort?: number
   concurrency?: number
+  enableRedis?: boolean
 }
 
 export class RagIndexingQueue extends EventEmitter {
@@ -36,8 +37,12 @@ export class RagIndexingQueue extends EventEmitter {
   constructor(config?: QueueConfig) {
     super()
     this.concurrency = config?.concurrency || 4
-    this.tryConnectRedis(config?.redisHost || 'localhost', config?.redisPort || 16379)
+    const shouldEnableRedis = config?.enableRedis ?? (process.env.RAG_ENABLE_REDIS === 'true' || process.env.ENABLE_REDIS_QUEUE === 'true')
+    if (shouldEnableRedis) {
+      this.tryConnectRedis(config?.redisHost || 'localhost', config?.redisPort || 16379)
+    }
   }
+
 
   public setConcurrency(concurrency: number) {
     this.concurrency = Math.max(1, Math.min(16, concurrency))

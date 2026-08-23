@@ -69,8 +69,7 @@ export class SystemPromptService extends Service {
 - ALWAYS invoke the real tool call (e.g. ${toolNames}).
 - NEVER merely write commands in plain text.
 - Inspect tool execution results, apply necessary changes, and always provide a clear, helpful, natural language response directly to the user summarizing the result or explaining any issues.
-- When running Python scripts in bash/terminal, ALWAYS use the \`python3\` binary (e.g. \`python3 script.py\`). Do NOT use unaliased \`python\`.
-- **AD-HOC DATA ANALYSIS & EDA RULE**: When performing data analysis, EDA, SQL querying, or calculations, DO NOT litter the workspace with temporary python files unless the user explicitly asks to save a file. Run your Python code dynamically in-memory using bash (\`python3 -c "..."\` or \`python3 << 'EOF' ... EOF\`).`
+- When running Python scripts in bash/terminal, ALWAYS use the \`python3\` binary. Do NOT use unaliased \`python\`.`
       }
     })
 
@@ -85,15 +84,13 @@ export class SystemPromptService extends Service {
           ? skillsService.listActiveSkills()
           : (skillsService.listSkills?.() || []).filter((s: any) => s.enabled !== false)
         if (!skillsList || skillsList.length === 0) return ''
-        const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Uzmanlık talimatı'} (Çağırmak için: \`skill(action: 'read', skillName: '${s.name}')\`)`).join('\n')
+        const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Uzmanlık talimatı'} (Yüklemek için: \`skill(skillName: '${s.name}')\`)`).join('\n')
         return `### ⚡ MEVCUT UZMANLIK BECERİLERİ (Specialized Skills Catalog):
 Aşağıda sistemde kayıtlı ve aktif uzmanlık becerileri listelenmiştir:
 ${items}
 
-🚨 ZORUNLU İLK ADIM KURALI (MANDATORY SKILL PRE-LOADING):
-1. Kullanıcıdan bir görev geldiğinde (örneğin veri analizi, EDA, makine öğrenmesi, veritabanı sorgusu, grafik çizimi, model eğitme vb.), İLK İŞ OLARAK yukarıdaki beceri kataloğunu kontrol et.
-2. Görevle ilgili BİR veya BİRDEN FAZLA beceri varsa (örneğin veritabanı şeması becerisi ve pandas/ML analiz becerisi), İŞLEME BAŞLAMADAN ÖNCE mutlaka \`skill(action: 'read', skillName: '...')\` aracını çağırarak o becerilerin tam kural ve şablonlarını yükle.
-3. Becerileri yükledikten sonra, becerilerde belirtilen veritabanı bağlantılarını, doğru tablo/kolon adlarını, Python kütüphanelerini ve analiz yönergelerini eksiksiz uygulayarak görevi tamamla.`
+Skill Kullanım Yönergesi:
+- Göreviniz yukarıdaki özel alan becerilerinden biriyle ilgili olduğunda, ihtiyaç duyduğunuzda \`skill(skillName: '<beceri adı>')\` aracını çağırarak ilgili uzmanlık yönergelerini yükleyebilirsiniz.`
       }
     })
   }

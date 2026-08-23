@@ -7,6 +7,8 @@ async function main() {
   const ctx = new Context()
   ctx.plugin(webAppBundle)
   await ctx.start()
+
+
 }
 
 main().catch((err) => {

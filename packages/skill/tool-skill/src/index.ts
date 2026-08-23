@@ -489,44 +489,47 @@ export function apply(ctx: Context) {
   ctx.tools.register(
     defineTool({
       name: 'skill',
-      description: 'Uzmanlık becerilerini (.agents/skills/ altındaki SKILL.md dosyaları) listeler ve yükler.',
+      description: 'Uzmanlık becerilerini (.agents/skills/) okur; veritabanı bağlantı bilgilerini, SQL şemalarını ve ML analiz şablonlarını yükler. Veri analizi veya veritabanı işlemlerinde skillName belirterek (örn. "Far Trans Demo DB SQL") çağrılmalıdır.',
       parameters: {
         type: 'object',
         properties: {
-          action: {
-            type: 'string',
-            enum: ['list', 'read'],
-            description: "'list' aktif becerileri listeler, 'read' seçilen becerinin talimatlarını okur."
-          },
           skillName: {
             type: 'string',
-            description: "Okunacak becerinin adı (action='read' olduğunda zorunludur)."
+            description: "Yüklenecek becerinin adı (Örn: 'Far Trans Demo DB SQL', 'pandas-plotly-sklearn-ml-models-skill')."
           }
         },
-        required: ['action']
+        required: ['skillName']
       },
       execute: async (
-        { action, skillName }: { action: 'list' | 'read'; skillName?: string },
+        params: { skillName?: string; name?: string; skill?: string; action?: string },
         context?: { cwd?: string }
       ) => {
         service.discover(context?.cwd)
-        if (action === 'list') {
-          const activeList = service.listActiveSkills()
-          if (activeList.length === 0) return 'Şu anda sistemde etkinleştirilmiş (açık) bir uzmanlık becerisi bulunmuyor.'
-          return activeList.map(s => `- **${s.name}**: ${s.description}`).join('\n')
-        }
+        const targetName = params.skillName || params.name || params.skill
 
-        if (action === 'read' && skillName) {
-          const skill = service.getSkill(skillName) || service.listSkills().find(s => s.name === skillName)
-          if (!skill) return `Beceri bulunamadı: ${skillName}`
-          if (skill.enabled === false) {
-            return `[DEVRE DIŞI / OFF]: '${skill.name}' becerisi kullanıcı tarafından devre dışı bırakılmıştır. Bu beceriye ait talimatlar yüklenemez.`
+        // 1. If targetName matches a skill, return its full content directly
+        if (targetName) {
+          const query = targetName.trim()
+          const skill = service.getSkill(query) || service.listSkills().find(s => s.name.toLowerCase().includes(query.toLowerCase()) || s.id.toLowerCase().includes(query.toLowerCase()))
+          if (skill) {
+            if (skill.enabled === false) {
+              return `[DEVRE DIŞI / OFF]: '${skill.name}' becerisi kullanıcı tarafından devre dışı bırakılmıştır.`
+            }
+            return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${skill.name}):\n\n${skill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu beceri metnini kullanıcıya kopyalama; HEMEN sıradaki eylem olarak bash aracını çağırarak gerçek sorgunu/analizini çalıştır.`
           }
-          return `### Beceri Talimatları (${skill.name}):\n\n${skill.content}`
         }
 
-        return 'Geçersiz parametre.'
+        // 2. Fallback: If no exact name was given, auto-load the primary database/ML skill
+        const activeSkills = service.listActiveSkills()
+        const primarySkill = activeSkills.find(s => s.name.toLowerCase().includes('sql') || s.name.toLowerCase().includes('far')) || activeSkills[0]
+
+        if (primarySkill) {
+          return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${primarySkill.name}):\n\n${primarySkill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu metni kullanıcıya kopyalama; HEMEN sıradaki eylem olarak bash aracını çağırarak veritabanı sorgunu veya analizini çalıştır.`
+        }
+
+        return 'Sistemde yüklü aktif bir beceri bulunamadı.'
       }
     })
   )
 }
+

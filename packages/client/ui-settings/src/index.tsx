@@ -10,6 +10,7 @@ export interface SettingsModalProps {
   isAdmin?: boolean
   onSaveSettings: (newSettings: any) => Promise<void>
   onSavePreset: (preset: any) => Promise<void>
+  onDeletePreset?: (presetId: string) => Promise<void>
   onSetDefaultPreset: (presetId: string) => Promise<void>
   onTogglePlugin: (pluginId: string, enabled: boolean) => Promise<void>
 }
@@ -23,9 +24,11 @@ export function SettingsModal({
   isAdmin = true,
   onSaveSettings,
   onSavePreset,
+  onDeletePreset,
   onSetDefaultPreset,
   onTogglePlugin
 }: SettingsModalProps) {
+
   const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'plugins' | 'ui' | 'general'>('providers')
   const [localSettings, setLocalSettings] = useState<any>(settings || {})
   const [selectedPresetId, setSelectedPresetId] = useState<string>(activePresetId || 'full-stack')
@@ -145,8 +148,10 @@ export function SettingsModal({
               onSavePreset={async () => {
                 await onSavePreset(presetForm)
               }}
+              onDeletePreset={onDeletePreset}
             />
           )}
+
 
           {activeTab === 'ui' && (
             <UiTab
@@ -621,7 +626,8 @@ export function PresetsTab({
   onSelectPreset,
   presetForm,
   onPresetFormChange,
-  onSavePreset
+  onSavePreset,
+  onDeletePreset
 }: {
   presets: any[]
   selectedPresetId: string
@@ -629,9 +635,12 @@ export function PresetsTab({
   presetForm: any
   onPresetFormChange: (form: any) => void
   onSavePreset: () => Promise<void>
+  onDeletePreset?: (id: string) => Promise<void>
 }) {
   const [liveTools, setLiveTools] = useState<Array<{ name: string; description: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
 
   useEffect(() => {
     fetch('/api/tools')
@@ -671,10 +680,54 @@ export function PresetsTab({
     (t.description && t.description.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
+  const handleDelete = async () => {
+    if (!onDeletePreset) return
+    const presetName = presetForm.name || selectedPresetId
+    const confirmed = window.confirm(`"${presetName}" ajan profilini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)
+    if (!confirmed) return
+
+    try {
+      setIsDeleting(true)
+      await onDeletePreset(selectedPresetId)
+      const remaining = presets.filter((p) => p.id !== selectedPresetId)
+      if (remaining.length > 0) {
+        onSelectPreset(remaining[0].id)
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const isDefaultOrSingle = presets.length <= 1
+
   return (
     <div className="tab-pane">
       <div className="form-group">
-        <label className="form-label">Seçili Ajan Profili</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <label className="form-label" style={{ margin: 0 }}>Seçili Ajan Profili</label>
+          {onDeletePreset && (
+            <button
+              type="button"
+              disabled={isDeleting || isDefaultOrSingle}
+              onClick={handleDelete}
+              style={{
+                fontSize: '11px',
+                padding: '3px 8px',
+                background: isDefaultOrSingle ? 'rgba(100, 116, 139, 0.1)' : 'rgba(239, 68, 68, 0.15)',
+                border: `1px solid ${isDefaultOrSingle ? 'rgba(100, 116, 139, 0.2)' : 'rgba(239, 68, 68, 0.35)'}`,
+                borderRadius: '4px',
+                color: isDefaultOrSingle ? '#64748b' : '#fca5a5',
+                cursor: isDefaultOrSingle ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title={isDefaultOrSingle ? 'En az bir profil kalmalıdır' : 'Bu profili sil'}
+            >
+              {isDeleting ? 'Siliniyor...' : '🗑️ Bu Profili Sil'}
+            </button>
+          )}
+        </div>
         <select
           className="form-select"
           value={selectedPresetId}
@@ -809,10 +862,22 @@ export function PresetsTab({
         </div>
       </div>
 
-      <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-        <Button variant="secondary" size="sm" onClick={onSavePreset}>
-          💾 Profili Diske Kaydet (.json)
-        </Button>
+      <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {onDeletePreset && (
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={isDeleting || isDefaultOrSingle}
+            onClick={handleDelete}
+          >
+            {isDeleting ? 'Siliniyor...' : '🗑️ Profili Sil'}
+          </Button>
+        )}
+        <div style={{ marginLeft: 'auto' }}>
+          <Button variant="secondary" size="sm" onClick={onSavePreset}>
+            💾 Profili Diske Kaydet (.json)
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -55,8 +55,9 @@ async function main() {
   const isQwen = args.includes('qwen-local') || args.includes('--llm-qwen') || process.env.LLM_PROVIDER === 'qwen-local'
 
   const ctx = new Context()
-  await ctx.plugin(headlessBundle, { llmPlugin: isQwen ? llmQwen : undefined })
+  ctx.plugin(headlessBundle, { llmPlugin: isQwen ? llmQwen : undefined })
   await ctx.start()
+
 
   // Headless Task Execution for SWE-bench & Automated Benchmarks
   const taskArgIndex = args.indexOf('--task')
@@ -64,7 +65,7 @@ async function main() {
 
   if (taskText) {
     const workspace = process.env.WORKSPACE_DIR || process.cwd()
-    const headlessSession = ctx.session.createSession('SWE Benchmark Task', workspace)
+    const headlessSession = ctx.session.createSession('SWE Benchmark Task', workspace, undefined, 'cli')
     ctx.approval?.setPolicy('auto') // Auto-approve all tools during automated benchmark
 
     // Configure Autonomous Software Engineer Persona
@@ -119,6 +120,7 @@ ${taskText}`
   let isYoloMode = false
   let enableModelThinking = false // Directly controls model API thinking parameter
   let thinkingBudget = 1024
+  let currentPreset: any = ctx.agentPresets ? ctx.agentPresets.getActive() : ctx.settings?.getActivePreset?.()
 
   // Connect approval requests to terminal prompt
   let pendingApprovalResolve: ((outcome: any) => void) | null = null
@@ -138,8 +140,10 @@ ${taskText}`
   })
 
   // Always start with a fresh new session on CLI launch
-  let currentSession = ctx.session.createSession('CLI Session')
+  let currentSession = ctx.session.createSession('CLI Session', undefined, undefined, 'cli')
   console.log(`${c.green}✨ Yeni Oturum Başlatıldı:${c.reset} ${c.gray}${currentSession.id}${c.reset}`)
+  const activePresetName = currentPreset ? `${currentPreset.icon || '🎭'} ${currentPreset.name}` : 'Full-Stack Developer'
+  console.log(`${c.bold}${c.green}✓ Aktif Ajan Rolü:${c.reset} ${c.bold}${c.yellow}${activePresetName}${c.reset} ${c.gray}(Değiştirmek için: ${c.cyan}/preset${c.gray})${c.reset}`)
   console.log(`${c.gray}Önceki oturumlara geçmek için ${c.cyan}/sessions${c.gray}, yeni oturum için ${c.cyan}/new${c.gray} yazabilirsiniz.${c.reset}\n`)
 
   // Zero-flicker, zero-ghosting TUI Pane Renderer
@@ -174,8 +178,8 @@ ${taskText}`
   }
 
   // Interactive Session Manager Pane (Arrow keys to navigate, Enter to switch, 'd' to safely delete)
-  const openInteractiveSessionManager = async (): Promise<any> => {
-    let sessions = ctx.session.listSessions()
+  const manageSessionsInteractive = async (): Promise<any> => {
+    let sessions = ctx.session.listSessions(undefined, true, 'cli')
     if (sessions.length === 0) {
       console.log(`\n${c.gray}Kayıtlı oturum bulunamadı.${c.reset}\n`)
       return currentSession
@@ -239,11 +243,11 @@ ${taskText}`
           if (_str === 'e' || _str === 'E' || _str === 'y' || _str === 'Y') {
             const target = sessions[selectedIndex]
             ctx.session.deleteSession(target.id)
-            sessions = ctx.session.listSessions()
-            if (currentSession.id === target.id) {
+            sessions = ctx.session.listSessions(undefined, true, 'cli')
+            if (target.id === currentSession.id) {
               currentSession = sessions.length > 0
-                ? (ctx.session.getSession(sessions[0].id) || ctx.session.createSession('CLI Session'))
-                : ctx.session.createSession('CLI Session')
+                ? (ctx.session.getSession(sessions[0].id) || ctx.session.createSession('CLI Session', undefined, undefined, 'cli'))
+                : ctx.session.createSession('CLI Session', undefined, undefined, 'cli')
             }
             if (selectedIndex >= sessions.length) selectedIndex = Math.max(0, sessions.length - 1)
             isPromptingDelete = false
@@ -502,6 +506,7 @@ ${taskText}`
           cleanup()
           const chosen = presets[selectedIndex]
           if (chosen) {
+            currentPreset = chosen
             if (ctx.agentPresets) ctx.agentPresets.select(chosen.id)
             console.log(`\n${c.bold}${c.green}✓ Ajan Rolü Aktifleştirildi:${c.reset} ${chosen.icon || '🎭'} ${c.bold}${chosen.name}${c.reset}\n`)
           }
@@ -957,7 +962,8 @@ ${taskText}`
   const promptUser = async () => {
     const yoloBadge = isYoloMode ? `${c.bold}${c.yellow}[YOLO]${c.reset} ` : ''
     const goalBadge = activeGoal ? `${c.bold}${c.green}[GOAL]${c.reset} ` : ''
-    const promptLabel = `${yoloBadge}${goalBadge}${c.bold}${c.cyan}dsh (${currentMode}) > ${c.reset}`
+    const presetLabel = currentPreset ? `${currentPreset.icon || '🎭'} ${currentPreset.name}` : 'Full-Stack Developer'
+    const promptLabel = `${yoloBadge}${goalBadge}${c.bold}${c.cyan}dsh (${currentMode} · ${c.yellow}${presetLabel}${c.cyan}) > ${c.reset}`
 
     const input = await readInputInteractive(promptLabel)
 
@@ -1034,15 +1040,14 @@ ${taskText}`
       }
 
       if (cmd === '/new') {
-        currentSession = ctx.session.createSession('CLI Session')
-        activeGoal = null
-        console.log(`\n${c.bold}${c.green}✨ Yeni Oturum Başlatıldı:${c.reset} ${c.gray}${currentSession.id}${c.reset}\n`)
+        currentSession = ctx.session.createSession('CLI Session', undefined, undefined, 'cli')
+        console.log(`\n${c.green}✨ Yeni temiz oturum başlatıldı.${c.reset} ${c.gray}(ID: ${currentSession.id})${c.reset}\n`)
         promptUser()
         return
       }
 
       if (cmd === '/sessions') {
-        currentSession = await openInteractiveSessionManager()
+        currentSession = await manageSessionsInteractive()
         promptUser()
         return
       }
@@ -1127,6 +1132,7 @@ ${taskText}`
           const presets = ctx.agentPresets ? ctx.agentPresets.list() : ctx.settings.getPresets()
           const matched = presets.find((p: any) => p.id === argStr || p.name.toLowerCase().includes(argStr.toLowerCase()))
           if (matched) {
+            currentPreset = matched
             if (ctx.agentPresets) ctx.agentPresets.select(matched.id)
             console.log(`\n${c.green}✓ Ajan Rolü Seçildi:${c.reset} ${c.bold}${matched.name}${c.reset}\n`)
           } else {
@@ -1179,6 +1185,7 @@ ${taskText}`
 
       await ctx.agent.run({
         sessionId: currentSession.id,
+        presetId: currentPreset?.id || undefined,
         prompt: promptToSend,
         autonomous: isAutonomous,
         enableThinking: enableModelThinking,

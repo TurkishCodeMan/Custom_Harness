@@ -8,6 +8,7 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "types": ["node"],
     "jsx": "react-jsx",
     "esModuleInterop": true,
     "strict": true,
@@ -25,8 +26,13 @@
       "@custom-harness/core-types": ["./packages/core/types/src/index.ts"],
       "@custom-harness/core-context": ["./packages/core/context/src/index.ts"],
       "@custom-harness/core-tools": ["./packages/core/tools/src/index.ts"],
+
       "@custom-harness/core-agent": ["./packages/core/agent/src/index.ts"],
+      "@custom-harness/agent-middleware": ["./packages/middleware/agent-middleware/src/index.ts"],
+      "@custom-harness/agent-middleware-builtin": ["./packages/middleware/agent-middleware-builtin/src/index.ts"],
       "@custom-harness/fs": ["./packages/fs/fs/src/index.ts"],
+
+
       "@custom-harness/fs-local": ["./packages/fs/fs-local/src/index.ts"],
       "@custom-harness/subprocess": ["./packages/subprocess/subprocess/src/index.ts"],
       "@custom-harness/subprocess-local": ["./packages/subprocess/subprocess-local/src/index.ts"],

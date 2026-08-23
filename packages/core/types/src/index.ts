@@ -131,10 +131,12 @@ export interface TenantContext {
 export interface SessionData {
   id: string
   title: string
+  clientType?: 'web' | 'cli' | 'vscode' | string
   createdAt: number
   updatedAt: number
   workspace: string
   userId?: string
   messages: ChatMessage[]
 }
+
 

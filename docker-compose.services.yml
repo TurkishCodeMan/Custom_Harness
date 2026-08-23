@@ -1,0 +1,177 @@
+services:
+  # ============================================================================
+  # 1. EMBEDDING SERVICE (Official vLLM OpenAI Server)
+  # ============================================================================
+  service-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: harness-embedding
+    restart: unless-stopped
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${EMBEDDING_CUDA_DEVICES:-3}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /mnt/nvmes:/mnt/nvmes:ro
+    ports:
+      - "${EMBEDDING_PORT:-8001}:8001"
+    command: >
+      --model ${EMBEDDING_MODEL_PATH:-Qwen/Qwen3-Embedding-0.6B}
+      --host 0.0.0.0
+      --port 8001
+      --gpu-memory-utilization ${EMBEDDING_GPU_MEM:-0.08}
+      --max-model-len ${EMBEDDING_MAX_MODEL_LEN:-4096}
+      --trust-remote-code
+      --tensor-parallel-size 1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 2. GEMMA / MAIN LLM ENGINE (Official vLLM OpenAI Server)
+  # ============================================================================
+  service-gemma:
+    image: vllm/vllm-openai:latest
+    container_name: harness-gemma
+    restart: unless-stopped
+    ipc: host
+    shm_size: '16gb'
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${GEMMA_CUDA_DEVICES:-0,1,2,3}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /mnt/nvmes:/mnt/nvmes:ro
+    ports:
+      - "${GEMMA_PORT:-8004}:8004"
+    command: >
+      --model ${GEMMA_MODEL_PATH:-/mnt/nvmes/nvme2/llms/huggingface/hub/Huihui-gemma-4-26B-A4B-it-abliterated}
+      --host 0.0.0.0
+      --port 8004
+      --max-model-len ${GEMMA_MAX_MODEL_LEN:-16384}
+      --dtype ${GEMMA_DTYPE:-bfloat16}
+      --gpu-memory-utilization ${GEMMA_GPU_MEM:-0.65}
+      --max-num-batched-tokens ${GEMMA_MAX_BATCHED_TOKENS:-4096}
+      --max-num-seqs ${GEMMA_MAX_SEQS:-8}
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 3. RERANKER SERVICE (Qwen3-Reranker-0.6B)
+  # ============================================================================
+  service-reranker:
+    build:
+      context: ./services/reranker-service
+      dockerfile: Dockerfile
+    container_name: harness-reranker
+    restart: unless-stopped
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${RERANKER_CUDA_DEVICES:-1}
+      - RERANKER_MODEL=${RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
+      - RERANKER_DEVICE=${RERANKER_DEVICE:-cuda}
+      - RERANKER_MAX_LENGTH=${RERANKER_MAX_LENGTH:-8192}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "${RERANKER_PORT:-8006}:8006"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 4. SIGLIP 2 IMAGE SEARCH & VISUAL EMBEDDINGS
+  # ============================================================================
+  service-siglip:
+    build:
+      context: ./services/image-search-service
+      dockerfile: Dockerfile
+    container_name: harness-siglip
+    restart: unless-stopped
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${SIGLIP_CUDA_DEVICES:-0}
+      - MODEL_NAME=${SIGLIP_MODEL_NAME:-google/siglip2-base-patch16-224}
+      - POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}
+      - POSTGRES_PORT=${POSTGRES_PORT:-15433}
+      - POSTGRES_DB=${POSTGRES_DB:-ecp_db}
+      - POSTGRES_USER=${POSTGRES_USER:-ecp_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ecp_pass}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "${SIGLIP_PORT:-8011}:8011"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 5. DOCUMENT INTELLIGENCE & GLM-OCR
+  # ============================================================================
+  service-ocr:
+    build:
+      context: ./services/ocr-service
+      dockerfile: Dockerfile
+    container_name: harness-ocr
+    restart: unless-stopped
+    shm_size: '16gb'
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${OCR_CUDA_DEVICES:-2}
+      - OCR_MODEL_ID=${OCR_MODEL_ID:-zai-org/GLM-OCR}
+      - OCR_DEVICE=${OCR_DEVICE:-cuda:0}
+      - OCR_MAX_NEW_TOKENS=${OCR_MAX_NEW_TOKENS:-8192}
+      - OCR_TORCH_DTYPE=${OCR_TORCH_DTYPE:-bfloat16}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /mnt/nvmes:/mnt/nvmes:ro
+    ports:
+      - "${OCR_PORT:-8010}:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+networks:
+  harness-network:
+    name: harness-network
+    driver: bridge
