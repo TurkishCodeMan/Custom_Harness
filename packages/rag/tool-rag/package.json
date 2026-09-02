@@ -4,10 +4,16 @@
   "description": "Agent tools for semantic RAG search and knowledge folder management",
   "type": "module",
   "main": "src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test test/ragas.test.ts"
+  },
   "dependencies": {
     "@custom-harness/rag": "workspace:*",
+    "@custom-harness/rag-pgvector": "workspace:*",
     "@custom-harness/core-context": "workspace:*",
     "@custom-harness/core-tools": "workspace:*",
+    "@custom-harness/session": "workspace:*",
+    "@custom-harness/settings": "workspace:*",
     "cordis": "^3.18.1"
   }
 }

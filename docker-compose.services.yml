@@ -35,22 +35,41 @@ services:
       - harness-network
 
   # ============================================================================
-  # 2. GEMMA / MAIN LLM ENGINE (Official vLLM OpenAI Server)
+  # 2. GEMMA / MAIN LLM ENGINE (vLLM - PASSIVE / REPLICAS 0)
   # ============================================================================
   service-gemma:
     image: vllm/vllm-openai:latest
     container_name: harness-gemma
-    restart: unless-stopped
+    restart: "no"
     ipc: host
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
     shm_size: '16gb'
     env_file:
       - ./services/configs/.env.services
     environment:
       - CUDA_VISIBLE_DEVICES=${GEMMA_CUDA_DEVICES:-0,1,2,3}
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - LD_LIBRARY_PATH=/usr/local/nvidia/lib64
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia1:/dev/nvidia1
+      - /dev/nvidia2:/dev/nvidia2
+      - /dev/nvidia3:/dev/nvidia3
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
       - /mnt/nvmes:/mnt/nvmes:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/nvidia/lib64/libcuda.so.1
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/usr/local/nvidia/lib64/libcuda.so
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.580.173.02:/usr/local/nvidia/lib64/libcuda.so.580.173.02
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/local/nvidia/lib64/libnvidia-ml.so.1
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/usr/local/nvidia/lib64/libnvidia-ml.so
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.580.173.02:/usr/local/nvidia/lib64/libnvidia-ml.so.580.173.02
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/usr/local/nvidia/lib64/libnvidia-ptxjitcompiler.so.1
     ports:
       - "${GEMMA_PORT:-8004}:8004"
     command: >
@@ -63,15 +82,61 @@ services:
       --max-num-batched-tokens ${GEMMA_MAX_BATCHED_TOKENS:-4096}
       --max-num-seqs ${GEMMA_MAX_SEQS:-8}
       --trust-remote-code
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     networks:
       - harness-network
+
+  # ============================================================================
+  # 2.1 QWEN 3.8 27B UNCENSORED (llama.cpp CUDA - OpenAI Compatible Server)
+  # ============================================================================
+  service-qwen:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: harness-qwen
+    restart: unless-stopped
+    ipc: host
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
+    env_file:
+      - ./services/configs/.env.services
+    environment:
+      - CUDA_VISIBLE_DEVICES=${QWEN_CUDA_DEVICES:-0,1,2,3}
+      - LD_LIBRARY_PATH=/usr/local/nvidia/lib64
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia1:/dev/nvidia1
+      - /dev/nvidia2:/dev/nvidia2
+      - /dev/nvidia3:/dev/nvidia3
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+    volumes:
+      - /home/huseyina/code_mode/models:/models:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /mnt/nvmes:/mnt/nvmes:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/nvidia/lib64/libcuda.so.1
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/usr/local/nvidia/lib64/libcuda.so
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.580.173.02:/usr/local/nvidia/lib64/libcuda.so.580.173.02
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/local/nvidia/lib64/libnvidia-ml.so.1
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/usr/local/nvidia/lib64/libnvidia-ml.so
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.580.173.02:/usr/local/nvidia/lib64/libnvidia-ml.so.580.173.02
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/usr/local/nvidia/lib64/libnvidia-ptxjitcompiler.so.1
+    ports:
+      - "${QWEN_PORT:-8004}:8004"
+    command: >
+      -m /models/Qwen3.8-27B-Uncensored-GGUF/Qwen3.8-27B-Uncensored-Q4_K_M.gguf
+      --mmproj /models/Qwen3.8-27B-Uncensored-GGUF/mmproj-Qwen3.8-27B-Uncensored-f16.gguf
+      --host 0.0.0.0
+      --port 8004
+      -c ${QWEN_CTX_SIZE:-16384}
+      -ngl ${QWEN_N_GPU_LAYERS:-99}
+      -ts ${QWEN_TENSOR_SPLIT:-1,1,1,1}
+      -b ${QWEN_BATCH_SIZE:-4096}
+      -ub ${QWEN_UBATCH_SIZE:-512}
+      -fa on
+      --alias ${QWEN_MODEL_ALIAS:-qwen3.8-27b-uncensored}
+    networks:
+      - harness-network
+
 
   # ============================================================================
   # 3. RERANKER SERVICE (Qwen3-Reranker-0.6B)
@@ -139,7 +204,7 @@ services:
       - harness-network
 
   # ============================================================================
-  # 5. DOCUMENT INTELLIGENCE & GLM-OCR
+  # 5. DOCUMENT INTELLIGENCE & GLM-OCR (Normal Mod: 1x OCR)
   # ============================================================================
   service-ocr:
     build:

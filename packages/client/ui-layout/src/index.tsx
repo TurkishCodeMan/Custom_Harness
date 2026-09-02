@@ -28,7 +28,25 @@ export function AppFrame({
   )
 }
 
+export function formatModelDisplayName(raw: string | undefined): string {
+  if (!raw) return 'Qwen 3.8 (27B)'
+  const trimmed = raw.trim()
+  if (trimmed === 'qwen3.8-27b-uncensored') return 'Qwen 3.8 (27B Uncensored)'
+  if (trimmed === 'Qwen3.8-27B' || trimmed === 'qwen-local') return 'Qwen 3.8 (27B)'
+  if (trimmed.includes('/')) {
+    const last = trimmed.split('/').filter(Boolean).pop() || trimmed
+    if (last.toLowerCase().includes('qwen')) return 'Qwen 3.8 (27B)'
+    if (last.toLowerCase().includes('gemma')) return 'Gemma 4 (27B)'
+    return last
+  }
+  if (trimmed === 'deepseek-chat') return 'DeepSeek V3 (Chat)'
+  if (trimmed === 'deepseek-reasoner') return 'DeepSeek R1 (Reasoner)'
+  if (trimmed === 'gemma-4-abliterated') return 'Gemma 4 (Abliterated)'
+  return trimmed
+}
+
 export interface HeaderProps {
+
   workspace: string
   activeModelName?: string
   activePresetName?: string
@@ -132,7 +150,7 @@ export function Header({
             title="Aktif Yapay Zeka Modelini Değiştir"
           >
             <span className="model-logo-icon">⚡</span>
-            <span className="model-dropdown-name">{activeModelName}</span>
+            <span className="model-dropdown-name">{formatModelDisplayName(activeModelName)}</span>
             <span className="dropdown-arrow">{isModelDropdownOpen ? '▴' : '▾'}</span>
           </button>
 
@@ -150,8 +168,8 @@ export function Header({
                 >
                   <span className="model-item-icon">⚡</span>
                   <div className="model-item-details">
-                    <span className="model-item-title">{m}</span>
-                    <span className="model-item-sub">Yerel & Yüksek Performans</span>
+                    <span className="model-item-title">{formatModelDisplayName(m)}</span>
+                    <span className="model-item-sub">{m.includes('deepseek') ? 'Bulut & Yüksek Zeka' : 'Yerel & Yüksek Performans'}</span>
                   </div>
                   {m === activeModelName && <span className="item-check">✓</span>}
                 </div>
@@ -159,6 +177,8 @@ export function Header({
             </div>
           )}
         </div>
+
+
 
         {/* Persona / Preset Dropdown */}
         <div className="header-preset-selector" ref={presetMenuRef}>
@@ -466,9 +486,15 @@ export function WorkspaceModal({
   const browse = async (target: string) => {
     setIsLoading(true)
     try {
+      const uid = localStorage.getItem('artificax_user_id')
+      const token = localStorage.getItem('artificax_jwt_token')
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (uid) headers['X-User-Id'] = uid
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
       const res = await fetch('/api/workspace/browse', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ path: target })
       })
       const data = await res.json()

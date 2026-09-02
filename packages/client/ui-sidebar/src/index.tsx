@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
-import { Button, IconPlus, IconTrash } from '@custom-harness/client-ui-primitives'
+import { Button, IconPlus, IconTrash, IconDatabase, IconSparkles } from '@custom-harness/client-ui-primitives'
+
 
 export interface SessionInfo {
   id: string
@@ -109,62 +110,112 @@ export function SidebarRoot({
           </div>
         </div>
 
-        {/* Quick Hub Navigation (Beceriler & RAG) */}
-        {(onOpenSkills || onOpenRag) && (
-          <div className="sidebar-hub-nav" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0 8px 0', width: '100%' }}>
-            {onOpenSkills && (
+        {/* Quick Hub Navigation (Bilgi Tabanı & Yetenekler) */}
+        {(onOpenRag || onOpenSkills) && (
+          <div className="sidebar-hub-nav" style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0 10px 0', width: '100%' }}>
+            {onOpenRag && (
               <button
-                className="btn-sidebar-hub"
-                onClick={onOpenSkills}
-                title="Uzmanlık Becerileri (Skills)"
+                className="btn-sidebar-hub-item"
+                onClick={onOpenRag}
+                title="Kurumsal Bilgi Tabanı & pgvector Vektör Bellek"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  padding: '7px 10px',
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '9px',
-                  color: 'var(--text-primary, #f1f5f9)',
-                  fontSize: '12px',
-                  fontWeight: 600,
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '9px 12px',
+                  background: isRagActive 
+                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.16) 0%, rgba(37, 99, 235, 0.08) 100%)' 
+                    : 'rgba(255, 255, 255, 0.035)',
+                  border: isRagActive 
+                    ? '1px solid rgba(59, 130, 246, 0.35)' 
+                    : '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '10px',
+                  color: isRagActive ? '#60a5fa' : 'var(--text-primary, #f1f5f9)',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease'
+                  transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                  boxShadow: isRagActive ? '0 2px 8px rgba(59, 130, 246, 0.15)' : 'none'
                 }}
               >
-                <span>✨</span>
-                <span>Beceriler</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '7px',
+                    background: isRagActive ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: isRagActive ? '#60a5fa' : '#94a3b8'
+                  }}>
+                    <IconDatabase size={15} />
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 600, letterSpacing: '-0.01em' }}>Bilgi Tabanı</span>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  padding: '2px 7px',
+                  borderRadius: '6px',
+                  background: isRagActive ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                  color: isRagActive ? '#93c5fd' : '#64748b',
+                  letterSpacing: '0.02em'
+                }}>
+                  {isRagActive ? 'AKTİF' : 'RAG'}
+                </span>
               </button>
             )}
 
-            {onOpenRag && (
+            {onOpenSkills && (
               <button
-                className="btn-sidebar-hub"
-                onClick={onOpenRag}
-                title="RAG Bilgi Tabanı & Vektör Bellek"
+                className="btn-sidebar-hub-item"
+                onClick={onOpenSkills}
+                title="Uzmanlık Becerileri ve API Modülleri"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  padding: '7px 10px',
-                  background: isRagActive ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.04)',
-                  border: isRagActive ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '9px',
-                  color: isRagActive ? '#60a5fa' : 'var(--text-primary, #f1f5f9)',
-                  fontSize: '12px',
-                  fontWeight: 600,
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  padding: '9px 12px',
+                  background: 'rgba(255, 255, 255, 0.035)',
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                  borderRadius: '10px',
+                  color: 'var(--text-primary, #f1f5f9)',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease'
+                  transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
                 }}
               >
-                <span>🧠</span>
-                <span>RAG</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '7px',
+                    background: 'rgba(168, 85, 247, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#c084fc'
+                  }}>
+                    <IconSparkles size={15} />
+                  </div>
+                  <span style={{ fontSize: '13px', fontWeight: 600, letterSpacing: '-0.01em' }}>Yetenekler</span>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  padding: '2px 7px',
+                  borderRadius: '6px',
+                  background: 'rgba(168, 85, 247, 0.12)',
+                  color: '#c084fc',
+                  letterSpacing: '0.02em'
+                }}>
+                  Skills
+                </span>
               </button>
             )}
           </div>
         )}
+
 
         <button className="btn-chatgpt-new" onClick={onNewSession} title="Yeni Sohbet Başlat (Ctrl+K)">
           <IconPlus size={16} />

@@ -10,7 +10,7 @@ import {
   type ImageSearchQuery,
   type IndexingProgress
 } from '@custom-harness/rag'
-import { VllmEmbeddingClient, VllmVisionOcrClient, TextSplitter, PdfExtractor, SigLipClient } from '@custom-harness/rag-vllm'
+import { VllmEmbeddingClient, VllmVisionOcrClient, TextSplitter, PdfExtractor, SigLipClient, VllmRerankerClient } from '@custom-harness/rag-vllm'
 import { PgVectorDatabase } from './db.js'
 import { RagIndexingQueue, type IndexJob } from './queue.js'
 import fs from 'node:fs'
@@ -25,27 +25,35 @@ export class PgVectorRagService extends RagService {
   private embeddingClient: VllmEmbeddingClient
   private visionClient: VllmVisionOcrClient
   private siglipClient: SigLipClient
+  private rerankerClient: VllmRerankerClient
   private splitter: TextSplitter
   private queue: RagIndexingQueue
   private ragModeActive = false
   private activeIndexingJobs = 0
 
   private resourceConfig: RagResourceConfig = {
-    batchSize: 32,
-    concurrency: 2,
-    workerConcurrency: 4,
-    indexingMode: 'standard',
+    batchSize: 64,
+    concurrency: 4,
+    workerConcurrency: 8,
+    indexingMode: 'turbo',
     chunkSize: 1000,
     chunkOverlap: 150,
-    bulkInsertSize: 50,
+    bulkInsertSize: 100,
     throttleDelayMs: 0,
+    skipExistingUnchanged: true,
     embeddingModel: process.env.VLLM_EMBEDDING_MODEL || 'Qwen/Qwen3-Embedding-0.6B',
     embeddingEndpoint: process.env.VLLM_EMBEDDING_URL || 'http://localhost:8001/v1',
     visionModel: process.env.VLLM_VISION_MODEL || 'zai-org/GLM-OCR',
     visionEndpoint: process.env.VLLM_VISION_URL || 'http://localhost:8010/v1',
     imageSearchEndpoint: process.env.IMAGE_SEARCH_URL || 'http://localhost:8011',
-    autoThrottling: true
+    rerankerEndpoint: process.env.RERANKER_URL || 'http://localhost:8006/v1/rerank',
+    rerankerModel: process.env.RERANKER_MODEL || 'Qwen/Qwen3-Reranker-0.6B',
+    ocrZoom: 1.4,
+    ocrQuality: 85,
+    autoThrottling: true,
+    usePythonEngine: true
   }
+
 
   constructor(ctx: Context) {
     super(ctx)
@@ -63,6 +71,10 @@ export class PgVectorRagService extends RagService {
     this.siglipClient = new SigLipClient({
       endpoint: this.resourceConfig.imageSearchEndpoint
     })
+    this.rerankerClient = new VllmRerankerClient({
+      endpoint: this.resourceConfig.rerankerEndpoint
+    })
+
     this.splitter = new TextSplitter({
       chunkSize: this.resourceConfig.chunkSize,
       chunkOverlap: this.resourceConfig.chunkOverlap
@@ -77,7 +89,10 @@ export class PgVectorRagService extends RagService {
 
   public async initialize(config?: any): Promise<void> {
     await this.db.initSchema()
+    // Reset any zombie 'indexing' status left over from server restarts to 'idle'
+    await this.db.query(`UPDATE rag_sources SET status = 'idle' WHERE status = 'indexing';`).catch(() => {})
   }
+
 
   public setRagMode(enabled: boolean): void {
     this.ragModeActive = enabled
@@ -110,12 +125,22 @@ export class PgVectorRagService extends RagService {
       config.batchSize = config.batchSize || 128
       config.bulkInsertSize = config.bulkInsertSize || 200
       config.throttleDelayMs = 0
+      config.usePythonEngine = true
+      if ((this.ctx as any).pythonRagEngine) {
+        (this.ctx as any).pythonRagEngine.setPoolSize(8)
+      }
     } else if (config.indexingMode === 'standard') {
       config.workerConcurrency = config.workerConcurrency || 2
       config.batchSize = config.batchSize || 32
       config.bulkInsertSize = config.bulkInsertSize || 50
       config.throttleDelayMs = 25
+      config.usePythonEngine = true
+      if ((this.ctx as any).pythonRagEngine) {
+        (this.ctx as any).pythonRagEngine.setPoolSize(2)
+      }
     }
+
+
 
     this.resourceConfig = { ...this.resourceConfig, ...config }
 
@@ -253,37 +278,48 @@ export class PgVectorRagService extends RagService {
     try {
       let siglipVector: number[] | null = null
 
-      if (ext === '.pdf') {
-        fileContent = await PdfExtractor.extractText(filePath)
+      const heavyExts = new Set(['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt'])
+      const pyEngine = (this.ctx as any).pythonRagEngine
 
-        // If PDF contains no digital text (Scanned Book / Image-only PDF), forward directly to 8010 OCR microservice!
-        if (!fileContent || fileContent.trim().length < 50) {
-          console.log(`[RAG:Vision] Scanned PDF detected (no digital text): "${path.basename(filePath)}". Forwarding directly to 8010 GLM-OCR microservice...`)
-          try {
-            const ocrText = await this.visionClient.extractTextFromImage(filePath)
-            if (ocrText && ocrText.trim().length > 0 && !ocrText.startsWith('[Doküman:')) {
-              fileContent = ocrText
-            }
-          } catch (ocrErr: any) {
-            console.warn(`[RAG:Vision] 8010 OCR failed for "${filePath}":`, ocrErr.message)
-          }
-        }
-      } else if (imageExts.has(ext)) {
-        fileContent = await this.visionClient.extractTextFromImage(filePath)
+      // 1. High-speed C++/Python Engine for heavy formats (PyMuPDF, docx, openpyxl, scanned multi-page OCR)
+      if (heavyExts.has(ext) && pyEngine && this.resourceConfig.usePythonEngine !== false) {
         try {
-          siglipVector = await this.siglipClient.extractImageEmbedding(filePath)
-        } catch (siglipErr: any) {
-          console.warn(`[RAG:SigLIP] SigLIP embedding extraction skipped:`, siglipErr.message)
+          const pyRes = await pyEngine.parseDocument(filePath, 1200000)
+          if (pyRes && pyRes.success && pyRes.content && pyRes.content.trim().length > 0) {
+            fileContent = pyRes.content
+          }
+        } catch (pyErr: any) {
+          console.warn(`[RAG:PythonEngine] Fast parsing fallback for "${filePath}":`, pyErr.message)
         }
-      } else if (textExts.has(ext) || ext === '') {
-        fileContent = await fsp.readFile(filePath, 'utf-8')
-      } else {
-        fileContent = await fsp.readFile(filePath, 'utf-8').catch(() => '')
       }
+
+
+      // 3. JavaScript / Node.js fallback parser for other types
+      if (!fileContent) {
+        if (imageExts.has(ext)) {
+          fileContent = await this.visionClient.extractTextFromImage(filePath)
+          try {
+            siglipVector = await this.siglipClient.extractImageEmbedding(filePath)
+          } catch (siglipErr: any) {
+            console.warn(`[RAG:SigLIP] SigLIP embedding extraction skipped:`, siglipErr.message)
+          }
+        } else if (textExts.has(ext) || ext === '') {
+          fileContent = await fsp.readFile(filePath, 'utf-8')
+        } else {
+          fileContent = await fsp.readFile(filePath, 'utf-8').catch(() => '')
+        }
+      }
+
+
 
       if (!fileContent || fileContent.trim().length === 0) return 0
 
+      // Sanitize null bytes (\x00 / \0) to prevent PostgreSQL "invalid byte sequence for encoding UTF8: 0x00" error
+      fileContent = fileContent.replace(/\0/g, '')
+      if (fileContent.trim().length === 0) return 0
+
       const docHash = crypto.createHash('sha256').update(fileContent).digest('hex')
+
 
       // Skip unchanged files
       if (this.resourceConfig.skipExistingUnchanged !== false) {
@@ -338,10 +374,11 @@ export class PgVectorRagService extends RagService {
 
         for (let j = 0; j < chunkBatch.length; j++) {
           const cIdx = i + j
-          const chunkText = chunkBatch[j]
+          const chunkText = chunkBatch[j].replace(/\0/g, '')
           const vector = embeddingBatch[j]
           const chunkId = `chk_${docId}_${cIdx}`
           const vectorStr = vector ? `[${vector.join(',')}]` : null
+
 
           valuesSql.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}::vector)`)
           params.push(
@@ -488,15 +525,41 @@ export class PgVectorRagService extends RagService {
       }
     })
 
-    // 4. Sort by blended RRF score and return topK
-    const fusedResults = Array.from(rrfMap.values())
+    // 4. Sort candidates by blended RRF score (Take top candidates for neural reranking)
+    const candidateEntries = Array.from(rrfMap.values())
       .sort((a, b) => b.rrfScore - a.rrfScore)
-      .slice(0, topK)
-      .map(entry => entry.chunk)
-      .filter(chunk => (chunk.similarity ?? 0) >= minSim)
+      .slice(0, Math.max(topK * 3, 15))
+      .filter(entry => (entry.chunk.similarity ?? 0) >= minSim)
 
-    return fusedResults
+    const candidates = candidateEntries.map(e => e.chunk)
+    if (candidates.length === 0) return []
+
+    // 5. Neural Re-ranking via Qwen3-Reranker (Port 8006 / Cross-Encoder Accuracy)
+    try {
+      const docTexts = candidates.map(c => c.content)
+      const reranked = await this.rerankerClient.rerank(query.query, docTexts, topK)
+      if (reranked && reranked.length > 0) {
+        const finalResults: DocumentChunk[] = []
+        for (const item of reranked) {
+          const originalChunk = candidates[item.index]
+          if (originalChunk) {
+            finalResults.push({
+              ...originalChunk,
+              similarity: item.relevanceScore
+            })
+          }
+        }
+        if (finalResults.length > 0) {
+          return finalResults.slice(0, topK)
+        }
+      }
+    } catch (rerankErr: any) {
+      console.warn('[RAG:Search] Reranker fallback to RRF rankings:', rerankErr.message)
+    }
+
+    return candidates.slice(0, topK)
   }
+
 
   /**
    * Performs semantic visual search directly against our own custom pgvector database (rag_images table).
@@ -655,14 +718,19 @@ export class PgVectorRagService extends RagService {
   }
 
   public async removeFolder(sourceIdOrPath: string): Promise<void> {
+    // If this source is currently being indexed in the queue, cancel and reset the queue immediately
+    this.queue.cancel()
+
     await this.db.query(`
       DELETE FROM rag_sources WHERE id = $1 OR path = $1;
     `, [sourceIdOrPath])
   }
 
   public async clearAll(): Promise<void> {
+    this.queue.cancel()
     await this.db.query(`TRUNCATE TABLE rag_chunks, rag_documents, rag_sources CASCADE;`)
   }
+
 
   public async getStatus(userId?: string, isAdmin = false): Promise<RagStatus> {
     let sourcesSql = `SELECT * FROM rag_sources ORDER BY last_indexed_at DESC;`
@@ -704,9 +772,10 @@ export class PgVectorRagService extends RagService {
       fileCount: Number(r.file_count || 0),
       chunkCount: Number(r.chunk_count || 0),
       lastIndexedAt: Number(r.last_indexed_at || 0),
-      status: r.status,
+      status: (this.queue.isBusy() || this.activeIndexingJobs > 0) ? r.status : (r.status === 'indexing' ? 'idle' : r.status),
       error: r.error,
       ownerId: r.owner_id,
+
       allowedUserIds: r.allowed_user_ids || ['*'],
       isPublic: r.is_public !== false
     }))
@@ -725,26 +794,48 @@ export class PgVectorRagService extends RagService {
     }
   }
 
-  private async discoverFiles(dir: string): Promise<string[]> {
+  /**
+   * Memory-safe streaming file generator for multi-terabyte datasets.
+   * Traverses directory hierarchies using `fs.opendir` without loading all files into RAM.
+   */
+  public async *discoverFilesStream(dir: string): AsyncGenerator<string> {
     const ignoredDirs = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.cache', 'coverage', '.turbo', '.system_generated'])
-    const files: string[] = []
+    const stack: string[] = [dir]
 
-    async function walk(currentDir: string) {
-      const entries = await fsp.readdir(currentDir, { withFileTypes: true }).catch(() => [])
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          if (!ignoredDirs.has(entry.name) && !entry.name.startsWith('.')) {
-            await walk(path.join(currentDir, entry.name))
+    while (stack.length > 0) {
+      const currentDir = stack.pop()!
+      let dirHandle: fs.Dir | null = null
+
+      try {
+        dirHandle = await fsp.opendir(currentDir)
+        for await (const dirent of dirHandle) {
+          const fullPath = path.join(currentDir, dirent.name)
+          if (dirent.isDirectory()) {
+            if (!ignoredDirs.has(dirent.name) && !dirent.name.startsWith('.')) {
+              stack.push(fullPath)
+            }
+          } else if (dirent.isFile()) {
+            yield fullPath
           }
-        } else if (entry.isFile()) {
-          files.push(path.join(currentDir, entry.name))
+        }
+      } catch (err) {
+        // Skip unreadable or permission-denied directories gracefully
+      } finally {
+        if (dirHandle) {
+          try { await dirHandle.close() } catch {}
         }
       }
     }
+  }
 
-    await walk(dir)
+  private async discoverFiles(dir: string): Promise<string[]> {
+    const files: string[] = []
+    for await (const file of this.discoverFilesStream(dir)) {
+      files.push(file)
+    }
     return files
   }
+
 }
 
 export function apply(ctx: Context) {

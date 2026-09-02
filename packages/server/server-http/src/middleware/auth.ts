@@ -23,12 +23,12 @@ export const resolveUser = async (req: Request, ctx: Context): Promise<User> => 
 
   if (auth) {
     try {
-      if (token) {
-        const user = await auth.authenticate({ token })
-        if (user) return user
-      }
       if (userId) {
         const user = await auth.authenticate({ userId })
+        if (user) return user
+      }
+      if (token) {
+        const user = await auth.authenticate({ token })
         if (user) return user
       }
     } catch {}

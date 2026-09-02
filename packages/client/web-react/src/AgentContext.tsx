@@ -232,7 +232,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       setCurrentUser(data.user)
       localStorage.setItem('artificax_user_id', data.user.id)
       showToast(`Hoş geldiniz, ${data.user.name}!`, 'success')
-      loadSessions(data.user.id)
+      const newToken = data.token || null
+      loadSessions(data.user.id, newToken)
+      loadSettings(data.user.id, newToken)
+      loadPresets(data.user.id, newToken)
+      loadWorkspace(data.user.id, newToken)
       setActiveSessionId(null)
       setMessages([])
       setAttachments([])
@@ -257,7 +261,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       setCurrentUser(data.user)
       localStorage.setItem('artificax_user_id', data.user.id)
       showToast(`Kiracı hesabı oluşturuldu: ${data.user.name}`, 'success')
-      loadSessions(data.user.id)
+      const newToken = data.token || null
+      loadSessions(data.user.id, newToken)
+      loadSettings(data.user.id, newToken)
+      loadPresets(data.user.id, newToken)
+      loadWorkspace(data.user.id, newToken)
       setActiveSessionId(null)
       setMessages([])
       setAttachments([])
@@ -295,10 +303,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           localStorage.setItem('artificax_jwt_token', data.token)
         }
         showToast(`Kullanıcı değiştirildi: ${data.user.name} (${data.user.role === 'admin' ? 'Yönetici' : 'Kullanıcı'})`, 'success')
-        // Reload sessions & settings & presets for the new tenant
-        loadSessions(data.user.id)
-        loadSettings(data.user.id)
-        loadPresets(data.user.id)
+        // Reload sessions & settings & presets & workspace for the new tenant
+        const newToken = data.token || null
+        loadSessions(data.user.id, newToken)
+        loadSettings(data.user.id, newToken)
+        loadPresets(data.user.id, newToken)
+        loadWorkspace(data.user.id, newToken)
         setActiveSessionId(null)
         setMessages([])
         setAttachments([])
@@ -353,31 +363,40 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     showToast('Kullanıcı silindi', 'success')
   }
 
-  const loadWorkspace = async () => {
+  const loadWorkspace = async (userIdOverride?: string, tokenOverride?: string) => {
     try {
-      const res = await fetch('/api/workspace')
+      const uid = userIdOverride || currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
+      const headers: Record<string, string> = { 'X-User-Id': uid }
+      const currentToken = tokenOverride || (userIdOverride ? null : token) || localStorage.getItem('artificax_jwt_token')
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`
+
+      const res = await fetch('/api/workspace', { headers })
       const data = await res.json()
       if (data.cwd) setWorkspaceState(data.cwd)
     } catch {}
   }
 
-  const loadSettings = async (userIdOverride?: string) => {
+  const loadSettings = async (userIdOverride?: string, tokenOverride?: string) => {
     try {
       const uid = userIdOverride || currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
-      const res = await fetch('/api/settings', {
-        headers: { 'X-User-Id': uid }
-      })
+      const headers: Record<string, string> = { 'X-User-Id': uid }
+      const currentToken = tokenOverride || (userIdOverride ? null : token) || localStorage.getItem('artificax_jwt_token')
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`
+
+      const res = await fetch('/api/settings', { headers })
       const data = await res.json()
       setSettings(data)
     } catch {}
   }
 
-  const loadPresets = async (userIdOverride?: string) => {
+  const loadPresets = async (userIdOverride?: string, tokenOverride?: string) => {
     try {
       const uid = userIdOverride || currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
-      const res = await fetch('/api/presets', {
-        headers: { 'X-User-Id': uid }
-      })
+      const headers: Record<string, string> = { 'X-User-Id': uid }
+      const currentToken = tokenOverride || (userIdOverride ? null : token) || localStorage.getItem('artificax_jwt_token')
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`
+
+      const res = await fetch('/api/presets', { headers })
       const data = await res.json()
       const list = Array.isArray(data) ? data : data.presets || []
       setPresets(list)
@@ -390,12 +409,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     } catch {}
   }
 
-  const loadSessions = async (userIdOverride?: string) => {
+  const loadSessions = async (userIdOverride?: string, tokenOverride?: string) => {
     try {
       const uid = userIdOverride || currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
-      const res = await fetch('/api/sessions', {
-        headers: { 'X-User-Id': uid }
-      })
+      const headers: Record<string, string> = { 'X-User-Id': uid }
+      const currentToken = tokenOverride || (userIdOverride ? null : token) || localStorage.getItem('artificax_jwt_token')
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`
+
+      const res = await fetch('/api/sessions', { headers })
       const data = await res.json()
       setSessions(Array.isArray(data) ? data : data.sessions || [])
     } catch {}
@@ -407,6 +428,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const data = await res.json()
       if (data.messages) {
         setMessages(data.messages)
+      }
+      if (data.workspace) {
+        setWorkspaceState(data.workspace)
+      } else {
+        loadWorkspace()
       }
       fetchMeasurement(sessionId)
     } catch (e) {
@@ -943,6 +969,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     setActiveSessionId(null)
     setMessages([])
     setPendingApproval(null)
+    loadWorkspace()
     setTokenMeasurement((prev) => {
       const sys = prev ? (prev.systemPromptTokens ?? (prev as any).contextBreakdown?.systemTokens ?? 120) : 120
       const tools = prev ? (prev.toolsTokens ?? (prev as any).contextBreakdown?.toolsTokens ?? 650) : 650
@@ -1019,6 +1046,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         return
       }
       setSettings(saved)
+      if (saved.workspace) {
+        setWorkspaceState(saved.workspace)
+      }
       showToast('Ayarlar kaydedildi', 'success')
     } catch (e: any) {
       showToast('Ayarlar kaydedilemedi: ' + e.message, 'error')
@@ -1103,17 +1133,25 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
   const setWorkspace = async (newPath: string) => {
     try {
+      const uid = currentUser?.id || localStorage.getItem('artificax_user_id') || 'user_admin'
+      const currentToken = token || localStorage.getItem('artificax_jwt_token')
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-User-Id': uid
+      }
+      if (currentToken) headers['Authorization'] = `Bearer ${currentToken}`
+
       const res = await fetch('/api/workspace', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ path: newPath, sessionId: activeSessionId })
       })
       const data = await res.json()
       if (data.success && data.workspace) {
         setWorkspaceState(data.workspace)
         showToast(`Çalışma alanı güncellendi: ${data.workspace}`, 'success')
-        loadWorkspace()
-        loadSettings()
+        loadWorkspace(uid)
+        loadSettings(uid)
       } else if (data.error) {
         showToast(`Hata: ${data.error}`, 'error')
       }

@@ -29,7 +29,8 @@ export function SettingsModal({
   onTogglePlugin
 }: SettingsModalProps) {
 
-  const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'plugins' | 'ui' | 'general'>('providers')
+  const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'plugins' | 'mcp' | 'ui' | 'general'>('providers')
+
   const [localSettings, setLocalSettings] = useState<any>(settings || {})
   const [selectedPresetId, setSelectedPresetId] = useState<string>(activePresetId || 'full-stack')
   const presetList = Array.isArray(presets) ? presets : (presets as any)?.presets || []
@@ -111,6 +112,12 @@ export function SettingsModal({
             👤 Ajan Presetleri
           </button>
           <button
+            className={`settings-nav-tab ${activeTab === 'mcp' ? 'active' : ''}`}
+            onClick={() => setActiveTab('mcp')}
+          >
+            🔌 MCP Sunucuları
+          </button>
+          <button
             className={`settings-nav-tab ${activeTab === 'ui' ? 'active' : ''}`}
             onClick={() => setActiveTab('ui')}
           >
@@ -152,6 +159,9 @@ export function SettingsModal({
             />
           )}
 
+          {activeTab === 'mcp' && (
+            <McpTab />
+          )}
 
           {activeTab === 'ui' && (
             <UiTab
@@ -160,6 +170,7 @@ export function SettingsModal({
               onChange={setLocalSettings}
             />
           )}
+
 
           {activeTab === 'plugins' && (
             <PluginsTab
@@ -642,7 +653,7 @@ export function PresetsTab({
   const [isDeleting, setIsDeleting] = useState(false)
 
 
-  useEffect(() => {
+  const refreshTools = () => {
     fetch('/api/tools')
       .then((res) => res.json())
       .then((data) => {
@@ -651,7 +662,12 @@ export function PresetsTab({
         }
       })
       .catch(() => {})
+  }
+
+  useEffect(() => {
+    refreshTools()
   }, [])
+
 
   const currentEnabled: string[] | undefined = presetForm.enabledTools
   const allToolNames = liveTools.map(t => t.name)
@@ -786,6 +802,15 @@ export function PresetsTab({
             <button
               type="button"
               className="btn-action-small"
+              onClick={refreshTools}
+              title="Araç Listesini Yenile"
+              style={{ fontSize: '11px', padding: '2px 8px', background: 'rgba(59, 130, 246, 0.2)', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', color: '#93c5fd', cursor: 'pointer' }}
+            >
+              🔄 Yenile
+            </button>
+            <button
+              type="button"
+              className="btn-action-small"
               onClick={handleSelectAll}
               style={{ fontSize: '11px', padding: '2px 8px', background: 'rgba(99, 102, 241, 0.2)', border: '1px solid rgba(99, 102, 241, 0.4)', borderRadius: '4px', color: '#c7d2fe', cursor: 'pointer' }}
             >
@@ -800,6 +825,7 @@ export function PresetsTab({
               ✕ Tümünü Kaldır
             </button>
           </div>
+
         </div>
 
         <div style={{ marginBottom: '8px' }}>
@@ -1096,3 +1122,510 @@ export function UiTab({
     </div>
   )
 }
+
+  // --- 5. MCP (Model Context Protocol) Tab Component ---
+  export function McpTab() {
+    const [servers, setServers] = useState<any[]>([])
+    const [isLoading, setIsLoading] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+    const [errorMessage, setErrorMessage] = useState<string | null>(null)
+    const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+    // Mode: 'form' | 'json'
+    const [entryMode, setEntryMode] = useState<'form' | 'json'>('form')
+
+    // New Server Form State
+    const [newId, setNewId] = useState('')
+    const [newType, setNewType] = useState<'stdio' | 'http' | 'websocket' | 'docker'>('stdio')
+    const [newCommand, setNewCommand] = useState('npx')
+
+    const [newArgs, setNewArgs] = useState('')
+    const [newUrl, setNewUrl] = useState('')
+    const [newEnvJson, setNewEnvJson] = useState('')
+
+    // Bulk JSON Import State
+    const [bulkJson, setBulkJson] = useState(`{
+  "mcpServers": {
+    "docs-langchain": {
+      "type": "http",
+      "url": "https://docs.langchain.com/mcp"
+    },
+    "reference-langchain": {
+      "type": "http",
+      "url": "https://reference.langchain.com/mcp"
+    }
+  }
+}`)
+
+    const fetchServers = async () => {
+      setIsLoading(true)
+      try {
+        const res = await fetch('/api/mcp/servers')
+        if (res.ok) {
+          const data = await res.json()
+          setServers(data.servers || [])
+        }
+      } catch (e: any) {
+        console.warn('[MCP UI Error]:', e.message)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    useEffect(() => {
+      fetchServers()
+    }, [])
+
+    const handleApplyTemplate = (type: 'postgres' | 'github' | 'fetch' | 'langchain_docs' | 'filesystem') => {
+      setEntryMode('form')
+      if (type === 'langchain_docs') {
+        setNewId('docs-langchain')
+        setNewType('http')
+        setNewUrl('https://docs.langchain.com/mcp')
+        setNewCommand('')
+        setNewArgs('')
+        setNewEnvJson('')
+      } else if (type === 'postgres') {
+        setNewId('postgres_db')
+        setNewType('stdio')
+        setNewCommand('npx')
+        setNewArgs('-y @modelcontextprotocol/server-postgres postgresql://postgres:postgres@localhost:5432/far_trans_db')
+        setNewUrl('')
+        setNewEnvJson('')
+      } else if (type === 'github') {
+        setNewId('github_tools')
+        setNewType('stdio')
+        setNewCommand('npx')
+        setNewArgs('-y @modelcontextprotocol/server-github')
+        setNewUrl('')
+        setNewEnvJson('{\n  "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token"\n}')
+      } else if (type === 'fetch') {
+        setNewId('web_fetcher')
+        setNewType('stdio')
+        setNewCommand('uvx')
+        setNewArgs('mcp-server-fetch')
+        setNewUrl('')
+        setNewEnvJson('')
+      } else if (type === 'filesystem') {
+        setNewId('workspace_fs')
+        setNewType('stdio')
+        setNewCommand('npx')
+        setNewArgs('-y @modelcontextprotocol/server-filesystem /home/huseyina/code_mode/TEST_WORKSPACE_')
+        setNewUrl('')
+        setNewEnvJson('')
+      }
+    }
+
+    const handleAddServer = async (e: React.FormEvent) => {
+      e.preventDefault()
+      setErrorMessage(null)
+      setSuccessMessage(null)
+
+      if (!newId.trim()) {
+        setErrorMessage('Lütfen Sunucu ID alanını doldurun.')
+        return
+      }
+
+      if (newType === 'stdio' && !newCommand.trim()) {
+        setErrorMessage('Komut tabanlı sunucular için Çalıştırma Komutu zorunludur.')
+        return
+      }
+
+      if (newType === 'http' && !newUrl.trim()) {
+        setErrorMessage('HTTP sunucuları için URL adresi zorunludur.')
+        return
+      }
+
+      let parsedEnv: Record<string, string> = {}
+      if (newEnvJson.trim()) {
+        try {
+          parsedEnv = JSON.parse(newEnvJson)
+        } catch {
+          setErrorMessage('Ortam Değişkenleri geçerli bir JSON formatında olmalıdır.')
+          return
+        }
+      }
+
+      setIsSaving(true)
+      try {
+        const res = await fetch('/api/mcp/servers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newId.trim(),
+            type: newType,
+            command: newType === 'stdio' ? newCommand.trim() : undefined,
+            args: newType === 'stdio' ? newArgs.trim() : undefined,
+            url: newType === 'http' ? newUrl.trim() : undefined,
+            env: parsedEnv
+          })
+        })
+
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err.error || 'Sunucu eklenemedi')
+        }
+
+        const data = await res.json()
+        setServers(data.servers || [])
+        setSuccessMessage(`'${newId}' MCP sunucusu başarıyla eklendi ve bağlandı!`)
+        setNewId('')
+        setNewArgs('')
+        setNewUrl('')
+        setNewEnvJson('')
+      } catch (e: any) {
+        setErrorMessage(`Hata: ${e.message}`)
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
+    const handleBulkImport = async () => {
+      setErrorMessage(null)
+      setSuccessMessage(null)
+      setIsSaving(true)
+      try {
+        const parsed = JSON.parse(bulkJson)
+        const serversObj = parsed.mcpServers || parsed.servers || parsed
+        if (typeof serversObj !== 'object' || Object.keys(serversObj).length === 0) {
+          throw new Error('Geçerli bir "mcpServers" nesnesi bulunamadı.')
+        }
+
+        let addedCount = 0
+        for (const [id, srv] of Object.entries(serversObj)) {
+          const item = srv as any
+          const res = await fetch('/api/mcp/servers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id,
+              type: item.type || (item.url ? 'http' : 'stdio'),
+              url: item.url,
+              command: item.command,
+              args: item.args,
+              headers: item.headers,
+              env: item.env
+            })
+          })
+          if (res.ok) addedCount++
+        }
+
+        await fetchServers()
+        setSuccessMessage(`🎉 ${addedCount} adet MCP sunucusu başarıyla içe aktarıldı ve bağlandı!`)
+      } catch (e: any) {
+        setErrorMessage(`JSON Ayrıştırma / İçe Aktarma Hatası: ${e.message}`)
+      } finally {
+        setIsSaving(false)
+      }
+    }
+
+    const handleToggleServer = async (id: string) => {
+      try {
+        const res = await fetch(`/api/mcp/servers/${id}/toggle`, { method: 'POST' })
+        if (res.ok) {
+          fetchServers()
+        }
+      } catch (e: any) {
+        setErrorMessage(`Bağlantı değiştirilemedi: ${e.message}`)
+      }
+    }
+
+    const handleDeleteServer = async (id: string) => {
+      if (!confirm(`'${id}' MCP sunucusunu silmek istediğinizden emin misiniz?`)) return
+      try {
+        const res = await fetch(`/api/mcp/servers/${id}`, { method: 'DELETE' })
+        if (res.ok) {
+          fetchServers()
+          setSuccessMessage(`'${id}' sunucusu kaldırıldı.`)
+        }
+      } catch (e: any) {
+        setErrorMessage(`Silme hatası: ${e.message}`)
+      }
+    }
+
+    return (
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <h3>🔌 Model Context Protocol (MCP) Sunucu Yönetimi</h3>
+          <p>Yerel (stdio) veya Uzak (HTTP/SSE) MCP sunucularını sisteme bağlayarak modele dokümantasyon, veritabanı, GitHub ve özel API yetenekleri kazandırın.</p>
+        </div>
+
+        {errorMessage && (
+          <div className="alert alert-danger" style={{ padding: '8px 12px', marginBottom: '14px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', fontSize: '13px' }}>
+            {errorMessage}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="alert alert-success" style={{ padding: '8px 12px', marginBottom: '14px', borderRadius: '8px', background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.3)', color: '#86efac', fontSize: '13px' }}>
+            {successMessage}
+          </div>
+        )}
+
+        {/* 1. Active Servers List */}
+        <div className="mcp-servers-list-card" style={{ marginBottom: '22px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              📋 Kayıtlı ve Aktif MCP Sunucuları ({servers.length})
+            </span>
+            <Button size="sm" variant="secondary" onClick={fetchServers} disabled={isLoading}>
+              🔄 Yenile
+            </Button>
+          </div>
+
+          {servers.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '10px', border: '1px dashed rgba(255, 255, 255, 0.08)', color: 'var(--text-muted)' }}>
+              Henüz kayıtlı bir MCP sunucusu bulunmuyor. Aşağıdaki şablonlardan veya JSON alanından hemen ekleyebilirsiniz.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {servers.map((srv) => (
+                <div
+                  key={srv.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 14px',
+                    background: srv.connected ? 'rgba(59, 130, 246, 0.07)' : 'rgba(255, 255, 255, 0.025)',
+                    border: srv.connected ? '1px solid rgba(59, 130, 246, 0.25)' : '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '10px'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)' }}>{srv.id}</span>
+                      <span style={{
+                        fontSize: '10.5px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                        background: srv.url ? 'rgba(168, 85, 247, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                        color: srv.url ? '#c084fc' : '#60a5fa'
+                      }}>
+                        {srv.url ? '🌐 HTTP' : '💻 stdio'}
+                      </span>
+                      <span style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontWeight: 600,
+                        background: srv.connected ? 'rgba(34, 197, 94, 0.18)' : 'rgba(148, 163, 184, 0.15)',
+                        color: srv.connected ? '#4ade80' : '#94a3b8'
+                      }}>
+                        {srv.connected ? `🟢 Bağlı (${srv.toolsCount} Araç)` : '⚪ Bağlantı Kesik'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                      {srv.url ? srv.url : `${srv.command || ''} ${(srv.args || []).join(' ')}`}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <Button
+                      size="sm"
+                      variant={srv.connected ? 'secondary' : 'primary'}
+                      onClick={() => handleToggleServer(srv.id)}
+                    >
+                      {srv.connected ? 'Bağlantıyı Kes' : 'Bağlan'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => handleDeleteServer(srv.id)}
+                      title="Sunucuyu Sil"
+                    >
+                      🗑️
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 2. Quick Templates */}
+        <div style={{ marginBottom: '18px' }}>
+          <label className="form-label" style={{ marginBottom: '8px', display: 'block' }}>⚡ Hızlı MCP Şablonları (Tek Tıkla Doldur):</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleApplyTemplate('langchain_docs')}
+              style={{ fontSize: '11.5px', padding: '6px 6px' }}
+            >
+              🦜 LangChain (HTTP)
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleApplyTemplate('postgres')}
+              style={{ fontSize: '11.5px', padding: '6px 6px' }}
+            >
+              🐘 PostgreSQL
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleApplyTemplate('github')}
+              style={{ fontSize: '11.5px', padding: '6px 6px' }}
+            >
+              🐙 GitHub
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleApplyTemplate('fetch')}
+              style={{ fontSize: '11.5px', padding: '6px 6px' }}
+            >
+              🌐 Web Fetch
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleApplyTemplate('filesystem')}
+              style={{ fontSize: '11.5px', padding: '6px 6px' }}
+            >
+              📂 Filesystem
+            </button>
+          </div>
+        </div>
+
+        {/* Entry Mode Switcher */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${entryMode === 'form' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setEntryMode('form')}
+          >
+            📝 Form ile Ekle
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${entryMode === 'json' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setEntryMode('json')}
+          >
+            📋 mcp.json Yapıştır (Toplu İçe Aktar)
+          </button>
+        </div>
+
+        {entryMode === 'form' ? (
+          /* 3. New Server Form */
+          <form onSubmit={handleAddServer} style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.07)' }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              ➕ Yeni MCP Sunucusu Ekle
+            </h4>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Sunucu ID (Benzersiz İsim) *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Örn: docs-langchain"
+                  value={newId}
+                  onChange={(e) => setNewId(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Protokol Türü *</label>
+                <select
+                  className="form-select"
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value as any)}
+                >
+                  <option value="stdio">💻 Yerel Komut (stdio / CLI Process)</option>
+                  <option value="http">🌐 Uzak HTTP / SSE Endpoint (https://...)</option>
+                  <option value="websocket">⚡ Gerçek Zamanlı WebSocket (ws:// veya wss://)</option>
+                  <option value="docker">🐳 Docker İzole Konteyner</option>
+                </select>
+              </div>
+            </div>
+
+            {newType === 'http' || newType === 'websocket' ? (
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label className="form-label">
+                  {newType === 'websocket' ? 'WebSocket URL Adresi (ws:// veya wss://) *' : 'Uzak MCP URL Adresi (https://...) *'}
+                </label>
+                <input
+                  type="url"
+                  className="form-input"
+                  placeholder={newType === 'websocket' ? 'Örn: ws://localhost:8080/mcp' : 'Örn: https://docs.langchain.com/mcp'}
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  required
+                />
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">
+                      {newType === 'docker' ? 'Docker Komutu *' : 'Çalıştırma Komutu *'}
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder={newType === 'docker' ? 'docker' : 'Örn: npx, uvx, python3'}
+                      value={newCommand}
+                      onChange={(e) => setNewCommand(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Argümanlar (Args)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder={newType === 'docker' ? 'run -i --rm mcp/postgres ...' : 'Örn: -y @modelcontextprotocol/server-postgres ...'}
+                      value={newArgs}
+                      onChange={(e) => setNewArgs(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="form-group" style={{ marginBottom: '14px' }}>
+
+              <label className="form-label">Ortam Değişkenleri / Headers (JSON Opsiyonel)</label>
+              <textarea
+                className="form-textarea"
+                rows={2}
+                style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                placeholder={'{\n  "API_KEY": "your_token_here"\n}'}
+                value={newEnvJson}
+                onChange={(e) => setNewEnvJson(e.target.value)}
+              />
+            </div>
+
+            <Button variant="primary" size="md" type="submit" disabled={isSaving} style={{ width: '100%' }}>
+              {isSaving ? '⏳ Bağlanıyor ve Ekleniyor...' : '➕ MCP Sunucusunu Kaydet ve Bağlan'}
+            </Button>
+          </form>
+        ) : (
+          /* 4. Bulk JSON Import */
+          <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.07)' }}>
+            <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              📥 mcpServers JSON Yapıştır & Toplu Bağlan
+            </h4>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+              Claude Desktop, Cursor veya Antigravity formatındaki <code>mcpServers</code> JSON bloğunu doğrudan yapıştırın:
+            </p>
+            <textarea
+              className="form-textarea"
+              rows={8}
+              style={{ fontFamily: 'monospace', fontSize: '12.5px', marginBottom: '14px', background: 'rgba(0, 0, 0, 0.3)' }}
+              value={bulkJson}
+              onChange={(e) => setBulkJson(e.target.value)}
+            />
+            <Button variant="primary" size="md" onClick={handleBulkImport} disabled={isSaving} style={{ width: '100%' }}>
+              {isSaving ? '⏳ Sunuculara Bağlanılıyor...' : '📥 JSON\'daki Tüm MCP Sunucularını İçe Aktar ve Bağlan'}
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
+

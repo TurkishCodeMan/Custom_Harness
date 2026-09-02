@@ -5,7 +5,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-const SESSIONS_DIR = path.join(os.homedir(), '.dsh', 'sessions')
+const getDshDir = () => process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
+const getSessionsDir = () => path.join(getDshDir(), 'sessions')
+const getTenantsDir = () => path.join(getDshDir(), 'tenants')
 
 export const name = 'session'
 export const inject = ['settings']
@@ -32,8 +34,9 @@ export class SessionService extends Service {
   }
 
   private ensureDir() {
-    if (!fs.existsSync(SESSIONS_DIR)) {
-      fs.mkdirSync(SESSIONS_DIR, { recursive: true })
+    const sDir = getSessionsDir()
+    if (!fs.existsSync(sDir)) {
+      fs.mkdirSync(sDir, { recursive: true })
     }
   }
 
@@ -50,7 +53,7 @@ export class SessionService extends Service {
       clientType,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      workspace: workspace || this.ctx.settings.getSettings().workspace || process.cwd(),
+      workspace: workspace || this.ctx.settings?.getSettings?.()?.workspace || process.cwd(),
       userId: userId || 'user_admin',
       messages: []
     }
@@ -61,7 +64,7 @@ export class SessionService extends Service {
   }
 
   public getTenantSessionsDir(userId: string): string {
-    const dir = path.join(os.homedir(), '.dsh', 'tenants', userId, 'sessions')
+    const dir = path.join(getTenantsDir(), userId, 'sessions')
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
     }
@@ -87,7 +90,7 @@ export class SessionService extends Service {
     }
 
     // 2. Scan all tenant dirs if not found
-    const tenantsBase = path.join(os.homedir(), '.dsh', 'tenants')
+    const tenantsBase = getTenantsDir()
     if (fs.existsSync(tenantsBase)) {
       try {
         const tenantFolders = fs.readdirSync(tenantsBase, { withFileTypes: true })
@@ -106,7 +109,7 @@ export class SessionService extends Service {
     }
 
     // 3. Check legacy SESSIONS_DIR
-    const filePath = path.join(SESSIONS_DIR, `${id}.json`)
+    const filePath = path.join(getSessionsDir(), `${id}.json`)
     if (fs.existsSync(filePath)) {
       try {
         const raw = fs.readFileSync(filePath, 'utf8')
@@ -117,32 +120,26 @@ export class SessionService extends Service {
         console.error(`[Session] Failed to load session ${id}:`, e)
       }
     }
+
     return undefined
   }
 
   public listSessions(
     userId?: string,
     isAdmin?: boolean,
-    clientType?: string
-  ): { id: string; title: string; updatedAt: number; workspace: string; userId?: string; clientType?: string }[] {
-    const list: { id: string; title: string; updatedAt: number; workspace: string; userId?: string; clientType?: string }[] = []
-    const seenIds = new Set<string>()
+    clientType: string = 'web'
+  ): { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string }[] {
+    const list: { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string }[] = []
+    const seen = new Set<string>()
 
     const addSessionFromPath = (filePath: string) => {
       try {
-        const id = path.basename(filePath, '.json')
-        if (seenIds.has(id)) return
-        const session = this.getSession(id, userId)
-        if (session) {
-          // If clientType filter is requested:
-          // Unspecified legacy sessions match 'web' by default
+        const raw = fs.readFileSync(filePath, 'utf8')
+        const session = JSON.parse(raw) as SessionData
+        if (!seen.has(session.id)) {
+          seen.add(session.id)
           const sessionClientType = session.clientType || 'web'
-          if (clientType && clientType !== '*' && sessionClientType !== clientType) {
-            return
-          }
-
-          if (isAdmin || !userId || !session.userId || session.userId === userId) {
-            seenIds.add(id)
+          if (clientType === '*' || sessionClientType === clientType) {
             list.push({
               id: session.id,
               title: session.title,
@@ -156,9 +153,8 @@ export class SessionService extends Service {
       } catch (e) {}
     }
 
-
     // 1. Scan tenant sessions
-    const tenantsBase = path.join(os.homedir(), '.dsh', 'tenants')
+    const tenantsBase = getTenantsDir()
     if (fs.existsSync(tenantsBase)) {
       try {
         const tenantFolders = fs.readdirSync(tenantsBase, { withFileTypes: true })
@@ -179,9 +175,9 @@ export class SessionService extends Service {
 
     // 2. Scan legacy sessions
     this.ensureDir()
-    const legacyFiles = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'))
+    const legacyFiles = fs.readdirSync(getSessionsDir()).filter(f => f.endsWith('.json'))
     for (const f of legacyFiles) {
-      addSessionFromPath(path.join(SESSIONS_DIR, f))
+      addSessionFromPath(path.join(getSessionsDir(), f))
     }
 
     return list.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -221,9 +217,9 @@ export class SessionService extends Service {
   }
 
   public getUploadsDir(sessionId?: string, userId?: string): string {
-    let base = path.join(os.homedir(), '.dsh', 'uploads')
+    let base = path.join(getDshDir(), 'uploads')
     if (userId) {
-      base = path.join(os.homedir(), '.dsh', 'tenants', userId, 'uploads')
+      base = path.join(getTenantsDir(), userId, 'uploads')
     }
     const dir = sessionId ? path.join(base, sessionId) : base
     if (!fs.existsSync(dir)) {
@@ -249,17 +245,17 @@ export class SessionService extends Service {
     }
 
     // Delete from legacy SESSIONS_DIR
-    const filePath = path.join(SESSIONS_DIR, `${id}.json`)
+    const filePath = path.join(getSessionsDir(), `${id}.json`)
     if (fs.existsSync(filePath)) {
       try { fs.unlinkSync(filePath) } catch (e) {}
     }
 
     // Clean up session uploads across tenant and legacy paths
     const pathsToClean = [
-      path.join(os.homedir(), '.dsh', 'uploads', id)
+      path.join(getDshDir(), 'uploads', id)
     ]
     if (uid) {
-      pathsToClean.push(path.join(os.homedir(), '.dsh', 'tenants', uid, 'uploads', id))
+      pathsToClean.push(path.join(getTenantsDir(), uid, 'uploads', id))
     }
     for (const p of pathsToClean) {
       if (fs.existsSync(p)) {
@@ -287,14 +283,14 @@ export class SessionService extends Service {
 
     // 2. Clear legacy sessions
     try {
-      const files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'))
+      const files = fs.readdirSync(getSessionsDir()).filter(f => f.endsWith('.json'))
       for (const f of files) {
         const id = f.replace('.json', '')
         const session = this.getSession(id, userId)
         if (isAdmin || !userId || !session?.userId || session.userId === userId) {
           this.sessions.delete(id)
           try {
-            fs.unlinkSync(path.join(SESSIONS_DIR, f))
+            fs.unlinkSync(path.join(getSessionsDir(), f))
           } catch (e) {}
         }
       }
@@ -302,12 +298,12 @@ export class SessionService extends Service {
 
     // Clean up uploads
     if (isAdmin || !userId) {
-      const uploadsBase = path.join(os.homedir(), '.dsh', 'uploads')
+      const uploadsBase = path.join(getDshDir(), 'uploads')
       if (fs.existsSync(uploadsBase)) {
         try { fs.rmSync(uploadsBase, { recursive: true, force: true }) } catch (e) {}
       }
     } else if (userId) {
-      const tenantUploads = path.join(os.homedir(), '.dsh', 'tenants', userId, 'uploads')
+      const tenantUploads = path.join(getTenantsDir(), userId, 'uploads')
       if (fs.existsSync(tenantUploads)) {
         try { fs.rmSync(tenantUploads, { recursive: true, force: true }) } catch (e) {}
       }
@@ -331,7 +327,7 @@ export class SessionService extends Service {
 
       // Also mirror to legacy SESSIONS_DIR
       this.ensureDir()
-      const legacyFilePath = path.join(SESSIONS_DIR, `${session.id}.json`)
+      const legacyFilePath = path.join(getSessionsDir(), `${session.id}.json`)
       fs.writeFileSync(legacyFilePath, JSON.stringify(session, null, 2), 'utf8')
     } catch (e) {
       console.error(`[Session] Failed to save session ${session.id}:`, e)

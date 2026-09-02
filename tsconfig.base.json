@@ -59,6 +59,7 @@
       "@custom-harness/compaction-tool-result-pruner": ["./packages/compaction/compaction-tool-result-pruner/src/index.ts"],
       "@custom-harness/compaction-basic": ["./packages/compaction/compaction-basic/src/index.ts"],
       "@custom-harness/server": ["./packages/server/server/src/index.ts"],
+      "@custom-harness/server-http": ["./packages/server/server-http/src/index.ts"],
       "@custom-harness/client-ui-primitives": ["./packages/client/ui-primitives/src/index.tsx"],
       "@custom-harness/client-ui-layout": ["./packages/client/ui-layout/src/index.tsx"],
       "@custom-harness/client-ui-sidebar": ["./packages/client/ui-sidebar/src/index.tsx"],

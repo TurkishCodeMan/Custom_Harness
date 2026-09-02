@@ -18,7 +18,7 @@ export class VllmVisionOcrClient {
     this.endpoint = (options?.endpoint || process.env.VLLM_VISION_URL || 'http://localhost:8010').replace(/\/+$/, '')
     this.model = options?.model || 'zai-org/GLM-OCR'
     this.apiKey = options?.apiKey
-    this.timeoutMs = options?.timeoutMs || 120000
+    this.timeoutMs = options?.timeoutMs || 300000
   }
 
   public updateConfig(options: Partial<VllmVisionOptions>) {
@@ -42,14 +42,15 @@ export class VllmVisionOcrClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
 
     try {
+      const safeFilename = encodeURIComponent(path.basename(filePath))
       const formData = new FormData()
       const blob = new Blob([fileBuffer], { type: mimeType })
-      formData.append('file', blob, path.basename(filePath))
+      formData.append('file', blob, safeFilename)
 
       const res = await fetch(processUrl, {
         method: 'POST',
         headers: {
-          'x-filename': path.basename(filePath)
+          'x-filename': safeFilename
         },
         body: formData,
         signal: controller.signal

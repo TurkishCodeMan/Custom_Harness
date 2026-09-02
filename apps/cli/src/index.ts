@@ -37,13 +37,18 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/new', desc: 'Sıfırdan yeni bir oturum başlat', icon: '✨', snippet: '/new' },
   { name: '/yolo', desc: 'YOLO / Auto-Approve (Onay sormadan tüm komutları otomatik çalıştır)', icon: '⚡', snippet: '/yolo' },
   { name: '/think', desc: 'Modele giden düşünme (Reasoning) yeteneğini aç/kapat (/think on|off|<bütçe>)', icon: '💭', snippet: '/think ' },
-  { name: '/goal', desc: 'Otonom hedef tanımla ve arka arkaya çalıştır', icon: '🎯', snippet: '/goal ' },
+  { name: '/goal', desc: 'Otonom hedef tanımla (-b veya --background ile arka planda çalıştır)', icon: '🎯', snippet: '/goal ' },
+  { name: '/jobs', desc: 'Çalışan veya tamamlanan arka plan görevlerini listele', icon: '⏱️ ', snippet: '/jobs' },
+  { name: '/logs', desc: 'Arka plandaki görevin loglarını incele (/logs <job_id>)', icon: '📜', snippet: '/logs ' },
+  { name: '/kill', desc: 'Çalışan bir arka plan görevini anında durdur/iptal et (/kill <job_id>)', icon: '🛑', snippet: '/kill ' },
   { name: '/compact', desc: 'Sohbet geçmişini özetleyip bağlam penceresini temizle', icon: '📦', snippet: '/compact' },
+
   { name: '/tokens', desc: 'Canlı token tüketimini ve bağlam doluluğunu göster', icon: '📊', snippet: '/tokens' },
   { name: '/clear', desc: 'Terminal ekranını temizle', icon: '🧹', snippet: '/clear' },
   { name: '/help', desc: 'Tüm komutların detaylı yardım listesini göster', icon: '❓', snippet: '/help' },
   { name: '/exit', desc: 'Terminalden çıkış yap', icon: '👋', snippet: '/exit' }
 ]
+
 
 async function main() {
   console.clear()
@@ -1149,12 +1154,71 @@ ${taskText}`
         return
       }
 
+      if (cmd === '/jobs') {
+        const jobsList = ctx.jobs?.list ? ctx.jobs.list() : []
+        if (jobsList.length === 0) {
+          console.log(`\n${c.gray}Şu an aktif veya kayıtlı bir arka plan görevi bulunmuyor.${c.reset}\n`)
+        } else {
+          console.log(`\n${c.bold}${c.cyan}⏱️  ARKA PLAN GÖREVLERİ (Background Jobs):${c.reset}`)
+          console.log(`${c.gray}───────────────────────────────────────────────────────────────────${c.reset}`)
+          jobsList.forEach((j: any) => {
+            const statusColor = j.status === 'running' ? `${c.bold}${c.yellow}RUNNING ⏳` : j.status === 'completed' ? `${c.bold}${c.green}COMPLETED ✓` : `${c.red}${j.status}`
+            console.log(`• ${c.bold}${j.id}${c.reset} | ${statusColor}${c.reset} | ${c.cyan}${j.name}${c.reset}`)
+            console.log(`  ${c.gray}Komut/Hedef: ${j.command || j.name}${c.reset}`)
+          })
+          console.log(`${c.gray}───────────────────────────────────────────────────────────────────${c.reset}`)
+          console.log(`${c.gray}Logları incelemek için: ${c.cyan}/logs <job_id>${c.reset}\n`)
+        }
+        promptUser()
+        return
+      }
+
+      if (cmd === '/logs') {
+        const targetId = argStr.trim()
+        if (!targetId) {
+          const jobsList = ctx.jobs?.list ? ctx.jobs.list() : []
+          if (jobsList.length > 0) {
+            const lastJob = jobsList[jobsList.length - 1]
+            console.log(`\n${c.bold}📜 Son Görev Logları (${lastJob.id} - ${lastJob.name}):${c.reset}\n`)
+            console.log(lastJob.logs || '(Henüz log kaydı yok)')
+          } else {
+            console.log(`\n${c.gray}Kayıtlı arka plan görevi yok. Kullanım: /logs <job_id>${c.reset}\n`)
+          }
+        } else {
+          const job = ctx.jobs?.get ? ctx.jobs.get(targetId) : null
+          if (!job) {
+            console.log(`\n${c.red}Job bulunamadı: ${targetId}${c.reset}\n`)
+          } else {
+            console.log(`\n${c.bold}📜 Görev Logları (${job.id} - ${job.name} | ${job.status}):${c.reset}\n`)
+            console.log(job.logs || '(Henüz log kaydı yok)')
+          }
+        }
+        console.log('\n')
+        promptUser()
+        return
+      }
+
+      if (cmd === '/kill' || cmd === '/stop') {
+        const targetId = argStr.trim()
+        if (!targetId) {
+          console.log(`\n${c.gray}Durdurmak istediğiniz iş ID'sini belirtin: ${c.cyan}/kill <job_id>${c.reset}\n`)
+        } else {
+          if (ctx.jobs?.kill) {
+            await ctx.jobs.kill(targetId)
+          }
+          console.log(`\n${c.bold}${c.green}✓ Görev Başarıyla Durduruldu / İptal Edildi:${c.reset} ${c.yellow}${targetId}${c.reset}\n`)
+        }
+        promptUser()
+        return
+      }
+
       if (cmd === '/goal') {
         if (!argStr || argStr === 'status') {
           if (activeGoal) {
-            console.log(`\n${c.bold}🎯 Aktif Hedef:${c.reset} ${c.yellow}${activeGoal}${c.reset}\n`)
+            console.log(`\n${c.bold}🎯 Aktif Ön Plan Hedefi:${c.reset} ${c.yellow}${activeGoal}${c.reset}\n`)
           } else {
-            console.log(`\n${c.gray}Şu an aktif bir hedef yok. Başlatmak için: ${c.cyan}/goal <hedefiniz>${c.reset}\n`)
+            console.log(`\n${c.gray}Şu an aktif bir ön plan hedefi yok. Başlatmak için: ${c.cyan}/goal <hedefiniz>${c.reset}`)
+            console.log(`${c.gray}Arka planda başlatmak için: ${c.cyan}/goal -b <hedefiniz>${c.reset}\n`)
           }
           promptUser()
           return
@@ -1167,11 +1231,67 @@ ${taskText}`
           return
         }
 
+        const isBackground = argStr.startsWith('-b ') || argStr.startsWith('--background ') || argStr.startsWith('-bg ')
+        const cleanGoal = argStr.replace(/^(-b|--background|-bg)\s+/, '').replace(/^["']|["']$/g, '').trim()
+
+        if (isBackground) {
+          const jobId = `job_goal_${Date.now().toString(36)}`
+          const bgSession = ctx.session.createSession(`Background Goal: ${cleanGoal.slice(0, 30)}`, undefined, undefined, 'cli')
+          
+          console.log(`\n${c.bold}${c.green}🚀 [ARKA PLAN GÖREVİ BAŞLATILDI]:${c.reset} ${c.bold}${c.cyan}${cleanGoal}${c.reset}`)
+          console.log(`  • ${c.gray}Job ID:${c.reset} ${c.bold}${jobId}${c.reset}`)
+          console.log(`  • ${c.gray}Durum:${c.reset} ${c.yellow}RUNNING ⏳ (Arka planda otonom çalışıyor)${c.reset}`)
+          console.log(`  • ${c.gray}Logları izlemek için:${c.reset} ${c.cyan}/logs ${jobId}${c.reset} veya ${c.cyan}/jobs${c.reset}`)
+          console.log(`  • ${c.gray}Durdurmak için:${c.reset} ${c.cyan}/kill ${jobId}${c.reset}`)
+          console.log(`  • ${c.green}✓ Terminaliniz serbesttir. Komut girmeye devam edebilirsiniz.${c.reset}\n`)
+
+          // Create job snapshot in registry if available
+          const jobEntry: any = {
+            id: jobId,
+            name: `Autonomous Goal: ${cleanGoal.slice(0, 40)}`,
+            command: cleanGoal,
+            status: 'running',
+            startedAt: Date.now(),
+            logs: `[Background Goal Started]: ${cleanGoal}\n\n`
+          }
+          if (ctx.jobs?.start) {
+            (ctx.jobs as any).jobs?.set?.(jobId, { snapshot: jobEntry })
+          }
+
+          // Run in background without blocking CLI prompt
+          const bgPrompt = `[AUTONOMOUS BACKGROUND GOAL]\nOBJECTIVE: "${cleanGoal}"\n\n[INSTRUCTIONS]: You are running as a background autonomous engineer. Inspect the workspace, make changes, run tests, and fix all issues until the objective is 100% complete. When finished, call finish_task.`
+
+          ctx.agent.run({
+            sessionId: bgSession.id,
+            presetId: currentPreset?.id || undefined,
+            prompt: bgPrompt,
+            autonomous: true,
+            enableThinking: false,
+            onChunk: (chunk: string) => {
+              jobEntry.logs += chunk
+            }
+          }).then((res: any) => {
+            jobEntry.status = 'completed'
+            jobEntry.completedAt = Date.now()
+            jobEntry.logs += `\n\n[COMPLETED]: Goal successfully accomplished.`
+            process.stdout.write(`\n\n${c.bold}${c.green}🔔 [BİLDİRİM - ARKA PLAN GÖREVİ TAMAMLANDI]:${c.reset} ${c.cyan}${jobId}${c.reset}\n${c.bold}Hedef:${c.reset} ${cleanGoal}\n${c.gray}Detaylı çıktı için:${c.reset} ${c.cyan}/logs ${jobId}${c.reset}\n\n`)
+          }).catch((err: any) => {
+            jobEntry.status = 'failed'
+            jobEntry.logs += `\n\n[FAILED]: ${err.message}`
+            process.stdout.write(`\n\n${c.bold}${c.red}⚠️ [BİLDİRİM - ARKA PLAN GÖREVİ HATA ALDI]:${c.reset} ${jobId}: ${err.message}\n\n`)
+          })
+
+          promptUser()
+          return
+        }
+
+
         activeGoal = argStr
         console.log(`\n${c.bold}${c.green}🚀 [GOAL BAŞLATILDI]:${c.reset} ${c.bold}${activeGoal}${c.reset}`)
         console.log(`${c.gray}Ajan hedefi tamamlayana kadar otonom adımlar atıyor...${c.reset}\n`)
       }
     }
+
 
     // Execute Agent Run
     try {

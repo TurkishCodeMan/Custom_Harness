@@ -53,7 +53,16 @@ export interface RagResourceConfig {
   visionModel?: string
   visionEndpoint?: string
   imageSearchEndpoint?: string
+  rerankerEndpoint?: string
+  rerankerModel?: string
+  ocrZoom?: number
+  ocrQuality?: number
+  usePythonEngine?: boolean
+
+  useWorkerThreads?: boolean
+  useCopyStreams?: boolean
 }
+
 
 export interface RagSourceFolder {
   id: string

@@ -6,9 +6,9 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 
-const DSH_DIR = path.join(os.homedir(), '.dsh')
-const USERS_FILE = path.join(DSH_DIR, 'users.json')
-const TENANTS_DIR = path.join(DSH_DIR, 'tenants')
+const getDshDir = () => process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
+const getUsersFile = () => path.join(getDshDir(), 'users.json')
+const getTenantsDir = () => path.join(getDshDir(), 'tenants')
 const JWT_SECRET = process.env.JWT_SECRET || 'artificax_enterprise_jwt_secret_key_2026_dsh'
 
 const base64UrlEncode = (str: string): string => {
@@ -64,15 +64,19 @@ export class LocalAuthService extends AuthService {
 
   private initStorage() {
     try {
-      if (!fs.existsSync(DSH_DIR)) {
-        fs.mkdirSync(DSH_DIR, { recursive: true })
+      const dshDir = getDshDir()
+      const tenantsDir = getTenantsDir()
+      const usersFile = getUsersFile()
+
+      if (!fs.existsSync(dshDir)) {
+        fs.mkdirSync(dshDir, { recursive: true })
       }
-      if (!fs.existsSync(TENANTS_DIR)) {
-        fs.mkdirSync(TENANTS_DIR, { recursive: true })
+      if (!fs.existsSync(tenantsDir)) {
+        fs.mkdirSync(tenantsDir, { recursive: true })
       }
 
-      if (fs.existsSync(USERS_FILE)) {
-        const raw = fs.readFileSync(USERS_FILE, 'utf8')
+      if (fs.existsSync(usersFile)) {
+        const raw = fs.readFileSync(usersFile, 'utf8')
         const list = JSON.parse(raw) as User[]
         if (Array.isArray(list) && list.length > 0) {
           for (const u of list) {
@@ -111,7 +115,7 @@ export class LocalAuthService extends AuthService {
   private saveUsers() {
     try {
       const list = Array.from(this.users.values())
-      fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf8')
+      fs.writeFileSync(getUsersFile(), JSON.stringify(list, null, 2), 'utf8')
     } catch (err) {
       console.error('[LocalAuthService] Failed to save users:', err)
     }
@@ -196,7 +200,7 @@ export class LocalAuthService extends AuthService {
   }
 
   public ensureTenantDirs(userId: string): TenantContext {
-    const tenantRoot = path.join(TENANTS_DIR, userId)
+    const tenantRoot = path.join(getTenantsDir(), userId)
     const workspaceDir = path.join(tenantRoot, 'workspace')
     const uploadsDir = path.join(tenantRoot, 'uploads')
     const sessionsDir = path.join(tenantRoot, 'sessions')
@@ -338,7 +342,7 @@ export class LocalAuthService extends AuthService {
 
     if (cleanupStorage) {
       try {
-        const tenantRoot = path.join(TENANTS_DIR, userId)
+        const tenantRoot = path.join(getTenantsDir(), userId)
         if (fs.existsSync(tenantRoot)) {
           fs.rmSync(tenantRoot, { recursive: true, force: true })
         }
@@ -379,11 +383,12 @@ export class LocalAuthService extends AuthService {
     let totalStorageBytes = 0
 
     // Measure tenant storage & sessions
-    if (fs.existsSync(TENANTS_DIR)) {
+    const tenantsDir = getTenantsDir()
+    if (fs.existsSync(tenantsDir)) {
       try {
-        const tenants = fs.readdirSync(TENANTS_DIR)
+        const tenants = fs.readdirSync(tenantsDir)
         for (const t of tenants) {
-          const tPath = path.join(TENANTS_DIR, t)
+          const tPath = path.join(tenantsDir, t)
           const sessPath = path.join(tPath, 'sessions')
           const upPath = path.join(tPath, 'uploads')
 
@@ -417,7 +422,7 @@ export class LocalAuthService extends AuthService {
     }
 
     // Also count global ~/.dsh/sessions
-    const globalSessDir = path.join(DSH_DIR, 'sessions')
+    const globalSessDir = path.join(getDshDir(), 'sessions')
     if (fs.existsSync(globalSessDir)) {
       try {
         totalSessions += fs.readdirSync(globalSessDir).filter(f => f.endsWith('.json')).length

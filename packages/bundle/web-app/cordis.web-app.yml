@@ -6,3 +6,5 @@ extends:
 plugins:
   - name: server
     package: "@custom-harness/server"
+  - name: server-http
+    package: "@custom-harness/server-http"

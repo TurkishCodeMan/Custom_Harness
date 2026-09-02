@@ -213,10 +213,18 @@ export class RagIndexingQueue extends EventEmitter {
   public cancel() {
     this.isCancelled = true
     this.isPaused = false
+    this.isProcessing = false
     this.queue = []
+    this.activeWorkers = 0
+    this.totalFiles = 0
+    this.processedFiles = 0
+    this.currentFile = ''
+    this.currentSpeed = 0
+
     this.emitProgress('idle')
-    console.log('[RAG:Queue] Indexing cancelled.')
+    console.log('[RAG:Queue] Indexing cancelled and reset to idle.')
   }
+
 
   public isBusy(): boolean {
     return this.isProcessing && !this.isPaused && !this.isCancelled

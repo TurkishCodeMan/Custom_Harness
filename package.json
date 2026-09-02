@@ -14,9 +14,12 @@
     "services:up": "docker compose -f docker-compose.services.yml up -d",
     "services:down": "docker compose -f docker-compose.services.yml down",
     "services:logs": "docker compose -f docker-compose.services.yml logs -f",
+    "indexer:up": "docker compose -f docker-compose.indexer.yml up -d",
+    "indexer:down": "docker compose -f docker-compose.indexer.yml down",
     "all:up": "docker compose -f docker-compose.rag.yml -f docker-compose.services.yml up -d",
     "all:down": "docker compose -f docker-compose.rag.yml -f docker-compose.services.yml down",
-    "build": "tsc --noEmit",
+    "build": "node scripts/build_prod.mjs",
+    "build:prod": "node scripts/build_prod.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -26,7 +29,9 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/ws": "^8.5.14",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.11"
   }
 }

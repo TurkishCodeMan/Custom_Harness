@@ -45,6 +45,8 @@
     "@custom-harness/tool-goal": "workspace:*",
     "@custom-harness/tool-session-query": "workspace:*",
     "@custom-harness/tool-fs-search": "workspace:*",
+    "@custom-harness/rag-python-engine": "workspace:*",
     "cordis": "^3.18.1"
+
   }
 }

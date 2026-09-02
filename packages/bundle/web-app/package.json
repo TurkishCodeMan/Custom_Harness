@@ -8,6 +8,7 @@
     "@custom-harness/core-context": "workspace:*",
     "@custom-harness/bundle-base": "workspace:*",
     "@custom-harness/server": "workspace:*",
+    "@custom-harness/server-http": "workspace:*",
     "cordis": "^3.18.1"
   }
 }

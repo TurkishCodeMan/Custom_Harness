@@ -15,6 +15,7 @@ import type { CompactionBasicService } from '@custom-harness/compaction-basic'
 import type { SpillService } from '@custom-harness/spill'
 import type { RagService } from '@custom-harness/rag'
 import type { AuthService } from '@custom-harness/auth'
+import type { ServerService } from '@custom-harness/server'
 
 declare module 'cordis' {
   interface Events {
@@ -22,11 +23,14 @@ declare module 'cordis' {
     'dispose'(): void | Promise<void>
     'approval/asked'(request: any): void
     'user-question/asked'(request: any): void
+    'server/ready'(info: { port: number; url: string }): void
+    'server/stop'(): void
   }
 
   interface Context {
     start(): Promise<void>
     stop(): Promise<void>
+    server: ServerService
     auth: AuthService
     llm: LlmService
     tools: ToolsService

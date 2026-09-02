@@ -6,8 +6,8 @@ import path from 'node:path'
 import os from 'node:os'
 import YAML from 'yaml'
 
-const DSH_DIR = path.join(os.homedir(), '.dsh')
-const SETTINGS_FILE = path.join(DSH_DIR, 'settings.yaml')
+const getDshDir = () => process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
+const getSettingsFile = () => path.join(getDshDir(), 'settings.yaml')
 
 export const DEFAULT_PRESETS: Record<string, AgentPreset> = {
   'full-stack': {
@@ -34,29 +34,36 @@ export const DEFAULT_PRESETS: Record<string, AgentPreset> = {
 }
 
 const DEFAULT_SETTINGS: SettingsDoc = {
-  defaultProvider: 'gemma-local',
-  defaultModel: 'gemma-4-abliterated',
+  defaultProvider: 'qwen-local',
+  defaultModel: 'qwen3.8-27b-uncensored',
   defaultPreset: 'full-stack',
   workspace: process.cwd(),
   providers: {
-    'gemma-local': {
-      id: 'gemma-local',
-      name: 'Local Gemma 4 26B (vLLM / llama.cpp)',
+    'qwen-local': {
+      id: 'qwen-local',
+      name: 'Local Qwen 3.8 27B (llama.cpp - 8004)',
       api: 'openai-completions',
-      baseURL: 'http://localhost:8888/v1',
+      baseURL: 'http://localhost:8004/v1',
       models: [
         {
-          id: 'gemma-4-abliterated',
-          name: 'Gemma 4 Abliterated (26B)',
-          contextWindow: 24576,
+          id: 'qwen3.8-27b-uncensored',
+          name: 'Qwen 3.8 (27B Uncensored)',
+          contextWindow: 16384,
+          maxTokens: 8192,
+          reasoningFormat: 'deepseek'
+        },
+        {
+          id: 'Qwen3.8-27B',
+          name: 'Qwen 3.8 (27B)',
+          contextWindow: 16384,
           maxTokens: 8192,
           reasoningFormat: 'deepseek'
         }
       ]
     },
-    'qwen-local': {
-      id: 'qwen-local',
-      name: 'Local Qwen 3.8 27B (vLLM)',
+    'qwen-vllm': {
+      id: 'qwen-vllm',
+      name: 'Local Qwen 3.8 27B (vLLM - 7272)',
       api: 'openai-completions',
       baseURL: 'http://localhost:7272/v1',
       models: [
@@ -71,6 +78,21 @@ const DEFAULT_SETTINGS: SettingsDoc = {
           id: '/gpfs/scratch/ehpc540/models/Qwen3.8-27B',
           name: 'Qwen 3.8 (27B) Path',
           contextWindow: 32768,
+          maxTokens: 8192,
+          reasoningFormat: 'deepseek'
+        }
+      ]
+    },
+    'gemma-local': {
+      id: 'gemma-local',
+      name: 'Local Gemma 4 26B (vLLM / llama.cpp)',
+      api: 'openai-completions',
+      baseURL: 'http://localhost:8888/v1',
+      models: [
+        {
+          id: 'gemma-4-abliterated',
+          name: 'Gemma 4 Abliterated (26B)',
+          contextWindow: 24576,
           maxTokens: 8192,
           reasoningFormat: 'deepseek'
         }
@@ -127,6 +149,8 @@ export class SettingsService extends Service {
     }
     // Discover live packages dynamically on startup
     this.discoverPlugins()
+    // Auto-discover models from local endpoints (/v1/models) on startup
+    this.autoDiscoverLocalModels().catch(() => {})
   }
 
   public getSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {
@@ -285,11 +309,14 @@ export class SettingsService extends Service {
 
   private load(): SettingsDoc {
     try {
-      if (!fs.existsSync(DSH_DIR)) {
-        fs.mkdirSync(DSH_DIR, { recursive: true })
+      const dshDir = getDshDir()
+      const settingsFile = getSettingsFile()
+
+      if (!fs.existsSync(dshDir)) {
+        fs.mkdirSync(dshDir, { recursive: true })
       }
-      if (fs.existsSync(SETTINGS_FILE)) {
-        const raw = fs.readFileSync(SETTINGS_FILE, 'utf8')
+      if (fs.existsSync(settingsFile)) {
+        const raw = fs.readFileSync(settingsFile, 'utf8')
         const parsed = YAML.parse(raw)
         if (parsed && typeof parsed === 'object') {
           return {
@@ -449,7 +476,7 @@ export class SettingsService extends Service {
   }
 
   private getTenantSettingsFile(userId: string): string {
-    return path.join(DSH_DIR, 'tenants', userId, 'settings.json')
+    return path.join(getDshDir(), 'tenants', userId, 'settings.json')
   }
 
   public getTenantSettings(userId: string): Partial<SettingsDoc> {
@@ -521,15 +548,16 @@ export class SettingsService extends Service {
         thinkingEnabled: partial.thinkingEnabled,
         defaultPreset: partial.defaultPreset,
         defaultModel: partial.defaultModel,
-        defaultProvider: partial.defaultProvider
+        defaultProvider: partial.defaultProvider,
+        workspace: partial.workspace
       })
       return this.getSettingsForUser(userId)
     }
 
     // Admin updates global settings
     this.updateSettings(partial)
-    if (partial.ui) {
-      this.saveTenantSettings(userId, { ui: partial.ui })
+    if (partial.ui || partial.workspace) {
+      this.saveTenantSettings(userId, { ui: partial.ui, workspace: partial.workspace })
     }
     return this.getSettingsForUser(userId)
   }
@@ -553,11 +581,93 @@ export class SettingsService extends Service {
     return this.doc.workspace || process.cwd()
   }
 
+  public getWorkspaceForUser(userId?: string): string {
+    if (userId) {
+      const tenant = this.getTenantSettings(userId)
+      if (tenant.workspace && fs.existsSync(tenant.workspace)) {
+        return path.resolve(tenant.workspace)
+      }
+    }
+    return this.doc.workspace || process.cwd()
+  }
+
+  public setWorkspaceForUser(userId: string, workspacePath: string, isGlobal: boolean = false): string | null {
+    if (fs.existsSync(workspacePath)) {
+      const resolved = path.resolve(workspacePath)
+      if (userId) {
+        this.saveTenantSettings(userId, { workspace: resolved })
+      }
+      if (isGlobal) {
+        this.doc.workspace = resolved
+        this.save()
+      }
+      return resolved
+    }
+    return null
+  }
+
   public setWorkspace(workspacePath: string) {
     if (fs.existsSync(workspacePath)) {
       this.doc.workspace = path.resolve(workspacePath)
       this.save()
     }
+  }
+
+  public async autoDiscoverLocalModels(): Promise<boolean> {
+    let hasChanges = false
+    if (!this.doc.providers) return false
+
+    for (const [pId, provider] of Object.entries(this.doc.providers)) {
+      if (!provider.baseURL) continue
+      const isLocal = provider.baseURL.includes('localhost') || 
+                      provider.baseURL.includes('127.0.0.1') || 
+                      provider.baseURL.includes('0.0.0.0') ||
+                      provider.baseURL.includes(':8004') ||
+                      provider.baseURL.includes(':7272') ||
+                      provider.baseURL.includes(':8888')
+
+      if (isLocal) {
+        try {
+          const cleanUrl = provider.baseURL.replace(/\/+$/, '')
+          const url = cleanUrl.endsWith('/models') ? cleanUrl : `${cleanUrl}/models`
+          const res = await fetch(url, {
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(1500)
+          })
+          if (res.ok) {
+            const data = await res.json() as { data?: { id: string }[] }
+            if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+              const liveModels = data.data.map(m => ({
+                id: m.id,
+                name: m.id,
+                contextWindow: m.id.toLowerCase().includes('qwen') ? 16384 : 24576,
+                maxTokens: 8192,
+                reasoningFormat: 'deepseek' as const
+              }))
+              
+              const existingIds = new Set((provider.models || []).map(m => m.id))
+              const isDifferent = liveModels.some(m => !existingIds.has(m.id)) || liveModels.length !== provider.models?.length
+              if (isDifferent) {
+                provider.models = liveModels
+                hasChanges = true
+                console.log(`[Settings] 🤖 Otomatik Model Keşfi: '${pId}' (${provider.baseURL}) -> [${liveModels.map(m => m.id).join(', ')}]`)
+                
+                if (this.doc.defaultProvider === pId && !liveModels.some(m => m.id === this.doc.defaultModel)) {
+                  this.doc.defaultModel = liveModels[0].id
+                }
+              }
+            }
+          }
+        } catch {
+          // Ignore offline endpoints during boot
+        }
+      }
+    }
+
+    if (hasChanges) {
+      this.save()
+    }
+    return hasChanges
   }
 
   public async discoverModels(baseURL: string, apiKey?: string): Promise<ModelConfig[]> {
@@ -571,7 +681,7 @@ export class SettingsService extends Service {
       headers['Authorization'] = `Bearer ${apiKey}`
     }
 
-    const res = await fetch(url, { headers })
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(3000) })
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`)
     }
@@ -590,10 +700,12 @@ export class SettingsService extends Service {
 
   private save() {
     try {
-      if (!fs.existsSync(DSH_DIR)) {
-        fs.mkdirSync(DSH_DIR, { recursive: true })
+      const dshDir = getDshDir()
+      const settingsFile = getSettingsFile()
+      if (!fs.existsSync(dshDir)) {
+        fs.mkdirSync(dshDir, { recursive: true })
       }
-      fs.writeFileSync(SETTINGS_FILE, YAML.stringify(this.doc), 'utf8')
+      fs.writeFileSync(settingsFile, YAML.stringify(this.doc), 'utf8')
     } catch (e) {
       console.error('[Settings] Failed to write settings file:', e)
     }

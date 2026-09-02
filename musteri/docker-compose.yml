@@ -1,0 +1,242 @@
+services:
+  # ============================================================================
+  # 1. CUSTOM HARNESS WEB UI & AGENT CORE (Derlenmiş & Gizli Kod)
+  # ============================================================================
+  custom-harness-app:
+    image: custom-harness-app:v1.0.0
+    container_name: custom-harness-app
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - PORT=5173
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://harness_user:harness_pass@custom-harness-postgres:5432/custom_harness_rag
+      - RAG_ENABLE_REDIS=true
+      - REDIS_HOST=custom-harness-redis
+      - REDIS_PORT=6379
+      - VLLM_EMBEDDING_URL=http://custom-harness-embedding:8001/v1
+      - VLLM_VISION_URL=http://custom-harness-ocr-gpu0:8010/v1,http://custom-harness-ocr-gpu1:8010/v1,http://custom-harness-ocr-gpu2:8010/v1
+      - RERANKER_URL=http://custom-harness-reranker:8006/v1/rerank
+      - IMAGE_SEARCH_URL=http://custom-harness-image-search:8011
+      - LLM_API_URL=http://custom-harness-qwen:8004/v1
+    depends_on:
+      custom-harness-postgres:
+        condition: service_healthy
+      custom-harness-redis:
+        condition: service_healthy
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 2. PGVECTOR & REDIS (RAG Veritabanı & Dağıtık Kuyruk)
+  # ============================================================================
+  custom-harness-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: custom-harness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harness_user
+      POSTGRES_PASSWORD: harness_pass
+      POSTGRES_DB: custom_harness_rag
+    ports:
+      - "15432:5432"
+    command: >
+      postgres
+      -c shared_buffers=4GB
+      -c work_mem=128MB
+      -c maintenance_work_mem=2GB
+      -c max_parallel_maintenance_workers=8
+      -c effective_cache_size=12GB
+      -c max_connections=150
+      -c wal_buffers=32MB
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness_user -d custom_harness_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - harness-network
+
+  custom-harness-redis:
+    image: redis:7-alpine
+    container_name: custom-harness-redis
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy noeviction
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 3. LLAMA.CPP / QWEN 3.8 27B GGUF (GPU LLM Motoru)
+  # ============================================================================
+  custom-harness-qwen:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: custom-harness-qwen
+    restart: unless-stopped
+    ipc: host
+    privileged: true
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - CUDA_VISIBLE_DEVICES=0,1,2,3
+    volumes:
+      - ./models:/models:ro
+    ports:
+      - "8004:8004"
+    command: >
+      -m /models/Qwen3.8-27B-Uncensored-GGUF/Qwen3.8-27B-Uncensored-Q4_K_M.gguf
+      --mmproj /models/Qwen3.8-27B-Uncensored-GGUF/mmproj-Qwen3.8-27B-Uncensored-f16.gguf
+      --host 0.0.0.0
+      --port 8004
+      -c 16384
+      -ngl 99
+      -ts 1,1,1,1
+      -b 4096
+      -ub 512
+      -fa on
+      --alias qwen3.8-27b-uncensored
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # 4. EMBEDDING, OCR, RERANKER, IMAGE SEARCH SERVİSLERİ
+  # ============================================================================
+  custom-harness-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: custom-harness-embedding
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=3
+    volumes:
+      - ./models:/models:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "8001:8001"
+    command: >
+      --model Qwen/Qwen3-Embedding-0.6B
+      --host 0.0.0.0
+      --port 8001
+      --gpu-memory-utilization 0.08
+      --max-model-len 4096
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-ocr-gpu0:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu0
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    ports:
+      - "8010:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-ocr-gpu1:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu1
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+    ports:
+      - "8013:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-ocr-gpu2:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu2
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=2
+    ports:
+      - "8014:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-reranker:
+    image: custom-harness-reranker:v1.0.0
+    container_name: custom-harness-reranker
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+    ports:
+      - "8006:8006"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-image-search:
+    image: custom-harness-image-search:v1.0.0
+    container_name: custom-harness-image-search
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=3
+    ports:
+      - "8011:8011"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+networks:
+  harness-network:
+    driver: bridge

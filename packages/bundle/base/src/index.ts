@@ -41,7 +41,9 @@ import * as toolSessionQuery from '@custom-harness/tool-session-query'
 import * as toolFsSearch from '@custom-harness/tool-fs-search'
 import * as rag from '@custom-harness/rag'
 import * as ragPgVector from '@custom-harness/rag-pgvector'
+import * as ragPythonEngine from '@custom-harness/rag-python-engine'
 import * as toolRag from '@custom-harness/tool-rag'
+
 import * as auth from '@custom-harness/auth'
 import * as authLocal from '@custom-harness/auth-local'
 import * as web from '@custom-harness/web-service'
@@ -78,7 +80,9 @@ export function apply(ctx: Context) {
   ctx.plugin(lsp)
   ctx.plugin(rag)
   ctx.plugin(ragPgVector)
+  ctx.plugin(ragPythonEngine)
   ctx.plugin(web)
+
   ctx.plugin(webFetchHttp)
   ctx.plugin(webSearch)
   ctx.plugin(jobs)

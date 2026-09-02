@@ -84,16 +84,37 @@ export class SystemPromptService extends Service {
           ? skillsService.listActiveSkills()
           : (skillsService.listSkills?.() || []).filter((s: any) => s.enabled !== false)
         if (!skillsList || skillsList.length === 0) return ''
-        const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Uzmanlık talimatı'} (Yüklemek için: \`skill(skillName: '${s.name}')\`)`).join('\n')
-        return `### ⚡ MEVCUT UZMANLIK BECERİLERİ (Specialized Skills Catalog):
-Aşağıda sistemde kayıtlı ve aktif uzmanlık becerileri listelenmiştir:
+        const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Specialized workflow instruction'} (Load via: \`skill(skillName: '${s.name}')\`)`).join('\n')
+        return `### ⚡ SPECIALIZED SKILLS CATALOG:
+Below is the list of active specialized skills registered in the system:
 ${items}
 
-Skill Kullanım Yönergesi:
-- Göreviniz yukarıdaki özel alan becerilerinden biriyle ilgili olduğunda, ihtiyaç duyduğunuzda \`skill(skillName: '<beceri adı>')\` aracını çağırarak ilgili uzmanlık yönergelerini yükleyebilirsiniz.`
+Skill Usage Directives:
+- When your task relates to any specialized domain listed above, invoke \`skill(skillName: '<skill-name>')\` to load its specialized workflows and guidelines.`
       }
     })
+
+    // 5. Strict Anti-Hallucination & Epistemic Grounding (120)
+    this.section({
+      name: 'anti-hallucination',
+      order: 120,
+      text: () => `### 🛡️ STRICT FACTUALITY & ZERO-HALLUCINATION DIRECTIVES:
+1. **Action-Before-Assertion (Never Guess Without Inspection):**
+   - NEVER guess or speculate about project files, code architectures, function signatures, database schemas, or system configurations.
+   - Before making any assertion or modification, ALWAYS verify the ground truth by actively using tools (\`grep\`, \`view_file\`, \`list_dir\`, \`bash\`, or \`query_rag\`).
+2. **Epistemic Honesty (Acknowledge Unknowns):**
+   - If you do not possess verified evidence or direct knowledge, do NOT invent plausible-sounding answers.
+   - Explicitly state: "I do not have verified information on this, and I need to inspect [file/source] to confirm."
+3. **No Phantom APIs / Imports:**
+   - When writing or modifying code, NEVER hallucinate non-existent third-party packages (\`import non_existent_pkg\`) or fake API endpoints. Always verify existing dependencies in \`package.json\` or environment configs.
+4. **Pre-Response Self-Verification:**
+   - In your thought process (<thought>), strictly verify:
+     a) *"Is this claim directly backed by actual tool outputs, files, or verified context?"*
+     b) *"If this is a hypothesis/recommendation, did I explicitly flag it as a hypothesis rather than an established fact?"*`
+    })
   }
+
+
 
   /**
    * Registers or updates a system prompt section by unique name

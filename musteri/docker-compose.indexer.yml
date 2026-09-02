@@ -1,0 +1,211 @@
+# ==============================================================================
+# 🚀 CUSTOM HARNESS - MÜŞTERİ BÜYÜK VERİ İNDEXLEME MODU (4 GPU TAM GÜÇ)
+# ==============================================================================
+# GPU 0: 1x OCR Replika (8010) + 2x SigLIP Image Search (8011, 8015)
+# GPU 1: 1x OCR Replika (8013)
+# GPU 2: 1x OCR Replika (8014) + 1x Reranker (8006)
+# GPU 3: 1x Embedding Qwen3 vLLM (8001)
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # VERİTABANI & DAĞITIK KUYRUK
+  # ============================================================================
+  custom-harness-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: custom-harness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harness_user
+      POSTGRES_PASSWORD: harness_pass
+      POSTGRES_DB: custom_harness_rag
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_buffers=16GB
+      -c effective_cache_size=48GB
+      -c maintenance_work_mem=8GB
+      -c work_mem=512MB
+      -c wal_buffers=512MB
+      -c min_wal_size=2GB
+      -c max_wal_size=16GB
+      -c checkpoint_completion_target=0.9
+      -c checkpoint_timeout=15min
+      -c max_worker_processes=20
+      -c max_parallel_workers=20
+      -c max_parallel_maintenance_workers=8
+      -c max_parallel_workers_per_gather=8
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c hnsw.ef_search=200
+      -c max_connections=200
+    shm_size: '16gb'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness_user -d custom_harness_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - harness-network
+
+  custom-harness-redis:
+    image: redis:7-alpine
+    container_name: custom-harness-redis
+    restart: unless-stopped
+    ports:
+      - "16379:6379"
+    command: redis-server --appendonly yes --maxmemory 4gb --maxmemory-policy noeviction
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # GPU 0: OCR-1 (8010) + Image Search 1 & 2 (8011, 8015)
+  # ============================================================================
+  custom-harness-ocr-gpu0:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu0
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - OCR_MODEL_ID=zai-org/GLM-OCR
+      - OCR_DEVICE=cuda:0
+    ports:
+      - "8010:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-image-search-1:
+    image: custom-harness-image-search:v1.0.0
+    container_name: custom-harness-image-search-1
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    ports:
+      - "8011:8011"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  custom-harness-image-search-2:
+    image: custom-harness-image-search:v1.0.0
+    container_name: custom-harness-image-search-2
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    ports:
+      - "8015:8011"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # GPU 1: OCR-2 (8013)
+  # ============================================================================
+  custom-harness-ocr-gpu1:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu1
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+      - OCR_MODEL_ID=zai-org/GLM-OCR
+      - OCR_DEVICE=cuda:0
+    ports:
+      - "8013:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # GPU 2: OCR-3 (8014 - Dedicated Full GPU 2)
+  # ============================================================================
+  custom-harness-ocr-gpu2:
+    image: custom-harness-ocr:v1.0.0
+    container_name: custom-harness-ocr-gpu2
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=2
+      - OCR_MODEL_ID=zai-org/GLM-OCR
+      - OCR_DEVICE=cuda:0
+    ports:
+      - "8014:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+  # ============================================================================
+  # GPU 3: EMBEDDING SERVICE (Qwen3-Embedding-0.6B)
+  # ============================================================================
+  custom-harness-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: custom-harness-embedding
+    restart: unless-stopped
+    environment:
+      - CUDA_VISIBLE_DEVICES=3
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./models:/models:ro
+    ports:
+      - "8001:8001"
+    command: >
+      --model Qwen/Qwen3-Embedding-0.6B
+      --host 0.0.0.0
+      --port 8001
+      --gpu-memory-utilization 0.90
+      --max-model-len 8192
+      --max-num-batched-tokens 16384
+      --max-num-seqs 128
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - harness-network
+
+networks:
+  harness-network:
+    driver: bridge

@@ -193,13 +193,14 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
       const data = await res.json()
       if (data.success) {
         onShowToast('⏹️ İndeksleme iptal edildi', 'info')
-        if (data.progress) setProgress(data.progress)
+        setProgress(null)
         loadStatus()
       }
     } catch (e: any) {
       onShowToast(`Hata: ${e.message}`, 'error')
     }
   }
+
 
   const handleAddFolder = async () => {
     if (!newFolderPath.trim()) return
@@ -236,6 +237,7 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
       const data = await res.json()
       if (data.success) {
         onShowToast('Kaynak RAG veritabanından kaldırıldı', 'success')
+        setProgress(null)
         loadStatus()
       }
     } catch (e: any) {
@@ -250,12 +252,14 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
       const data = await res.json()
       if (data.success) {
         onShowToast('Tüm RAG veritabanı temizlendi', 'success')
+        setProgress(null)
         loadStatus()
       }
     } catch (e: any) {
       onShowToast(`Hata: ${e.message}`, 'error')
     }
   }
+
 
   const handleOpenPermissions = (src: any) => {
     setEditingPermSourceId(src.id)
@@ -461,8 +465,9 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
         </div>
 
         {/* ⚡ REAL-TIME DISTRIBUTED QUEUE PROGRESS BAR */}
-        {progress && (progress.status === 'running' || progress.status === 'paused' || (progress.totalFiles > 0 && progress.processedFiles < progress.totalFiles)) && (
+        {progress && (progress.status === 'running' || progress.status === 'paused') && (
           <div style={{
+
             background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95))',
             border: '1px solid rgba(99, 102, 241, 0.4)',
             borderRadius: '10px',
@@ -999,7 +1004,18 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
             </div>
 
             <div className="form-group">
-              <label className="form-label">vLLM Vision OCR Modeli (Görseller İçin)</label>
+              <label className="form-label">vLLM Vision OCR Endpoint (Port 8010)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={(config as any).visionEndpoint || 'http://localhost:8010/v1'}
+                onChange={(e) => setConfig({ ...config, visionEndpoint: e.target.value } as any)}
+                placeholder="http://localhost:8010/v1"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">vLLM Vision OCR Modeli (Görseller & Taranmış PDF'ler)</label>
               <input
                 type="text"
                 className="form-input"
@@ -1010,7 +1026,29 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
             </div>
 
             <div className="form-group">
-              <label className="form-label">SigLIP Görsel Arama Endpoint (Vision Embeddings)</label>
+              <label className="form-label">vLLM Neural Reranker Endpoint (Port 8006)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={(config as any).rerankerEndpoint || 'http://localhost:8006/v1/rerank'}
+                onChange={(e) => setConfig({ ...config, rerankerEndpoint: e.target.value } as any)}
+                placeholder="http://localhost:8006/v1/rerank"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">vLLM Neural Reranker Modeli</label>
+              <input
+                type="text"
+                className="form-input"
+                value={(config as any).rerankerModel || 'Qwen/Qwen3-Reranker-0.6B'}
+                onChange={(e) => setConfig({ ...config, rerankerModel: e.target.value } as any)}
+                placeholder="Qwen/Qwen3-Reranker-0.6B"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">SigLIP Görsel Arama Endpoint (Vision Embeddings - Port 8011)</label>
               <input
                 type="text"
                 className="form-input"
@@ -1031,20 +1069,42 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
                 value={config.batchSize}
                 onChange={(e) => setConfig({ ...config, batchSize: Number(e.target.value) })}
               />
-              <div className="form-hint">vLLM'e tek seferde gönderilen vektör parçası sayısı. 200GB gibi büyük verilerde 64-128 önerilir.</div>
+              <div className="form-hint">vLLM'e tek seferde gönderilen vektör parçası sayısı (Önerilen: 64-128).</div>
             </div>
 
             <div className="form-group">
-              <label className="form-label">pgvector Toplu Kayıt Boyutu (Bulk Insert: {(config as any).bulkInsertSize || 50} chunk / SQL)</label>
+              <label className="form-label">pgvector Toplu Kayıt Boyutu (Bulk Insert: {(config as any).bulkInsertSize || 100} chunk / SQL)</label>
               <input
                 type="range"
                 min="20"
                 max="500"
                 step="20"
-                value={(config as any).bulkInsertSize || 50}
+                value={(config as any).bulkInsertSize || 100}
                 onChange={(e) => setConfig({ ...config, bulkInsertSize: Number(e.target.value) } as any)}
               />
-              <div className="form-hint">PostgreSQL veritabanına tek sorguda toplu yazılan vektör miktarı. Disk I/O ve işlem süresini 50 kat hızlandırır.</div>
+              <div className="form-hint">PostgreSQL veritabanına tek sorguda toplu yazılan vektör miktarı (Önerilen: 100-200).</div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Doküman Parçalama: Chunk Boyutu ({config.chunkSize || 1000} karakter) & Örtüşme ({config.chunkOverlap || 150} karakter)</label>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  value={config.chunkSize || 1000}
+                  onChange={(e) => setConfig({ ...config, chunkSize: Number(e.target.value) })}
+                  placeholder="Chunk Size (1000)"
+                />
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  value={config.chunkOverlap || 150}
+                  onChange={(e) => setConfig({ ...config, chunkOverlap: Number(e.target.value) })}
+                  placeholder="Chunk Overlap (150)"
+                />
+              </div>
             </div>
 
             <div className="form-group">
@@ -1057,7 +1117,7 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
                 value={(config as any).throttleDelayMs || 0}
                 onChange={(e) => setConfig({ ...config, throttleDelayMs: Number(e.target.value) } as any)}
               />
-              <div className="form-hint">Her dosya sonrasında GPU VRAM'in boşaltılması ve ısınmayı önlemek için milisaniye cinsinden bekleme süresi.</div>
+              <div className="form-hint">Her dosya sonrasında GPU VRAM'in boşaltılması ve ısınmayı önlemek için bekleme süresi (Normalde 0 ms).</div>
             </div>
 
             <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
@@ -1068,7 +1128,7 @@ export function RagModal({ isOpen, onClose, onShowToast, currentUser, users = []
                 onChange={(e) => setConfig({ ...config, skipExistingUnchanged: e.target.checked } as any)}
               />
               <label htmlFor="skipExisting" className="form-label" style={{ cursor: 'pointer', marginBottom: 0 }}>
-                ⚡ Değişmeyen Dokümanları Atla (Content-Hash Resume / Hızlı Yeniden Tarama)
+                ⚡ Değişmeyen Dokümanları Atla (Content-Hash Resume / Sıfır Maliyetli Yeniden Tarama)
               </label>
             </div>
 

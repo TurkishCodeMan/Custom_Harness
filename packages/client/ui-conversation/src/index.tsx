@@ -116,6 +116,95 @@ export function ConversationTimeline({
     }
   }
 
+  // Intelligently group consecutive assistant and tool turns into a single unified bubble per round
+  const groupedTimelineMessages = React.useMemo(() => {
+    const result: (ChatMessageItem & { key: string })[] = []
+    let currentAssistantGroup: (ChatMessageItem & { key: string }) | null = null
+
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+      const key = `msg-${i}`
+
+      if (msg.compactionInfo) {
+        if (currentAssistantGroup) {
+          result.push(currentAssistantGroup)
+          currentAssistantGroup = null
+        }
+        result.push({ ...msg, key })
+        continue
+      }
+
+      if (msg.role === 'user') {
+        if (currentAssistantGroup) {
+          result.push(currentAssistantGroup)
+          currentAssistantGroup = null
+        }
+        result.push({ ...msg, key })
+        continue
+      }
+
+      if (msg.role === 'assistant' || msg.role === 'tool') {
+        if (!currentAssistantGroup) {
+          currentAssistantGroup = {
+            role: 'assistant',
+            content: msg.content || '',
+            reasoning_content: msg.reasoning_content || '',
+            presetName: msg.presetName,
+            isStreaming: msg.isStreaming,
+            tool_calls: msg.tool_calls ? [...msg.tool_calls] : [],
+            toolResults: msg.toolResults ? [...msg.toolResults] : (msg.role === 'tool' ? [{ id: (msg as any).tool_call_id || `tool-${i}`, name: (msg as any).name || 'Tool Result', output: msg.content, status: 'done' as const }] : []),
+            key: `asst-group-${i}`
+          }
+        } else {
+          // Merge consecutive assistant/tool turns into single bubble
+          if (msg.role === 'assistant') {
+            if (msg.content) {
+              currentAssistantGroup.content = currentAssistantGroup.content 
+                ? `${currentAssistantGroup.content}\n\n${msg.content}`
+                : msg.content
+            }
+            if (msg.reasoning_content) {
+              currentAssistantGroup.reasoning_content = currentAssistantGroup.reasoning_content
+                ? `${currentAssistantGroup.reasoning_content}\n\n${msg.reasoning_content}`
+                : msg.reasoning_content
+            }
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+              currentAssistantGroup.tool_calls = [
+                ...(currentAssistantGroup.tool_calls || []),
+                ...msg.tool_calls
+              ]
+            }
+            if (msg.presetName) {
+              currentAssistantGroup.presetName = msg.presetName
+            }
+            if (msg.isStreaming !== undefined) {
+              currentAssistantGroup.isStreaming = msg.isStreaming
+            }
+          } else if (msg.role === 'tool') {
+            const tr: ToolResultItem = {
+              id: (msg as any).tool_call_id || `tool-${i}`,
+              name: (msg as any).name || 'Tool Result',
+              output: msg.content,
+              status: 'done'
+            }
+            currentAssistantGroup.toolResults = [
+              ...(currentAssistantGroup.toolResults || []),
+              tr
+            ]
+          }
+        }
+
+      }
+    }
+
+    if (currentAssistantGroup) {
+      result.push(currentAssistantGroup)
+    }
+
+    return result
+  }, [messages])
+
   return (
     <div
       className={`chat-messages-container ${isDragOver ? 'drag-over-active' : ''}`}
@@ -142,50 +231,12 @@ export function ConversationTimeline({
 
           <h1 className="welcome-chatgpt-title">Bugün ne inşa etmek istersiniz?</h1>
           <p className="welcome-chatgpt-subtitle">
-            ArtificaX Enterprise GPT ile otonom kodlama, Excel veri analizi, görsel OCR/SigLIP araması ve mimari planlama parmaklarınızın ucunda.
+            ArtificaX Enterprise GPT ile otonom kodlama, veri analizi ve mimari planlama parmaklarınızın ucunda.
           </p>
-
-          <div className="welcome-cards-grid">
-            <div
-              className="welcome-action-card"
-              onClick={() => onQuickAction?.('Projedeki kod yapısını incele, mimariyi analiz et ve iyileştirme öner.')}
-            >
-              <div className="card-icon">🔍</div>
-              <div className="card-title">Kod Analizi & İnceleme</div>
-              <div className="card-desc">Mimariyi tara, dosya yapısını özetle ve optimizasyon önerileri sun.</div>
-            </div>
-
-            <div
-              className="welcome-action-card"
-              onClick={() => onQuickAction?.('Excel veya CSV dosyamı analiz et, toplamları ve özet istatistikleri çıkar.')}
-            >
-              <div className="card-icon">📊</div>
-              <div className="card-title">Excel & Veri Analizi</div>
-              <div className="card-desc">Tabloları yükle, Pandas/SQL ile kesin hesaplama ve grafik çizdir.</div>
-            </div>
-
-            <div
-              className="welcome-action-card"
-              onClick={() => onQuickAction?.('Yüklediğim görseldeki metinleri (OCR) oku ve diyagramı açıkla.')}
-            >
-              <div className="card-icon">🖼️</div>
-              <div className="card-title">Görsel & Şema İnceleme</div>
-              <div className="card-desc">Ekran görüntüleri, mimari şemalar veya benzer görsel araması yap.</div>
-            </div>
-
-            <div
-              className="welcome-action-card"
-              onClick={() => onQuickAction?.('/goal Proje için detaylı mimari plan oluştur ve doğrulama adımlarını belirle')}
-            >
-              <div className="card-icon">📋</div>
-              <div className="card-title">Mimari Plan & Hedef</div>
-              <div className="card-desc">Büyük görevler için planlama modunu başlat ve adım adım yürüt.</div>
-            </div>
-          </div>
         </div>
       ) : (
         <div className="chat-messages-timeline">
-          {messages.map((msg, index) => {
+          {groupedTimelineMessages.map((msg, index) => {
             if (msg.compactionInfo) {
               return <CompactionCard key={`compaction-${index}`} info={msg.compactionInfo} />
             }
@@ -193,7 +244,7 @@ export function ConversationTimeline({
             if (msg.role === 'user') {
               return (
                 <UserMessageBubble
-                  key={`user-${index}`}
+                  key={msg.key || `user-${index}`}
                   content={msg.content || ''}
                   attachments={msg.attachments}
                 />
@@ -203,7 +254,7 @@ export function ConversationTimeline({
             if (msg.role === 'assistant') {
               return (
                 <AssistantMessageBubble
-                  key={`asst-${index}`}
+                  key={msg.key || `asst-${index}`}
                   message={msg}
                   activePresetName={activePresetName}
                 />
@@ -223,6 +274,7 @@ export function ConversationTimeline({
     </div>
   )
 }
+
 
 export function UserMessageBubble({
   content,
