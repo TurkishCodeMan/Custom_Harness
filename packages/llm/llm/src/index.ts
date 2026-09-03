@@ -145,8 +145,10 @@ export class LlmService extends Service {
     // Dynamically calculate safe max_tokens so (input_tokens + max_tokens) never exceeds model contextWindow
     const contextLimit = model?.contextWindow || 24576
     const totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
-    const approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
-    const safeRemainingTokens = Math.max(512, contextLimit - approxInputTokens - 256)
+    // In JSON/BPE, 1 token is ~3.6 chars. Using 2.8 was over-estimating by ~35% and severely starving output generation.
+    const approxInputTokens = Math.ceil(totalPayloadChars / 3.6) + 100
+    // Guarantee generous headroom for output generation (up to targetMaxTokens), safely bounded by context
+    const safeRemainingTokens = Math.max(2048, contextLimit - approxInputTokens - 64)
     // Use model's configured maxTokens (default 8192), safely constrained by context window
     const targetMaxTokens = model?.maxTokens || 8192
 
