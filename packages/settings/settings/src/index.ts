@@ -597,7 +597,7 @@ export class SettingsService extends Service {
       if (userId) {
         this.saveTenantSettings(userId, { workspace: resolved })
       }
-      if (isGlobal) {
+      if (isGlobal || userId === 'user_admin') {
         this.doc.workspace = resolved
         this.save()
       }

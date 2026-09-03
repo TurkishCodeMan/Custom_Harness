@@ -47,14 +47,15 @@ export class SessionService extends Service {
     clientType: 'web' | 'cli' | 'vscode' | string = 'web'
   ): SessionData {
     const id = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const uid = userId || 'user_admin'
     const session: SessionData = {
       id,
       title,
       clientType,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      workspace: workspace || this.ctx.settings?.getSettings?.()?.workspace || process.cwd(),
-      userId: userId || 'user_admin',
+      workspace: workspace || this.ctx.settings?.getWorkspaceForUser?.(uid) || this.ctx.settings?.getWorkspace?.() || process.cwd(),
+      userId: uid,
       messages: []
     }
     this.activeSessionId = id

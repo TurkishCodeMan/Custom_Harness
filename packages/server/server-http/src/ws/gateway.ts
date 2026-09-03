@@ -2,6 +2,7 @@ import type { Context } from '@custom-harness/core-context'
 import { WebSocketServer, WebSocket } from 'ws'
 import type http from 'node:http'
 import path from 'node:path'
+import fs from 'node:fs'
 import { generateSessionTitle } from './title-generator.js'
 
 export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSocketServer {
@@ -115,14 +116,22 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
 
         // 5. Chat message
         if (msg.type === 'chat') {
-          const { sessionId, prompt, providerId, modelId, presetId, attachments, userId, enableThinking, thinkingBudgetTokens } = msg
+          const { sessionId, prompt, providerId, modelId, presetId, attachments, userId, enableThinking, thinkingBudgetTokens, workspace: clientWorkspace } = msg
           const controller = new AbortController()
           activeRuns.set(ws, controller)
 
           const sessionUserId = userId || 'user_admin'
           const activeSession =
-            (sessionId && ctx.session.getSession(sessionId)) || ctx.session.createSession(undefined, undefined, sessionUserId, 'web')
+            (sessionId && ctx.session.getSession(sessionId)) || ctx.session.createSession(undefined, clientWorkspace, sessionUserId, 'web')
           const activeSessionId = activeSession.id
+
+          // If client explicitly sent a workspace and it differs, update activeSession workspace immediately
+          if (clientWorkspace && clientWorkspace !== activeSession.workspace && fs.existsSync(clientWorkspace)) {
+            activeSession.workspace = clientWorkspace
+            if (ctx.session?.setSessionWorkspace) {
+              ctx.session.setSessionWorkspace(activeSessionId, clientWorkspace)
+            }
+          }
 
           // Send active session id and initial context measurement immediately
           if (ws.readyState === WebSocket.OPEN) {

@@ -939,6 +939,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       JSON.stringify({
         type: 'chat',
         sessionId: activeSessionId || undefined,
+        workspace,
         prompt: text,
         providerId: settings.defaultProvider,
         modelId: settings.defaultModel,
@@ -1144,7 +1145,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/workspace', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ path: newPath, sessionId: activeSessionId })
+        body: JSON.stringify({
+          path: newPath,
+          sessionId: activeSessionId,
+          global: currentUser?.role === 'admin'
+        })
       })
       const data = await res.json()
       if (data.success && data.workspace) {
