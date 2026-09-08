@@ -89,7 +89,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
 
         // 2. Get Context update
         if (msg.type === 'get_context') {
-          const measurement = ctx.tokenMeter.measureSession(msg.sessionId)
+          const measurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(msg.sessionId) : null
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'context_update', measurement, sessionId: msg.sessionId }))
           }

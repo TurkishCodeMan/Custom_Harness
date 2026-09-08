@@ -546,7 +546,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           systemPromptTokens: sys,
           toolsTokens: tools,
           historyTokens: hist,
-          totalTokens: total,
+          totalTokens: Math.min(total, cw),
           contextWindow: cw,
           percentage: Math.min(100, Math.round((total / cw) * 100))
         }
@@ -587,7 +587,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           systemPromptTokens: sys,
           toolsTokens: tools,
           historyTokens: hist,
-          totalTokens: total,
+          totalTokens: Math.min(total, cw),
           contextWindow: cw,
           percentage: Math.min(100, Math.round((total / cw) * 100))
         }

@@ -544,13 +544,60 @@ export function ToolResultCard({ result }: { result: ToolResultItem }) {
 }
 
 export function CompactionCard({ info }: { info: { messageCount: number; summary: string } }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  // Clean summary of any leaked prompt headers if present in older records
+  const cleanText = (info.summary || '')
+    .replace(/^\[GEÇMİŞ BAĞLAM[^\]]*\]:?\s*/i, '')
+    .replace(/\(Konuşma kesintisiz devam etmektedir[^)]*\)/gi, '')
+    .trim()
+
   return (
-    <div className="compaction-card">
-      <div className="compaction-header">
-        <span>📦 Bağlam Sıkıştırma (Compaction)</span>
-        <span className="compaction-count">{info.messageCount} mesaj arşivlendi</span>
+    <div className="compaction-banner" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '14px 0' }}>
+      <div
+        className="compaction-badge"
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          cursor: 'pointer',
+          userSelect: 'none',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '6px 14px',
+          borderRadius: '20px',
+          background: 'rgba(147, 51, 234, 0.14)',
+          border: '1px solid rgba(168, 85, 247, 0.35)',
+          color: '#d8b4fe',
+          fontSize: '12px',
+          boxShadow: '0 2px 10px rgba(147, 51, 234, 0.15)'
+        }}
+        title="Arşiv detaylarını göster/gizle"
+      >
+        <span style={{ fontSize: '14px' }}>📦</span>
+        <span style={{ fontWeight: 600, color: '#f3e8ff' }}>Bağlam Sıkıştırıldı</span>
+        <span style={{ opacity: 0.85 }}>· {info.messageCount} mesaj arşivlendi</span>
+        <span style={{ fontSize: '10px', marginLeft: '4px', opacity: 0.7 }}>{isOpen ? '▲' : '▼'}</span>
       </div>
-      <div className="compaction-summary">{info.summary}</div>
+      {isOpen && cleanText && (
+        <div
+          style={{
+            marginTop: '8px',
+            maxWidth: '680px',
+            width: '90%',
+            background: 'rgba(147, 51, 234, 0.08)',
+            border: '1px solid rgba(168, 85, 247, 0.25)',
+            borderRadius: '10px',
+            padding: '10px 14px',
+            fontSize: '11.5px',
+            color: '#e9d5ff',
+            lineHeight: '1.6',
+            whiteSpace: 'pre-line',
+            textAlign: 'left'
+          }}
+        >
+          {cleanText}
+        </div>
+      )}
     </div>
   )
 }

@@ -72,6 +72,9 @@ export function createPluginsMcpRouter(ctx: Context): Router {
   // 2. Token Measurement
   router.get('/context/measure', (req, res) => {
     try {
+      if (!ctx.tokenMeter) {
+        return res.status(503).json({ error: 'Token meter service not available' })
+      }
       const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId ? req.query.sessionId : undefined
       const measurement = ctx.tokenMeter.measureSession(sessionId)
       res.json(measurement)

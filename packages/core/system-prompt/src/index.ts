@@ -2,7 +2,7 @@ import { Service } from 'cordis'
 import type { Context } from '@custom-harness/core-context'
 
 export const name = 'systemPrompt'
-export const inject = ['settings', 'tools']
+export const inject = ['settings', 'tools', 'skills']
 
 export interface PromptSection {
   name: string
@@ -12,7 +12,7 @@ export interface PromptSection {
 
 export class SystemPromptService extends Service {
   declare ctx: Context
-  static inject = ['settings', 'tools']
+  static inject = ['settings', 'tools', 'skills']
   private sections: Map<string, PromptSection> = new Map()
   public currentSessionWorkspace?: string
   public currentSessionAllowedTools?: string[]
@@ -78,7 +78,7 @@ export class SystemPromptService extends Service {
       name: 'skills-catalog',
       order: 110,
       text: () => {
-        const skillsService = (this.ctx as any).skills
+        const skillsService = this.ctx.skills
         if (!skillsService) return ''
         const skillsList = skillsService.listActiveSkills
           ? skillsService.listActiveSkills()

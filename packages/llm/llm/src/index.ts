@@ -1,6 +1,15 @@
 import { Service } from 'cordis'
 import type { Context } from '@custom-harness/core-context'
-import type { ChatMessage, ProviderConfig, ModelConfig } from '@custom-harness/core-types'
+import type { ChatMessage, ProviderConfig, ModelConfig, TokenUsage, ResponseFormat } from '@custom-harness/core-types'
+
+export type { TokenUsage, ResponseFormat }
+
+export interface RetryConfig {
+  maxRetries?: number
+  initialDelayMs?: number
+  maxDelayMs?: number
+  backoffMultiplier?: number
+}
 
 export interface StreamEvent {
   type: 'chunk' | 'thought' | 'tool_call' | 'error' | 'done'
@@ -11,6 +20,19 @@ export interface StreamEvent {
     arguments: string
   }
   error?: string
+  usage?: TokenUsage
+}
+
+export interface StreamChatOptions {
+  provider?: ProviderConfig
+  model?: ModelConfig
+  tools?: any[]
+  signal?: AbortSignal
+  enableThinking?: boolean
+  thinkingBudgetTokens?: number
+  responseFormat?: ResponseFormat
+  retry?: RetryConfig
+  sessionId?: string
 }
 
 export const name = 'llm'
@@ -25,14 +47,7 @@ export class LlmService extends Service {
 
   public async *streamChat(
     messages: ChatMessage[],
-    options: {
-      provider?: ProviderConfig
-      model?: ModelConfig
-      tools?: any[]
-      signal?: AbortSignal
-      enableThinking?: boolean
-      thinkingBudgetTokens?: number
-    } = {}
+    options: StreamChatOptions = {}
   ): AsyncGenerator<StreamEvent, void, unknown> {
     const settings = this.ctx.settings.getSettings()
     const provider = options.provider || this.ctx.settings.getActiveProvider()
@@ -126,7 +141,22 @@ export class LlmService extends Service {
     const body: Record<string, any> = {
       model: modelId,
       messages: sanitizedMessages,
-      stream: true
+      stream: true,
+      stream_options: { include_usage: true }
+    }
+
+    if (options.responseFormat) {
+      body.response_format = options.responseFormat
+      if (options.responseFormat.type === 'json_object' || options.responseFormat.type === 'json_schema') {
+        const hasJsonMention = sanitizedMessages.some(m => typeof m.content === 'string' && m.content.toLowerCase().includes('json'))
+        if (!hasJsonMention && sanitizedMessages.length > 0) {
+          if (sanitizedMessages[0].role === 'system') {
+            sanitizedMessages[0].content += '\n\nYou must respond with a valid JSON object matching the requested schema/format.'
+          } else {
+            sanitizedMessages.unshift({ role: 'system', content: 'You must respond with a valid JSON object.' })
+          }
+        }
+      }
     }
 
     // Model-level direct thinking control
@@ -142,17 +172,36 @@ export class LlmService extends Service {
       body.max_thinking_tokens = budget
     }
 
-    // Dynamically calculate safe max_tokens so (input_tokens + max_tokens) never exceeds model contextWindow
-    const contextLimit = model?.contextWindow || 24576
-    const totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
-    // In JSON/BPE, 1 token is ~3.6 chars. Using 2.8 was over-estimating by ~35% and severely starving output generation.
-    const approxInputTokens = Math.ceil(totalPayloadChars / 3.6) + 100
-    // Guarantee generous headroom for output generation (up to targetMaxTokens), safely bounded by context
-    const safeRemainingTokens = Math.max(2048, contextLimit - approxInputTokens - 64)
-    // Use model's configured maxTokens (default 8192), safely constrained by context window
-    const targetMaxTokens = model?.maxTokens || 8192
+    // Dynamic safe token calculation: Guarantee minimum 1024 output tokens
+    const contextLimit = model?.contextWindow || 16384
+    const MIN_OUTPUT_TOKENS = 1024
+    const MAX_SAFE_INPUT_TOKENS = contextLimit - MIN_OUTPUT_TOKENS - 128
 
-    body.max_tokens = Math.min(targetMaxTokens, safeRemainingTokens)
+    let totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
+    let approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
+
+    // Girdinin 1024 token çıktı alanını ezmesine izin verilmez.
+    // DİKKAT: Mesajları diziden silmek (splice) kullanıcı sorgusunu silebilir veya tool-call eşleşmesini bozar.
+    // Bunun yerine en eski büyük araç (tool) çıktıları güvenle budanır:
+    if (approxInputTokens > MAX_SAFE_INPUT_TOKENS) {
+      for (let i = 0; i < sanitizedMessages.length - 1; i++) {
+        const m = sanitizedMessages[i]
+        if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 250) {
+          m.content = m.content.slice(0, 180) + '\n... [Bağlam emniyeti için budandı / Output truncated]'
+        }
+      }
+      totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
+      approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
+    }
+
+    // vLLM qwen3_coder parser'ının asla 'No user query found' hatası vermemesi için kesin güvence:
+    if (!sanitizedMessages.some(m => m.role === 'user')) {
+      sanitizedMessages.push({ role: 'user', content: 'Devam et.' })
+    }
+
+    const availableHeadroom = Math.max(MIN_OUTPUT_TOKENS, contextLimit - approxInputTokens - 64)
+    const targetMaxTokens = Math.min(model?.maxTokens || 4096, 4096)
+    body.max_tokens = Math.max(MIN_OUTPUT_TOKENS, Math.min(targetMaxTokens, availableHeadroom))
 
     body.temperature = 0.2
     body.frequency_penalty = 0.1
@@ -162,21 +211,81 @@ export class LlmService extends Service {
       body.tool_choice = 'auto'
     }
 
-    let response: Response
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: options.signal
-      })
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    const retryConfig = {
+      maxRetries: options.retry?.maxRetries ?? 3,
+      initialDelayMs: options.retry?.initialDelayMs ?? 1000,
+      maxDelayMs: options.retry?.maxDelayMs ?? 8000,
+      backoffMultiplier: options.retry?.backoffMultiplier ?? 2
+    }
+
+    let response: Response | undefined
+    let attempt = 0
+
+    while (true) {
+      if (options.signal?.aborted) {
         yield { type: 'done' }
         return
       }
-      yield { type: 'error', error: `LLM Bağlantı Hatası: ${err.message}` }
-      return
+
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: options.signal
+        })
+
+        const retryableStatuses = [429, 500, 502, 503, 504]
+        if (!response.ok && retryableStatuses.includes(response.status) && attempt < retryConfig.maxRetries) {
+          const errText = await response.text().catch(() => '')
+          attempt++
+          const jitter = 0.8 + Math.random() * 0.4
+          const delay = Math.min(
+            retryConfig.maxDelayMs,
+            retryConfig.initialDelayMs * Math.pow(retryConfig.backoffMultiplier, attempt - 1)
+          ) * jitter
+
+          this.ctx.emit('llm/retry' as any, {
+            attempt,
+            maxRetries: retryConfig.maxRetries,
+            status: response.status,
+            error: errText,
+            delayMs: Math.round(delay)
+          })
+
+          await new Promise((resolve) => setTimeout(resolve, delay))
+          continue
+        }
+
+        break
+      } catch (err: any) {
+        if (err.name === 'AbortError' || options.signal?.aborted) {
+          yield { type: 'done' }
+          return
+        }
+
+        if (attempt < retryConfig.maxRetries) {
+          attempt++
+          const jitter = 0.8 + Math.random() * 0.4
+          const delay = Math.min(
+            retryConfig.maxDelayMs,
+            retryConfig.initialDelayMs * Math.pow(retryConfig.backoffMultiplier, attempt - 1)
+          ) * jitter
+
+          this.ctx.emit('llm/retry' as any, {
+            attempt,
+            maxRetries: retryConfig.maxRetries,
+            error: err.message,
+            delayMs: Math.round(delay)
+          })
+
+          await new Promise((resolve) => setTimeout(resolve, delay))
+          continue
+        }
+
+        yield { type: 'error', error: `LLM Bağlantı Hatası: ${err.message}` }
+        return
+      }
     }
 
     if (!response.ok) {
@@ -197,6 +306,7 @@ export class LlmService extends Service {
     const toolCallsMap = new Map<number, { id: string; name: string; args: string }>()
     let inThoughtTag = false
     let fullAssistantText = ''
+    let tokenUsage: TokenUsage | undefined
 
     try {
       while (true) {
@@ -221,6 +331,15 @@ export class LlmService extends Service {
             const jsonStr = trimmed.slice(6)
             try {
               const data = JSON.parse(jsonStr)
+
+              if (data.usage) {
+                tokenUsage = {
+                  promptTokens: data.usage.prompt_tokens ?? data.usage.input_tokens ?? 0,
+                  completionTokens: data.usage.completion_tokens ?? data.usage.output_tokens ?? 0,
+                  totalTokens: data.usage.total_tokens ?? 0
+                }
+              }
+
               const choice = data.choices?.[0]
               if (!choice) continue
 
@@ -352,10 +471,25 @@ export class LlmService extends Service {
         }
       }
 
-      yield { type: 'done' }
+      if (!tokenUsage) {
+        const estimatedOutput = Math.max(1, Math.ceil(fullAssistantText.length / 4))
+        tokenUsage = {
+          promptTokens: approxInputTokens,
+          completionTokens: estimatedOutput,
+          totalTokens: approxInputTokens + estimatedOutput
+        }
+      }
+
+      this.ctx.emit('llm/token-usage' as any, {
+        sessionId: options.sessionId,
+        model: modelId,
+        usage: tokenUsage
+      })
+
+      yield { type: 'done', usage: tokenUsage }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        yield { type: 'done' }
+        yield { type: 'done', usage: tokenUsage }
       } else {
         yield { type: 'error', error: `Akış Okuma Hatası: ${err.message}` }
       }

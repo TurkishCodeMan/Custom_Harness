@@ -79,6 +79,9 @@ export function createSessionsRouter(ctx: Context): Router {
 
   // 6. Session Context Measurement
   router.get('/sessions/:id/context', (req, res) => {
+    if (!ctx.tokenMeter) {
+      return res.status(503).json({ error: 'Token meter service not available' })
+    }
     const measurement = ctx.tokenMeter.measureSession(req.params.id)
     res.json(measurement)
   })

@@ -3,7 +3,7 @@ import type { Context } from '@custom-harness/core-context'
 
 export function createSkillsRouter(ctx: Context): Router {
   const router = Router()
-  const getSkillsService = () => (ctx.root as any)?.skills || (ctx as any)?.skills || (ctx as any)?.get?.('skills')
+  const getSkillsService = () => ctx.skills
 
   // 1. List Skills
   router.get('/skills', (req, res) => {

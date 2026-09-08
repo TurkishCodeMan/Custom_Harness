@@ -104,12 +104,36 @@ export class QwenLlmService extends Service {
       temperature: 0.2
     }
 
-    // Dynamic safe token calculation for 32k context
-    const contextLimit = model?.contextWindow || 32768
-    const totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
-    const approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
-    const safeRemainingTokens = Math.max(256, contextLimit - approxInputTokens - 512)
-    body.max_tokens = Math.min(model?.maxTokens || 4096, safeRemainingTokens, 4096)
+    // Dynamic safe token calculation: Guarantee minimum 1024 output tokens
+    const contextLimit = model?.contextWindow || 16384
+    const MIN_OUTPUT_TOKENS = 1024
+    const MAX_SAFE_INPUT_TOKENS = contextLimit - MIN_OUTPUT_TOKENS - 128
+
+    let totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
+    let approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
+
+    // Girdinin 1024 token çıktı alanını ezmesine izin verilmez.
+    // DİKKAT: Mesajları diziden silmek (splice) kullanıcı sorgusunu silebilir veya tool-call eşleşmesini bozar.
+    // Bunun yerine en eski büyük araç (tool) çıktıları güvenle budanır:
+    if (approxInputTokens > MAX_SAFE_INPUT_TOKENS) {
+      for (let i = 0; i < sanitizedMessages.length - 1; i++) {
+        const m = sanitizedMessages[i]
+        if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 250) {
+          m.content = m.content.slice(0, 180) + '\n... [Bağlam emniyeti için budandı / Output truncated]'
+        }
+      }
+      totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
+      approxInputTokens = Math.ceil(totalPayloadChars / 2.8) + 200
+    }
+
+    // vLLM qwen3_coder parser'ının asla 'No user query found' hatası vermemesi için kesin güvence:
+    if (!sanitizedMessages.some(m => m.role === 'user')) {
+      sanitizedMessages.push({ role: 'user', content: 'Devam et.' })
+    }
+
+    const availableHeadroom = Math.max(MIN_OUTPUT_TOKENS, contextLimit - approxInputTokens - 64)
+    const targetMaxTokens = Math.min(model?.maxTokens || 4096, 4096)
+    body.max_tokens = Math.max(MIN_OUTPUT_TOKENS, Math.min(targetMaxTokens, availableHeadroom))
 
     if (options.tools && options.tools.length > 0) {
       body.tools = options.tools

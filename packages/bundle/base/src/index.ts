@@ -94,8 +94,9 @@ export function apply(ctx: Context) {
 
   // 2. Core Infrastructure & Services
   ctx.plugin(settings)
-  ctx.plugin(systemPrompt)
   ctx.plugin(tools)
+  ctx.plugin(skills)
+  ctx.plugin(systemPrompt)
   ctx.plugin(llm)
   ctx.plugin(session)
   ctx.plugin(agentPresets)
@@ -118,7 +119,6 @@ export function apply(ctx: Context) {
   ctx.plugin(bashPersistent)
   ctx.plugin(toolFs)
   ctx.plugin(toolTodo)
-  ctx.plugin(skills)
   ctx.plugin(toolAskUser)
   ctx.plugin(toolLsp)
   ctx.plugin(toolSubagent)

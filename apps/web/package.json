@@ -4,7 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "node --watch --watch-path=src --watch-path=../../packages --import tsx src/index.ts",
+    "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts"
   },
   "dependencies": {

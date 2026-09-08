@@ -30,6 +30,21 @@ export interface ChatMessage {
   modelName?: string
 }
 
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+export interface ResponseFormat {
+  type: 'text' | 'json_object' | 'json_schema'
+  json_schema?: {
+    name: string
+    strict?: boolean
+    schema: Record<string, any>
+  }
+}
+
 export interface ModelConfig {
   id: string
   name?: string

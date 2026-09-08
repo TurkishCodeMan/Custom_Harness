@@ -128,6 +128,18 @@ export async function createTestServer(): Promise<TestServer> {
     getAvailableTools: () => []
   })
 
+  new MockService(ctx, 'systemPrompt', {
+    render: () => '',
+    setSessionWorkspace: () => {},
+    setAllowedTools: () => {},
+    section: () => {},
+    removeSection: () => {}
+  })
+
+  new MockService(ctx, 'compactor', {
+    compact: (messages: any[]) => ({ compacted: false, messages })
+  })
+
   new MockService(ctx, 'web', {
     fetch: async () => ({ text: 'ok' }),
     search: async () => []

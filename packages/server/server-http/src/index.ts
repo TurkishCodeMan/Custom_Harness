@@ -21,7 +21,26 @@ import { createPluginsMcpRouter } from './routes/plugins-mcp.js'
 import { createRagRouter } from './routes/rag.js'
 import { setupWebSocketGateway } from './ws/gateway.js'
 
+export const name = 'server-http'
+export const inject = [
+  'settings',
+  'tools',
+  'llm',
+  'agent',
+  'session',
+  'skills',
+  'tokenMeter',
+  'agentPresets',
+  'persona',
+  'userQuestions',
+  'approval',
+  'rag',
+  'auth',
+  'mcpClient'
+]
+
 export class HttpServerService extends ServerService {
+  static inject = inject
   private app: express.Express
   private server?: http.Server
   private wss?: WebSocketServer
@@ -134,32 +153,22 @@ export class HttpServerService extends ServerService {
 
   public async stop(): Promise<void> {
     try {
-      this.wss?.close()
-      this.server?.close()
+      if (this.wss) {
+        for (const client of this.wss.clients) {
+          try { client.terminate() } catch {}
+        }
+        this.wss.close()
+      }
+      if (this.server) {
+        (this.server as any).closeAllConnections?.()
+        this.server.close()
+      }
     } catch {}
     this.server = undefined
     this.wss = undefined
     this.currentPort = undefined
   }
 }
-
-export const name = 'server-http'
-export const inject = [
-  'settings',
-  'tools',
-  'llm',
-  'agent',
-  'session',
-  'skills',
-  'tokenMeter',
-  'agentPresets',
-  'persona',
-  'userQuestions',
-  'approval',
-  'rag',
-  'auth',
-  'mcpClient'
-]
 
 export function apply(ctx: Context) {
   const service = new HttpServerService(ctx)

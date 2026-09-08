@@ -853,7 +853,7 @@ function appendCompactionCard(targetContainer, info) {
     <div class="compaction-badge">
       <span class="compaction-icon">📦</span>
       <span class="compaction-title">Geçmiş Sıkıştırıldı (Compacted)</span>
-      <span class="compaction-desc">· ${info?.summary || 'Bağlam penceresi koruması için eski turlar otomatik özetlendi.'}</span>
+      <span class="compaction-desc">· ${info?.messageCount ? info.messageCount + ' mesaj arşivlendi' : 'Eski turlar otomatik özetlendi'}</span>
     </div>
   `
   if (targetContainer && targetContainer.classList && targetContainer.classList.contains('msg-row')) {

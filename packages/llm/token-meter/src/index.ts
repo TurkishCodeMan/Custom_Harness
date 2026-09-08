@@ -32,11 +32,11 @@ export interface TokenMeasurement {
 }
 
 export const name = 'token-meter'
-export const inject = ['settings', 'tools', 'session']
+export const inject = ['settings', 'tools', 'session', 'systemPrompt', 'compactor']
 
 export class TokenMeterService extends Service {
   declare ctx: Context
-  static inject = ['settings', 'tools', 'session']
+  static inject = ['settings', 'tools', 'session', 'systemPrompt', 'compactor']
 
   constructor(ctx: Context) {
     super(ctx, 'tokenMeter')
@@ -102,12 +102,17 @@ export class TokenMeterService extends Service {
       }
     }
 
-    // 1. System Prompt Tokens
-    const cwd = this.ctx.settings.getSettings().workspace || process.cwd()
-    const systemPromptText = `You are a helpful and intelligent AI Coding Assistant powered by ${activeModel?.name || modelId}.
-Your current working directory is: ${cwd}
-
-You have access to tools for interacting with the system. Always prefer using tools when you need to inspect files, execute commands, or verify code.`
+    // 1. System Prompt Tokens (rendered dynamically from ctx.systemPrompt if available)
+    let systemPromptText = ''
+    if (this.ctx.systemPrompt) {
+      try {
+        systemPromptText = this.ctx.systemPrompt.render()
+      } catch {}
+    }
+    if (!systemPromptText) {
+      const cwd = this.ctx.settings.getSettings().workspace || process.cwd()
+      systemPromptText = `You are a helpful and intelligent AI Coding Assistant powered by ${activeModel?.name || modelId}.\nYour current working directory is: ${cwd}\nYou have access to tools for interacting with the system.`
+    }
     const systemTokens = this.estimateText(systemPromptText) + 8
 
     // 2. Tools Schema Tokens
@@ -118,12 +123,19 @@ You have access to tools for interacting with the system. Always prefer using to
       toolsTokens = this.estimateText(toolsJson) + 12
     }
 
-    // 3. Message History Tokens
+    // 3. Message History Tokens (Projected through compactor if session messages are large)
     let messageTokens = 0
     if (sessionId) {
       const session = this.ctx.session.getSession(sessionId)
       if (session && session.messages) {
-        for (const msg of session.messages) {
+        let messagesToMeasure = session.messages
+        if (this.ctx.compactor) {
+          const compRes = this.ctx.compactor.compact([...session.messages])
+          if (compRes.compacted) {
+            messagesToMeasure = compRes.messages
+          }
+        }
+        for (const msg of messagesToMeasure) {
           messageTokens += this.estimateMessage(msg)
         }
       }
@@ -137,12 +149,14 @@ You have access to tools for interacting with the system. Always prefer using to
     const toolsPercent = Math.round((toolsTokens / breakdownTotal) * 100)
     const messagePercent = Math.max(0, 100 - systemPercent - toolsPercent)
 
+    const clampedTokens = Math.min(usedTokens, contextWindow)
+
     return {
       contextPressure: {
-        usedTokens,
+        usedTokens: clampedTokens,
         contextWindow,
         percent,
-        projectedTokens: usedTokens
+        projectedTokens: clampedTokens
       },
       contextBreakdown: {
         systemTokens,
@@ -157,7 +171,7 @@ You have access to tools for interacting with the system. Always prefer using to
       systemPromptTokens: systemTokens,
       toolsTokens,
       historyTokens: messageTokens,
-      totalTokens: usedTokens,
+      totalTokens: clampedTokens,
       percentage: percent
     }
   }
