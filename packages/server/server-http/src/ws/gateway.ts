@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
+import { ScheduleService } from '@custom-harness/schedule'
 import { generateSessionTitle } from './title-generator.js'
 
 export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSocketServer {
@@ -66,6 +67,123 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
     }
   })
 
+  // Schedule triggered & completed broadcast
+  ctx.on('schedule/triggered', ({ record, sessionId }: any) => {
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'schedule_triggered',
+            record,
+            sessionId,
+            message: `⏰ [Zamanlayıcı] Görev tetiklendi: [${record?.id || 'sch'}] (${record?.preset || 'Genel'})`
+          })
+        )
+      }
+    }
+  })
+
+  ctx.on('schedule/completed', ({ record, sessionId, result }: any) => {
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'schedule_completed',
+            record,
+            sessionId,
+            result,
+            message: `✅ [Zamanlayıcı] Görev tamamlandı: [${record?.id || 'sch'}] (${record?.preset || 'Genel'})`
+          })
+        )
+      }
+    }
+  })
+
+  // Subagent spawn & completed broadcast + audit logging
+  ctx.on('subagent/spawn' as any, (task: any) => {
+    try {
+      ;(ctx as any).auditLog?.write?.({
+        actionType: 'subagent_spawn',
+        positionId: task?.preset,
+        positionTitle: task?.preset,
+        traceId: task?.traceId,
+        sessionId: task?.sessionId,
+        summary: `🤖 Alt Ajan başlatıldı: "${task?.taskName}" (${task?.preset || 'default'})`,
+        details: { taskId: task?.id, taskName: task?.taskName, preset: task?.preset }
+      })
+    } catch {}
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'subagent_spawn',
+            task,
+            traceId: task?.traceId,
+            sessionId: task?.sessionId,
+            message: `🤖 [Alt Ajan] Yeni görev başlatıldı: "${task?.taskName}" (${task?.preset || 'default'})`
+          })
+        )
+      }
+    }
+  })
+
+  ctx.on('subagent/completed' as any, (task: any) => {
+    try {
+      ;(ctx as any).auditLog?.write?.({
+        actionType: 'subagent_completed',
+        positionId: task?.preset,
+        positionTitle: task?.preset,
+        traceId: task?.traceId,
+        sessionId: task?.sessionId,
+        summary: `✅ Alt Ajan tamamlandı: "${task?.taskName}" (${task?.status})`,
+        details: { taskId: task?.id, status: task?.status, toolCallsCount: task?.toolCalls?.length || 0 }
+      })
+    } catch {}
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'subagent_completed',
+            task,
+            traceId: task?.traceId,
+            sessionId: task?.sessionId,
+            message: `✅ [Alt Ajan] Görev tamamlandı: "${task?.taskName}"`
+          })
+        )
+      }
+    }
+  })
+
+  ;(ctx as any).on?.('subagent/tool_start', ({ taskId, traceId, toolCall }: any) => {
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'subagent_tool_start',
+            taskId,
+            traceId,
+            toolCall
+          })
+        )
+      }
+    }
+  })
+
+  ;(ctx as any).on?.('subagent/tool_result', ({ taskId, traceId, result }: any) => {
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: 'subagent_tool_result',
+            taskId,
+            traceId,
+            result
+          })
+        )
+      }
+    }
+  })
+
   // Connection handler
   wss.on('connection', (ws) => {
     console.log('[WebSocket] İstemci başarıyla bağlandı!')
@@ -100,6 +218,28 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
         if (msg.type === 'approval_response') {
           if (ctx.approval) {
             ctx.approval.respond(msg.id, msg.outcome || 'allow_once')
+          }
+          return
+        }
+
+        // 3.1 Approval policy
+        if (msg.type === 'approval_policy') {
+          const approvalSvc = (ctx as any).approval || (ctx as any).get?.('approval') || (ctx as any).root?.approval
+          if (approvalSvc && typeof approvalSvc.setPolicy === 'function') {
+            approvalSvc.setPolicy(msg.policy)
+            console.log(`🛡️ [Approval] Yetki politikası güncellendi: ${msg.policy}`)
+          }
+          return
+        }
+
+        // 3.2 Trigger routine immediately / unstick lock
+        if (msg.type === 'schedule_trigger') {
+          const scheduleSvc = (ctx as any).schedule || (ctx as any).get?.('schedule') || (ctx as any).root?.schedule || ScheduleService.getInstance(ctx)
+          if (scheduleSvc && typeof scheduleSvc.triggerNow === 'function') {
+            scheduleSvc.triggerNow(msg.id)
+            console.log(`⚡ [Schedule] Manuel tetikleme isteği işlendi: [${msg.id}]`)
+          } else {
+            console.warn(`⚠️ [Schedule] triggerNow çağrılamadı, scheduleSvc bulunamadı`)
           }
           return
         }
@@ -203,28 +343,62 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
                 }
               },
               onToolStart: (call: { id: string; name: string; args: any }) => {
+                ctx.emit('agent/tool_start', { sessionId: activeSessionId, call })
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'ensure_assistant', sessionId: activeSessionId }))
                   ws.send(JSON.stringify({ type: 'tool_start', call, sessionId: activeSessionId }))
                 }
               },
               onToolResult: (result: { id: string; name: string; output: any }) => {
+                ctx.emit('agent/tool_result', { sessionId: activeSessionId, result })
+                try {
+                  ;(ctx as any).auditLog?.write?.({
+                    actionType: 'tool_call',
+                    sessionId: activeSessionId,
+                    positionId: presetId,
+                    positionTitle: presetId,
+                    summary: `Araç çalıştırıldı: ${result.name}`,
+                    details: {
+                      toolName: result.name,
+                      outputPreview: typeof result.output === 'string' ? result.output.slice(0, 300) : result.output
+                    }
+                  })
+                } catch {}
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'tool_result', result, sessionId: activeSessionId }))
-                  const toolMeasurement = ctx.tokenMeter.measureSession(activeSessionId)
-                  ws.send(JSON.stringify({ type: 'context_update', measurement: toolMeasurement, sessionId: activeSessionId }))
+                  const toolMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  if (toolMeasurement) {
+                    ws.send(JSON.stringify({ type: 'context_update', measurement: toolMeasurement, sessionId: activeSessionId }))
+                  }
                 }
               },
               onCompaction: (info: { messageCount: number; summary: string }) => {
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'compaction', info, sessionId: activeSessionId }))
-                  const compMeasurement = ctx.tokenMeter.measureSession(activeSessionId)
-                  ws.send(JSON.stringify({ type: 'context_update', measurement: compMeasurement, sessionId: activeSessionId }))
+                  const compMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  if (compMeasurement) {
+                    ws.send(JSON.stringify({ type: 'context_update', measurement: compMeasurement, sessionId: activeSessionId }))
+                  }
+                }
+              },
+              onUsage: (usage) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  const updatedMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  ws.send(JSON.stringify({
+                    type: 'token_usage',
+                    usage,
+                    measurement: updatedMeasurement,
+                    sessionId: activeSessionId
+                  }))
+                  if (updatedMeasurement) {
+                    ws.send(JSON.stringify({ type: 'context_update', measurement: updatedMeasurement, sessionId: activeSessionId }))
+                  }
                 }
               }
             })
 
-            const measurement = ctx.tokenMeter.measureSession(activeSessionId)
+            const measurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+            ctx.emit('agent/done', { sessionId: activeSessionId, response: finalResponse, measurement })
 
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(
@@ -235,9 +409,13 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
                   measurement
                 })
               )
-              ws.send(JSON.stringify({ type: 'context_update', measurement, sessionId: activeSessionId }))
+              if (measurement) {
+                ws.send(JSON.stringify({ type: 'context_update', measurement, sessionId: activeSessionId }))
+              }
             }
+
           } catch (err: any) {
+            ctx.emit('agent/error', { sessionId: activeSessionId, error: err.message })
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'error', error: err.message, sessionId: activeSessionId }))
             }

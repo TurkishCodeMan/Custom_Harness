@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# dsh — Custom Harness AI Agent CLI Sarma Betiği
+#
+# Bu dosya install.sh tarafından otomatik yapılandırılır.
+# Elle değiştirmeyin. Config değişikliği için:
+#   nano __DSH_INSTALL_DIR__/config.env
+# ==============================================================================
+
+set -euo pipefail
+
+DSH_IMAGE="${DSH_IMAGE:-custom-harness-cli:v1.0.0}"
+# __DSH_INSTALL_DIR__ → install.sh tarafından gerçek paketin yoluyla değiştirilir
+DSH_CONFIG="${DSH_CONFIG:-__DSH_INSTALL_DIR__/config.env}"
+DSH_DATA="${DSH_DATA:-$HOME/.dsh}"
+WORKSPACE="${1:-$(pwd)}"
+
+# Config dosyası yoksa veya placeholder kalmışsa uyar
+if [ ! -f "$DSH_CONFIG" ] || grep -q '__DSH_INSTALL_DIR__' "$DSH_CONFIG" 2>/dev/null; then
+    echo ""
+    echo "⚠️  Yapılandırma dosyası bulunamadı veya henüz doldurulmamış."
+    echo ""
+    echo "   Lütfen aşağıdaki dosyayı düzenleyin ve LLM sunucu bilgilerinizi girin:"
+    echo "   nano __DSH_INSTALL_DIR__/config.env"
+    echo ""
+    exit 1
+fi
+
+if [ ! -d "$WORKSPACE" ]; then
+    echo "❌ Dizin bulunamadı: $WORKSPACE"
+    exit 1
+fi
+
+mkdir -p "$DSH_DATA"
+
+exec docker run \
+    --rm \
+    --interactive \
+    --tty \
+    --volume "$(realpath "$WORKSPACE"):/workspace" \
+    --volume "$DSH_DATA:/root/.dsh" \
+    --env-file "$DSH_CONFIG" \
+    --env "WORKSPACE_DIR=/workspace" \
+    --network host \
+    "$DSH_IMAGE"
+

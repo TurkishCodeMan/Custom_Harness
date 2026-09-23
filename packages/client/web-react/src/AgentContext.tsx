@@ -127,6 +127,10 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [activePreset, setActivePreset] = useState<any>({ name: 'Full-Stack Developer' })
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const activeSessionIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId
+  }, [activeSessionId])
   const [messages, setMessages] = useState<ChatMessageItem[]>([])
   const [tokenMeasurement, setTokenMeasurement] = useState<TokenMeasurement | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
@@ -639,9 +643,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       })
     } else if (msg.type === 'tool_start') {
       setMessages((prev) => {
+        const toolId = msg.call?.id || `tool-${Date.now()}`
+        const toolName = msg.call?.name || 'unknown_tool'
         const newTool = {
-          id: msg.call?.id || `tool-${Date.now()}`,
-          name: msg.call?.name || 'unknown_tool',
+          id: toolId,
+          name: toolName,
           status: 'running' as const,
           args: msg.call?.args
         }
@@ -667,8 +673,20 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
         const target = prev[idx]
         const currentTools = target.toolResults || []
+        // Deduplicate: check if this tool already exists by ID or by same running name
+        const existingIdx = currentTools.findIndex(t => t.id === toolId || (t.status === 'running' && t.name === toolName && !t.args))
+        let updatedTools
+        if (existingIdx !== -1) {
+          updatedTools = [...currentTools]
+          updatedTools[existingIdx] = {
+            ...updatedTools[existingIdx],
+            args: newTool.args || updatedTools[existingIdx].args
+          }
+        } else {
+          updatedTools = [...currentTools, newTool]
+        }
         const updated = [...prev]
-        updated[idx] = { ...target, toolResults: [...currentTools, newTool] }
+        updated[idx] = { ...target, toolResults: updatedTools }
         return updated
       })
 
@@ -682,16 +700,45 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         if (idx === -1) return prev
         const target = prev[idx]
         const updatedTools = [...(target.toolResults || [])]
-        // Find matching tool by id, or fall back to last running tool
-        const toolIdx = msg.result?.id ? updatedTools.findIndex(t => t.id === msg.result.id) : -1
-        const resolvedIdx = toolIdx !== -1 ? toolIdx : updatedTools.length - 1
+        const resultId = msg.result?.id
+        const resultName = msg.result?.name
+        const outputVal = msg.result?.output ?? msg.result
+
+        // Match resolution strategy:
+        // 1. Exact match by id
+        let matchedIdx = resultId ? updatedTools.findIndex(t => t.id === resultId) : -1
+        // 2. Match by tool name among running tools
+        if (matchedIdx === -1 && resultName) {
+          matchedIdx = updatedTools.findIndex(t => t.name === resultName && t.status === 'running')
+        }
+        // 3. Match first running tool
+        if (matchedIdx === -1) {
+          matchedIdx = updatedTools.findIndex(t => t.status === 'running')
+        }
+        // 4. Fallback to last tool
+        const resolvedIdx = matchedIdx !== -1 ? matchedIdx : updatedTools.length - 1
+
         if (resolvedIdx >= 0 && updatedTools[resolvedIdx]) {
           updatedTools[resolvedIdx] = {
             ...updatedTools[resolvedIdx],
-            output: msg.result.output,
+            output: outputVal,
             status: 'done'
           }
         }
+
+        // Also ensure any other tool with the same resultId is marked done
+        if (resultId) {
+          for (let i = 0; i < updatedTools.length; i++) {
+            if (updatedTools[i].id === resultId) {
+              updatedTools[i] = {
+                ...updatedTools[i],
+                output: outputVal,
+                status: 'done'
+              }
+            }
+          }
+        }
+
         const updated = [...prev]
         updated[idx] = { ...target, toolResults: updatedTools }
         return updated
@@ -708,25 +755,57 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     } else if (msg.type === 'done') {
       setIsStreaming(false)
       setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last && last.role === 'assistant') {
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...last,
-              presetName: last.presetName || activePresetRef.current?.name || activePresetRef.current?.id || 'Full-Stack Developer',
-              modelName: last.modelName || settingsRef.current?.defaultModel || 'Qwen3.8-27B',
-              isStreaming: false
+        return prev.map((m, idx) => {
+          if (m.role === 'assistant') {
+            const isLast = idx === prev.length - 1
+            const toolResults = m.toolResults?.map(t => {
+              if (t.status === 'running') {
+                return { ...t, status: 'done' as const }
+              }
+              return t
+            })
+            return {
+              ...m,
+              presetName: m.presetName || (isLast ? (activePresetRef.current?.name || activePresetRef.current?.id || 'Full-Stack Developer') : m.presetName),
+              modelName: m.modelName || (isLast ? (settingsRef.current?.defaultModel || 'Qwen3.8-27B') : m.modelName),
+              isStreaming: false,
+              ...(toolResults ? { toolResults } : {})
             }
-          ]
-        }
-        return prev
+          }
+          return m
+        })
       })
       loadSessions()
       if (msg.sessionId) fetchMeasurement(msg.sessionId)
     } else if (msg.type === 'error') {
       setIsStreaming(false)
+      setMessages((prev) => {
+        return prev.map(m => {
+          if (m.role === 'assistant' && m.toolResults) {
+            return {
+              ...m,
+              isStreaming: false,
+              toolResults: m.toolResults.map(t => t.status === 'running' ? { ...t, status: 'error' as const } : t)
+            }
+          }
+          return m
+        })
+      })
       showToast('LLM Hatası: ' + msg.error, 'error')
+    } else if (msg.type === 'schedule_triggered') {
+      showToast(msg.message || '⏰ Zamanlanmış görev çalışmaya başladı', 'info')
+      loadSessions()
+      const currentSid = activeSessionIdRef.current
+      if (msg.sessionId && (msg.sessionId === currentSid || !currentSid)) {
+        loadSessionMessages(msg.sessionId)
+      }
+    } else if (msg.type === 'schedule_completed') {
+      showToast(msg.message || '✅ Zamanlanmış görev başarıyla tamamlandı', 'success')
+      loadSessions()
+      const currentSid = activeSessionIdRef.current
+      if (msg.sessionId && (msg.sessionId === currentSid || !currentSid)) {
+        loadSessionMessages(msg.sessionId)
+      }
     }
   }
 
@@ -956,6 +1035,18 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     if (wsRef.current && isStreaming) {
       wsRef.current.send(JSON.stringify({ type: 'abort', sessionId: activeSessionId }))
       setIsStreaming(false)
+      setMessages((prev) => {
+        return prev.map(m => {
+          if (m.role === 'assistant' && m.toolResults) {
+            return {
+              ...m,
+              isStreaming: false,
+              toolResults: m.toolResults.map(t => t.status === 'running' ? { ...t, status: 'done' as const } : t)
+            }
+          }
+          return m
+        })
+      })
       showToast('İşlem durduruldu', 'info')
     }
   }

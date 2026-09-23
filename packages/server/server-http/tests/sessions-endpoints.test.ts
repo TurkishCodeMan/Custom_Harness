@@ -90,4 +90,39 @@ describe('Server Package - Sessions Endpoints', () => {
     assert.equal(listRes.status, 200)
     assert.equal(listRes.data.length, 0)
   })
+
+  test('Cross-tenant protection: User B cannot access or delete User A session (HTTP 403)', async () => {
+    // Register User A and User B
+    const userA = `user_a_${Date.now()}`
+    const userB = `user_b_${Date.now()}`
+    const regA = await server.request('/api/auth/register', {
+      method: 'POST',
+      body: { username: userA, name: 'User A', role: 'user' }
+    })
+    const regB = await server.request('/api/auth/register', {
+      method: 'POST',
+      body: { username: userB, name: 'User B', role: 'user' }
+    })
+    const userAId = regA.data.user.id
+    const userBId = regB.data.user.id
+
+    // User A creates a session
+    const sessA = server.ctx.session.createSession('Session of A', undefined, userAId, 'web')
+
+    // User B tries to GET User A's session -> must be 403
+    const getRes = await server.userRequest(userBId, `/api/sessions/${sessA.id}`)
+    assert.equal(getRes.status, 403)
+    assert.ok(getRes.data.error)
+
+    // User B tries to DELETE User A's session -> must be 403
+    const delRes = await server.userRequest(userBId, `/api/sessions/${sessA.id}`, { method: 'DELETE' })
+    assert.equal(delRes.status, 403)
+    assert.ok(delRes.data.error)
+
+    // Admin CAN access User A's session
+    const adminRes = await server.adminRequest(`/api/sessions/${sessA.id}`)
+    assert.equal(adminRes.status, 200)
+    assert.equal(adminRes.data.id, sessA.id)
+  })
 })
+

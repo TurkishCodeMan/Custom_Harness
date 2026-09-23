@@ -16,6 +16,7 @@ export class SystemPromptService extends Service {
   private sections: Map<string, PromptSection> = new Map()
   public currentSessionWorkspace?: string
   public currentSessionAllowedTools?: string[]
+  public currentSessionAllowedSkills?: string[]
 
   constructor(ctx: Context) {
     super(ctx, 'systemPrompt')
@@ -28,6 +29,10 @@ export class SystemPromptService extends Service {
 
   public setAllowedTools(tools?: string[]) {
     this.currentSessionAllowedTools = tools && tools.length > 0 ? tools : undefined
+  }
+
+  public setAllowedSkills(skills?: string[]) {
+    this.currentSessionAllowedSkills = skills && skills.length > 0 ? skills : undefined
   }
 
   private registerDefaults() {
@@ -80,10 +85,19 @@ export class SystemPromptService extends Service {
       text: () => {
         const skillsService = this.ctx.skills
         if (!skillsService) return ''
-        const skillsList = skillsService.listActiveSkills
-          ? skillsService.listActiveSkills()
-          : (skillsService.listSkills?.() || []).filter((s: any) => s.enabled !== false)
+        let skillsList = skillsService.listActiveSkills
+          ? skillsService.listActiveSkills(undefined, false, this.currentSessionWorkspace)
+          : (skillsService.listSkills?.(undefined, false, this.currentSessionWorkspace) || []).filter((s: any) => s.enabled !== false)
         if (!skillsList || skillsList.length === 0) return ''
+
+        // Atlantic AI Style: Role-based skill scoping
+        if (this.currentSessionAllowedSkills && this.currentSessionAllowedSkills.length > 0) {
+          const allowedSet = new Set(this.currentSessionAllowedSkills)
+          skillsList = skillsList.filter((s: any) => allowedSet.has(s.id) || allowedSet.has(s.name))
+        }
+
+        if (!skillsList || skillsList.length === 0) return ''
+
         const items = skillsList.map((s: any) => `- **${s.name}**: ${s.description || 'Specialized workflow instruction'} (Load via: \`skill(skillName: '${s.name}')\`)`).join('\n')
         return `### ⚡ SPECIALIZED SKILLS CATALOG:
 Below is the list of active specialized skills registered in the system:

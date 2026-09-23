@@ -9,6 +9,7 @@
     "start": "pnpm --filter @custom-harness/cli start",
     "web": "pnpm --filter @custom-harness/web dev",
     "cli": "pnpm --filter @custom-harness/cli dev",
+    "company-os": "pnpm --filter @custom-harness/company-os dev",
     "rag:db": "docker compose -f docker-compose.rag.yml up -d",
     "rag:db:stop": "docker compose -f docker-compose.rag.yml down",
     "services:up": "docker compose -f docker-compose.services.yml up -d",
@@ -20,7 +21,8 @@
     "all:down": "docker compose -f docker-compose.rag.yml -f docker-compose.services.yml down",
     "build": "node scripts/build_prod.mjs",
     "build:prod": "node scripts/build_prod.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm -r test"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

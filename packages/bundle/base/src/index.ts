@@ -14,12 +14,17 @@ import * as settings from '@custom-harness/settings'
 import * as systemPrompt from '@custom-harness/core-system-prompt'
 import * as tools from '@custom-harness/core-tools'
 import * as llm from '@custom-harness/llm'
+import * as llmProviderOpenai from '@custom-harness/llm-provider-openai'
 import * as session from '@custom-harness/session'
 import * as agentPresets from '@custom-harness/preset-agent-presets'
 import * as persona from '@custom-harness/preset-persona'
 import * as repeatGuard from '@custom-harness/guard-repeat-tool-reminder'
 import * as toolResultPruner from '@custom-harness/compaction-tool-result-pruner'
 import * as compactor from '@custom-harness/compaction-basic'
+import * as reflexion from '@custom-harness/reflexion'
+import * as reflexionLocal from '@custom-harness/reflexion-local'
+
+
 import * as agent from '@custom-harness/core-agent'
 import * as agentMiddleware from '@custom-harness/agent-middleware'
 import * as agentMiddlewareBuiltin from '@custom-harness/agent-middleware-builtin'
@@ -60,6 +65,8 @@ import * as workflow from '@custom-harness/workflow'
 import * as workflowWorkerThread from '@custom-harness/workflow-worker-thread'
 import * as toolWorkflow from '@custom-harness/tool-workflow'
 import * as toolRalph from '@custom-harness/tool-ralph'
+import * as schedule from '@custom-harness/schedule'
+import * as auditLog from '@custom-harness/audit-log'
 
 export const name = 'bundle-base'
 
@@ -98,19 +105,25 @@ export function apply(ctx: Context) {
   ctx.plugin(skills)
   ctx.plugin(systemPrompt)
   ctx.plugin(llm)
+  ctx.plugin(llmProviderOpenai)
   ctx.plugin(session)
   ctx.plugin(agentPresets)
   ctx.plugin(persona)
   ctx.plugin(repeatGuard)
   ctx.plugin(toolResultPruner)
+  ctx.plugin(spillLocal)
   ctx.plugin(compactor)
+
   ctx.plugin(agentMiddleware)
   ctx.plugin(agentMiddlewareBuiltin)
   ctx.plugin(agent)
   ctx.plugin(tokenMeter)
+  ctx.plugin(reflexion)
+  ctx.plugin(reflexionLocal)
 
   ctx.plugin(planMode)
   ctx.plugin(subagent)
+  ctx.plugin(auditLog)
   ctx.plugin(mcpClient)
   ctx.plugin(toolGoal)
 
@@ -130,6 +143,7 @@ export function apply(ctx: Context) {
   ctx.plugin(toolTerminal)
   ctx.plugin(toolWorkflow)
   ctx.plugin(toolRalph)
+  ctx.plugin(schedule)
 }
 
 

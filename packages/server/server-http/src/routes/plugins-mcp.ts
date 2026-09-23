@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { Context } from '@custom-harness/core-context'
-import { requireAdmin } from '../middleware/auth.js'
+import { requireAdmin, requireSession } from '../middleware/auth.js'
 
 export function createPluginsMcpRouter(ctx: Context): Router {
   const router = Router()
@@ -15,7 +15,7 @@ export function createPluginsMcpRouter(ctx: Context): Router {
     }
   })
 
-  router.post('/mcp/servers', async (req, res) => {
+  router.post('/mcp/servers', requireAdmin(ctx), async (req, res) => {
     try {
       const { id, name, command, args, url, type, headers, env } = req.body
       if (!id || (!command && !url)) {
@@ -44,7 +44,7 @@ export function createPluginsMcpRouter(ctx: Context): Router {
     }
   })
 
-  router.delete('/mcp/servers/:id', async (req, res) => {
+  router.delete('/mcp/servers/:id', requireAdmin(ctx), async (req, res) => {
     try {
       const mcpService = (ctx as any).mcpClient
       if (mcpService?.removeServer) {
@@ -56,7 +56,7 @@ export function createPluginsMcpRouter(ctx: Context): Router {
     }
   })
 
-  router.post('/mcp/servers/:id/toggle', async (req, res) => {
+  router.post('/mcp/servers/:id/toggle', requireAdmin(ctx), async (req, res) => {
     try {
       const mcpService = (ctx as any).mcpClient
       if (!mcpService?.toggleServer) {
@@ -70,7 +70,7 @@ export function createPluginsMcpRouter(ctx: Context): Router {
   })
 
   // 2. Token Measurement
-  router.get('/context/measure', (req, res) => {
+  router.get('/context/measure', requireSession(ctx, 'sessionId', { optional: true }), (req, res) => {
     try {
       if (!ctx.tokenMeter) {
         return res.status(503).json({ error: 'Token meter service not available' })

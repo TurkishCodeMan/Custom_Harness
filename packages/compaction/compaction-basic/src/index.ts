@@ -12,55 +12,76 @@ export class CompactionBasicService extends Service {
   }
 
   /**
-   * Compacts conversation messages if message count or token volume exceeds 20,000 tokens (~60k chars) or if forced.
+   * Compacts conversation messages if message count > 10 or token volume >= 12,000 tokens (~30,000 chars) or if forced.
    */
-  public compact(messages: ChatMessage[], maxRetainedTurns: number = 8, force = false): { messages: ChatMessage[]; compacted: boolean; summary?: string; prunedCount?: number } {
-    if (!messages || messages.length <= 4) {
+  public compact(
+    messages: ChatMessage[],
+    maxRetainedTurns: number = 8,
+    force = false
+  ): { messages: ChatMessage[]; compacted: boolean; summary?: string; prunedCount?: number } {
+    if (!messages || messages.length <= 2) {
       return { messages, compacted: false }
     }
 
     const totalChars = messages.reduce((acc, m) => acc + (m.content?.length || 0) + (m.reasoning_content?.length || 0), 0)
-    const approxTokens = Math.ceil(totalChars / 3)
-    // Compact when conversation exceeds ~3,500 tokens (12,000 chars) or 8 messages for safe 16k context window
-    const shouldCompact = force || approxTokens > 3500 || totalChars > 12000 || messages.length > 8
+    const approxTokens = Math.ceil(totalChars / 2.5)
+
+    // Trigger compaction when message count > 10 OR tokens >= 12,000 (or if forced)
+    const shouldCompact = force || messages.length > 10 || approxTokens >= 12000
 
     if (!shouldCompact) {
       return { messages, compacted: false }
     }
 
-    const retainCount = Math.max(4, Math.min(maxRetainedTurns, messages.length))
-    const splitIndex = Math.max(0, messages.length - retainCount)
-    const olderMessages = messages.slice(0, splitIndex)
+    // Always keep initial user prompt (messages[0])
+    const initialUserMsg = messages[0]
+    const retainCount = Math.min(Math.max(1, messages.length - 2), Math.min(8, Math.max(1, maxRetainedTurns)))
+    const splitIndex = Math.max(1, messages.length - retainCount)
+    const olderMessages = messages.slice(1, splitIndex)
     const recentMessages = messages.slice(splitIndex)
 
     if (olderMessages.length === 0) {
       return { messages, compacted: false }
     }
 
-    // Build concise summary of older turns
+    // Build summary of older turns
     const summaries: string[] = []
+    let toolCount = 0
     for (const msg of olderMessages) {
       if (msg.role === 'user') {
         const text = msg.content || ''
-        summaries.push(`- Kullanıcı İstemi: ${text.slice(0, 150)}`)
-      } else if (msg.role === 'assistant' && msg.content) {
-        summaries.push(`- Asistan Yanıtı: ${msg.content.slice(0, 150)}`)
+        if (!text.startsWith('[Önceki Konuşma') && !text.startsWith('[GEÇMİŞ BAĞLAM')) {
+          summaries.push(`- Kullanıcı İstemi: ${text.slice(0, 150)}`)
+        }
+      } else if (msg.role === 'assistant' && msg.content && !msg.content.startsWith('[Model Hatası')) {
+        summaries.push(`- Asistan Yanıtı / Kararı: ${msg.content.slice(0, 150)}`)
       } else if (msg.role === 'tool') {
-        summaries.push(`- [${msg.name || 'Araç'}] Çıktısı işlendi.`)
+        toolCount++
+        if (toolCount <= 5) {
+          summaries.push(`- [${msg.name || 'Araç'}] Çıktısı işlendi.`)
+        }
       }
     }
+    if (toolCount > 5) {
+      summaries.push(`- ... (Toplam ${toolCount} adet araç/terminal adımı yürütüldü)`)
+    }
 
-    const cleanSummary = summaries.join('\n')
-    const promptForModel = `[GEÇMİŞ BAĞLAM - Özet]:\n${cleanSummary}\n\n(Konuşma kesintisiz devam etmektedir. Son kullanıcı istemine doğrudan yanıt ver.)`
+    // Keep summary bounded to prevent overflow in long sessions
+    let summaryContent = summaries.slice(-20).join('\n')
+    if (summaryContent.length > 2000) {
+      summaryContent = summaryContent.slice(-2000)
+    }
+
+    const summaryText = `[Önceki Konuşma ve Araç Çıktıları Özeti / Compacted Context Anchor]:\n${summaryContent}\n(Yukarıdaki özet bağlamı göz önünde bulundurularak konuşmaya devam edilmektedir.)`
     const summaryMessage: ChatMessage = {
       role: 'user',
-      content: promptForModel
+      content: summaryText
     }
 
     return {
-      messages: [summaryMessage, ...recentMessages],
+      messages: [initialUserMsg, summaryMessage, ...recentMessages],
       compacted: true,
-      summary: cleanSummary,
+      summary: summaryText,
       prunedCount: olderMessages.length
     }
   }

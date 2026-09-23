@@ -11,9 +11,10 @@ import YAML from 'yaml'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export const name = 'plugin-skills'
-export const inject = ['tools', 'settings']
+export const inject = ['tools', 'settings', 'session']
 
 export class SkillsService extends Service {
+  static inject = ['tools', 'settings', 'session']
   private skills = new Map<string, SkillItem>()
 
   constructor(ctx: Context) {
@@ -45,6 +46,38 @@ export class SkillsService extends Service {
 
     const harnessRoot = this.getHarnessRoot()
     
+    // 0. Active Workspace Skills (Project-specific skills, e.g. COMPANY_ABC/skills)
+    const activeWorkspace = targetDir ||
+      this.ctx.session?.getActiveSession?.()?.workspace ||
+      this.ctx.settings?.getWorkspaceForUser?.(userId || '') ||
+      this.ctx.settings?.getWorkspace?.() ||
+      process.env.WORKSPACE_DIR ||
+      process.cwd()
+
+    if (activeWorkspace && fs.existsSync(activeWorkspace)) {
+      const workspaceSkillDirs = [
+        path.join(activeWorkspace, '.agents', 'skills'),
+        path.join(activeWorkspace, 'skills')
+      ]
+      for (const baseDir of workspaceSkillDirs) {
+        if (fs.existsSync(baseDir)) {
+          try {
+            const entries = fs.readdirSync(baseDir, { withFileTypes: true })
+            for (const entry of entries) {
+              if (entry.isDirectory()) {
+                const skillFile = path.join(baseDir, entry.name, 'SKILL.md')
+                if (fs.existsSync(skillFile)) {
+                  this.loadSkill(entry.name, skillFile, userId || 'system', true)
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Skills] Failed to read workspace skills dir:', baseDir, e)
+          }
+        }
+      }
+    }
+
     // 1. Global / System Skills
     const globalDirs = [
       path.join(harnessRoot, '.agents', 'skills'),
@@ -152,8 +185,8 @@ export class SkillsService extends Service {
     }
   }
 
-  public listSkills(userId?: string, isAdmin = false): SkillItem[] {
-    this.discover(undefined, userId, isAdmin)
+  public listSkills(userId?: string, isAdmin = false, workspaceDir?: string): SkillItem[] {
+    this.discover(workspaceDir, userId, isAdmin)
     const all = Array.from(this.skills.values())
     if (isAdmin || !userId) return all
     return all.filter(s => {
@@ -165,8 +198,8 @@ export class SkillsService extends Service {
     })
   }
 
-  public listActiveSkills(userId?: string, isAdmin = false): SkillItem[] {
-    const list = this.listSkills(userId, isAdmin)
+  public listActiveSkills(userId?: string, isAdmin = false, workspaceDir?: string): SkillItem[] {
+    const list = this.listSkills(userId, isAdmin, workspaceDir)
     return list.filter(s => s.enabled !== false)
   }
 
@@ -502,10 +535,24 @@ export function apply(ctx: Context) {
       },
       execute: async (
         params: { skillName?: string; name?: string; skill?: string; action?: string },
-        context?: { cwd?: string }
+        context?: { cwd?: string; activePreset?: any }
       ) => {
         service.discover(context?.cwd)
         const targetName = params.skillName || params.name || params.skill
+
+        // Enforce role-based skill permissions (Atlantic AI style position scoping)
+        const allowedSkills = context?.activePreset?.enabledSkills
+        if (allowedSkills && Array.isArray(allowedSkills) && allowedSkills.length > 0 && targetName) {
+          const query = targetName.trim().toLowerCase()
+          const isAllowed = allowedSkills.some((s: string) => {
+            const cleanS = s.trim().toLowerCase()
+            return cleanS === query || query.includes(cleanS) || cleanS.includes(query)
+          })
+          if (!isAllowed) {
+            const roleTitle = context?.activePreset?.name || context?.activePreset?.id || 'Mevcut Koltuk'
+            return `[YETKİ SINIRI / ROLE SCOPE]: '${targetName}' becerisi '${roleTitle}' koltuğunun yetki alanında değildir. Bu koltuğun kullanabileceği beceriler: ${allowedSkills.join(', ')}`
+          }
+        }
 
         // 1. If targetName matches a skill, return its full content directly
         if (targetName) {

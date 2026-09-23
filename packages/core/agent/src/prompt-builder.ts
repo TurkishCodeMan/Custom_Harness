@@ -16,6 +16,9 @@ export function buildSystemPrompt(ctx: Context, activePreset: any, cwd: string):
     if (ctx.systemPrompt.setAllowedTools) {
       ctx.systemPrompt.setAllowedTools(activePreset?.enabledTools)
     }
+    if (ctx.systemPrompt.setAllowedSkills) {
+      ctx.systemPrompt.setAllowedSkills(activePreset?.enabledSkills)
+    }
     if (personaPrompt) {
       const roleName = activePreset?.name || 'ArtificaX'
       ctx.systemPrompt.section({

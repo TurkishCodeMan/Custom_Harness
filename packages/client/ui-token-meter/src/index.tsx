@@ -43,16 +43,41 @@ export function TokenMeterBar({ measurement, modelName = 'Model' }: TokenMeterBa
         <div className="meter-label-left">
           <span className="meter-icon">📊</span>
           <span className="meter-title">Bağlam Kullanımı</span>
+          {m.isCalibrated && (
+            <span
+              className="meter-badge-exact"
+              title="Model tokenizer tarafından doğrulanmış kesin token sayısı"
+              style={{
+                marginLeft: '6px',
+                fontSize: '10px',
+                background: 'rgba(52, 199, 89, 0.15)',
+                color: '#34c759',
+                padding: '1px 5px',
+                borderRadius: '4px',
+                fontWeight: 600
+              }}
+            >
+              ✓ Kesin
+            </span>
+          )}
         </div>
         <div className="meter-label-right">
           <span className={`meter-percent ${isDanger ? 'danger' : isWarning ? 'warning' : ''}`}>
             {clampedTotalPct}%
           </span>
-          <span className="meter-fraction">
-            ~{formatTok(totalTokens)} / {formatTok(contextWindow)}
+          <span
+            className="meter-fraction"
+            title={
+              m.actualUsage
+                ? `Oturum Tüketimi: ${m.actualUsage.totalTokens} tok (Girdi: ${m.actualUsage.promptTokens}, Çıktı: ${m.actualUsage.completionTokens})`
+                : undefined
+            }
+          >
+            {m.isCalibrated ? '' : '~'}{formatTok(totalTokens)} / {formatTok(contextWindow)}
           </span>
         </div>
       </div>
+
 
       <div className="token-meter-progress-track">
         <div className="meter-segment system" style={{ width: `${sysPct}%` }} title={`Sistem İstemi: ~${systemPromptTokens} tok`} />

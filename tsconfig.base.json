@@ -36,6 +36,8 @@
       "@custom-harness/fs-local": ["./packages/fs/fs-local/src/index.ts"],
       "@custom-harness/subprocess": ["./packages/subprocess/subprocess/src/index.ts"],
       "@custom-harness/subprocess-local": ["./packages/subprocess/subprocess-local/src/index.ts"],
+      "@custom-harness/reflexion": ["./packages/memory/reflexion/src/index.ts"],
+      "@custom-harness/reflexion-local": ["./packages/memory/reflexion-local/src/index.ts"],
       "@custom-harness/spill": ["./packages/spill/spill/src/index.ts"],
       "@custom-harness/spill-local": ["./packages/spill/spill-local/src/index.ts"],
       "@custom-harness/user-approval": ["./packages/interaction/user-approval/src/index.ts"],
@@ -43,7 +45,7 @@
       "@custom-harness/bundle-web-app": ["./packages/bundle/web-app/src/index.ts"],
       "@custom-harness/bundle-headless": ["./packages/bundle/headless/src/index.ts"],
       "@custom-harness/llm": ["./packages/llm/llm/src/index.ts"],
-      "@custom-harness/llm-qwen": ["./packages/llm/llm_qwen/src/index.ts"],
+      "@custom-harness/llm-provider-openai": ["./packages/llm/llm-provider-openai/src/index.ts"],
       "@custom-harness/session": ["./packages/session/session/src/index.ts"],
       "@custom-harness/settings": ["./packages/settings/settings/src/index.ts"],
       "@custom-harness/tool-bash": ["./packages/shell/tool-bash/src/index.ts"],
@@ -67,6 +69,7 @@
       "@custom-harness/client-ui-token-meter": ["./packages/client/ui-token-meter/src/index.tsx"],
       "@custom-harness/client-ui-settings": ["./packages/client/ui-settings/src/index.tsx"],
       "@custom-harness/client-web-react": ["./packages/client/web-react/src/index.tsx"],
+      "@custom-harness/company-os": ["./apps/company-os/src/main.tsx"],
       "@custom-harness/user-questions": ["./packages/interaction/user-questions/src/index.ts"],
       "@custom-harness/tool-ask-user": ["./packages/interaction/tool-ask-user/src/index.ts"],
       "@custom-harness/lsp": ["./packages/lsp/lsp/src/index.ts"],
@@ -101,7 +104,9 @@
       "@custom-harness/tool-workflow": ["./packages/workflow/tool-workflow/src/index.ts"],
       "@custom-harness/tool-ralph": ["./packages/workflow/tool-ralph/src/index.ts"],
       "@custom-harness/sandbox": ["./packages/sandbox/sandbox/src/index.ts"],
-      "@custom-harness/sandbox-local": ["./packages/sandbox/sandbox-local/src/index.ts"]
+      "@custom-harness/sandbox-local": ["./packages/sandbox/sandbox-local/src/index.ts"],
+      "@custom-harness/schedule": ["./packages/schedule/schedule/src/index.ts"],
+      "@custom-harness/audit-log": ["./packages/audit/audit-log/src/index.ts"]
     }
   }
 }

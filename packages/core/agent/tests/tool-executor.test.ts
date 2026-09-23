@@ -163,4 +163,54 @@ describe('tool-executor', () => {
     assert.equal(toolExecuted, false)
     assert.equal(callbackOutput?.output, 'Loop Detected')
   })
+
+  test('adversarial testing: gracefully handles malformed arguments and throwing tools', async () => {
+    const mockCtx = createMockContext({
+      tools: {
+        execute: async (name: string, args: any) => {
+          if (name === 'crashing_tool') {
+            throw new Error('Simulated hardware crash / unhandled failure')
+          }
+          return `handled with args: ${JSON.stringify(args)}`
+        }
+      }
+    })
+
+    let callbackOutput1: any = null
+    let callbackOutput2: any = null
+
+    // 1. Injected malformed non-JSON payload in arguments
+    await executeToolCall(
+      mockCtx,
+      { id: 'c_adv_1', name: 'safe_tool', arguments: '{{{{INVALID_JSON_PAYLOAD;;;' },
+      {
+        sessionId: 'sess_adv',
+        turnCount: 1,
+        cwd: '/app',
+        onToolResult: (r) => { callbackOutput1 = r }
+      }
+    )
+
+    assert.ok(callbackOutput1)
+    assert.match(callbackOutput1.output, /INVALID_JSON_PAYLOAD/)
+
+    // 2. Deliberately throwing tool (adversarial failure)
+    await executeToolCall(
+      mockCtx,
+      { id: 'c_adv_2', name: 'crashing_tool', arguments: '{}' },
+      {
+        sessionId: 'sess_adv',
+        turnCount: 2,
+        cwd: '/app',
+        onToolResult: (r) => { callbackOutput2 = r }
+      }
+    )
+
+    assert.ok(callbackOutput2)
+    assert.match(callbackOutput2.output, /Araç Çalıştırma Hatası: Simulated hardware crash/)
+
+    // Ensure session still records tool result without crashing the harness
+    const session = mockCtx.session.getSession('sess_adv')
+    assert.equal(session?.messages.length, 2)
+  })
 })

@@ -268,49 +268,71 @@ export class PgVectorRagService extends RagService {
   private async processSingleFile(job: IndexJob): Promise<number> {
     const { filePath, sourceId } = job
     const ext = path.extname(filePath).toLowerCase()
+    const fileName = path.basename(filePath)
+
+    // Ignore hidden or OS system files
+    if (fileName.startsWith('.') || fileName === 'Thumbs.db') {
+      return 0
+    }
+
     let fileContent = ''
     const docId = `doc_${crypto.createHash('md5').update(filePath).digest('hex').slice(0, 12)}`
     let chunksStored = 0
 
     const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp'])
-    const textExts = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.md', '.txt', '.yaml', '.yml', '.html', '.css', '.scss', '.sh', '.rs', '.go', '.java', '.c', '.cpp', '.h', '.sql', '.toml', '.xml'])
+    const textExts = new Set([
+      '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+      '.json', '.py', '.md', '.txt', '.yaml', '.yml',
+      '.html', '.htm', '.css', '.scss', '.sh', '.bash',
+      '.rs', '.go', '.java', '.c', '.cpp', '.h', '.hpp',
+      '.sql', '.toml', '.xml', '.ini', '.cfg', '.log',
+      '.env.example', '.rst', '.proto', '.graphql', '.svg'
+    ])
+    const knownExactTextFiles = new Set([
+      'dockerfile', 'makefile', 'license', 'readme',
+      'procfile', 'gemfile', 'jenkinsfile'
+    ])
+    const heavyExts = new Set(['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt'])
 
     try {
       let siglipVector: number[] | null = null
-
-      const heavyExts = new Set(['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.pptx', '.ppt'])
       const pyEngine = (this.ctx as any).pythonRagEngine
 
       // 1. High-speed C++/Python Engine for heavy formats (PyMuPDF, docx, openpyxl, scanned multi-page OCR)
-      if (heavyExts.has(ext) && pyEngine && this.resourceConfig.usePythonEngine !== false) {
-        try {
-          const pyRes = await pyEngine.parseDocument(filePath, 1200000)
-          if (pyRes && pyRes.success && pyRes.content && pyRes.content.trim().length > 0) {
-            fileContent = pyRes.content
-          }
-        } catch (pyErr: any) {
-          console.warn(`[RAG:PythonEngine] Fast parsing fallback for "${filePath}":`, pyErr.message)
-        }
-      }
-
-
-      // 3. JavaScript / Node.js fallback parser for other types
-      if (!fileContent) {
-        if (imageExts.has(ext)) {
-          fileContent = await this.visionClient.extractTextFromImage(filePath)
+      if (heavyExts.has(ext)) {
+        if (pyEngine && this.resourceConfig.usePythonEngine !== false) {
           try {
-            siglipVector = await this.siglipClient.extractImageEmbedding(filePath)
-          } catch (siglipErr: any) {
-            console.warn(`[RAG:SigLIP] SigLIP embedding extraction skipped:`, siglipErr.message)
+            const pyRes = await pyEngine.parseDocument(filePath, 1200000)
+            if (pyRes && pyRes.success && pyRes.content && pyRes.content.trim().length > 0) {
+              fileContent = pyRes.content
+            }
+          } catch (pyErr: any) {
+            console.warn(`[RAG:PythonEngine] Parsing failed for "${filePath}":`, pyErr.message)
           }
-        } else if (textExts.has(ext) || ext === '') {
-          fileContent = await fsp.readFile(filePath, 'utf-8')
-        } else {
-          fileContent = await fsp.readFile(filePath, 'utf-8').catch(() => '')
         }
+        // IMPORTANT: NEVER fall back to reading binary formats (PDF/DOCX/XLSX) as raw UTF-8!
+        if (!fileContent || fileContent.trim().length === 0) {
+          return 0
+        }
+      } else if (imageExts.has(ext)) {
+        // 2. Vision OCR & SigLIP for images
+        fileContent = await this.visionClient.extractTextFromImage(filePath)
+        try {
+          siglipVector = await this.siglipClient.extractImageEmbedding(filePath)
+        } catch (siglipErr: any) {
+          console.warn(`[RAG:SigLIP] SigLIP embedding extraction skipped:`, siglipErr.message)
+        }
+        if (!fileContent || fileContent.trim().length === 0) {
+          if (!siglipVector) return 0
+        }
+      } else if (textExts.has(ext) || (ext === '' && knownExactTextFiles.has(fileName.toLowerCase()))) {
+        // 3. Plain text files
+        fileContent = await fsp.readFile(filePath, 'utf-8').catch(() => '')
+      } else {
+        // 4. Unsupported or binary formats (e.g. .epub, .bin, .exe, .zip, .tar, .pyc, unknown)
+        // SKIP safely - DO NOT attempt raw UTF-8 read!
+        return 0
       }
-
-
 
       if (!fileContent || fileContent.trim().length === 0) return 0
 
@@ -318,8 +340,14 @@ export class PgVectorRagService extends RagService {
       fileContent = fileContent.replace(/\0/g, '')
       if (fileContent.trim().length === 0) return 0
 
-      const docHash = crypto.createHash('sha256').update(fileContent).digest('hex')
+      // Binary content check: if file contains non-printable control characters, reject it
+      const sample = fileContent.slice(0, 1024)
+      if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(sample)) {
+        console.warn(`[RAG:Parser] Detected binary bytes in "${filePath}". Skipping indexing.`)
+        return 0
+      }
 
+      const docHash = crypto.createHash('sha256').update(fileContent).digest('hex')
 
       // Skip unchanged files
       if (this.resourceConfig.skipExistingUnchanged !== false) {
@@ -421,7 +449,9 @@ export class PgVectorRagService extends RagService {
     const topK = query.topK || 5
     const minSim = query.minSimilarity || 0.3
     const candidateLimit = Math.max(topK * 3, 15)
-    const pathFilter = query.filePathPrefix ? `${query.filePathPrefix}%` : null
+    const pathFilter = query.filePathPrefix
+      ? (query.filePathPrefix.startsWith('/') ? `${query.filePathPrefix}%` : `%/${query.filePathPrefix.replace(/^\/+/, '')}%`)
+      : null
     const uid = userId || query.tenantId
 
     // 1. Generate query embedding via vLLM
@@ -815,7 +845,9 @@ export class PgVectorRagService extends RagService {
               stack.push(fullPath)
             }
           } else if (dirent.isFile()) {
-            yield fullPath
+            if (!dirent.name.startsWith('.') && dirent.name !== 'Thumbs.db') {
+              yield fullPath
+            }
           }
         }
       } catch (err) {
@@ -836,6 +868,10 @@ export class PgVectorRagService extends RagService {
     return files
   }
 
+  public async close(): Promise<void> {
+    this.queue.cancel()
+    await this.db.close()
+  }
 }
 
 export function apply(ctx: Context) {

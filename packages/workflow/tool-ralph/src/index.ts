@@ -59,10 +59,17 @@ YOUR INSTRUCTIONS:
 `
 
           try {
-            const childSession = ctx.session.createSession(`Ralph Round ${round}: ${objective.slice(0, 30)}`, exec?.cwd)
+            const childSession = ctx.session.createSession(
+              `Ralph Round ${round}: ${objective.slice(0, 30)}`,
+              exec?.cwd,
+              undefined,
+              'web',
+              true
+            )
             const resultText = await ctx.agent.run({
               sessionId: childSession.id,
               prompt: roundPrompt,
+              isInternal: true,
               signal: exec?.signal
             })
 

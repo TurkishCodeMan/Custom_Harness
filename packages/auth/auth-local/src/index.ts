@@ -266,6 +266,11 @@ export class LocalAuthService extends AuthService {
       }
     }
 
+    // If specific credentials were provided and not found, authentication failed
+    if (credentials.token || credentials.userId || credentials.username) {
+      return null
+    }
+
     // Default fallback to admin for seamless local use if none provided
     const admin = Array.from(this.users.values()).find(u => u.role === 'admin') || DEFAULT_USERS[0]
     return admin

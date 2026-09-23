@@ -1,8 +1,10 @@
 import { Router } from 'express'
 import type { Context } from '@custom-harness/core-context'
+import { requireSession } from '../middleware/auth.js'
 
 export function createSessionsRouter(ctx: Context): Router {
   const router = Router()
+  const checkSession = requireSession(ctx, 'id')
 
   // 1. List Sessions (Tenant-Isolated & Client-Filtered)
   router.get('/sessions', (req, res) => {
@@ -12,17 +14,30 @@ export function createSessionsRouter(ctx: Context): Router {
     res.json(ctx.session.listSessions(user.id, isAdmin, clientType))
   })
 
-  // 2. Get Single Session
-  router.get('/sessions/:id', (req, res) => {
-    const session = ctx.session.getSession(req.params.id)
-    if (!session) {
-      return res.status(404).json({ error: 'Oturum bulunamadı' })
+  // 1b. Create New Session
+  router.post('/sessions', (req, res) => {
+    try {
+      const user = req.user || { id: 'user_admin', role: 'admin' }
+      const { title, workspace, clientType } = req.body
+      const session = ctx.session.createSession(
+        title || 'Yeni Oturum',
+        workspace,
+        user.id,
+        clientType || 'web'
+      )
+      res.status(201).json(session)
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
     }
-    res.json(session)
+  })
+
+  // 2. Get Single Session
+  router.get('/sessions/:id', checkSession, (req: any, res) => {
+    res.json(req.sessionData)
   })
 
   // 3. Delete Single Session
-  router.delete('/sessions/:id', (req, res) => {
+  router.delete('/sessions/:id', checkSession, (req, res) => {
     try {
       const user = req.user!
       ctx.session.deleteSession(req.params.id, user.id, user.role === 'admin')
@@ -43,15 +58,16 @@ export function createSessionsRouter(ctx: Context): Router {
   router.post('/sessions/clear', handleClearSessions)
 
   // 5. Compact Session
-  router.post('/sessions/:id/compact', (req, res) => {
+  router.post('/sessions/:id/compact', checkSession, (req: any, res) => {
     try {
-      const user = req.user!
-      const session = ctx.session.getSession(req.params.id)
-      if (!session) {
-        return res.status(404).json({ error: 'Oturum bulunamadı' })
-      }
+      const session = req.sessionData
       if (session.messages.length <= 2) {
-        return res.json({ success: true, compacted: false, message: 'Özetlenecek yeterli mesaj bulunmuyor.', messages: session.messages })
+        return res.json({
+          success: true,
+          compacted: false,
+          message: 'Özetlenecek yeterli mesaj bulunmuyor.',
+          messages: session.messages
+        })
       }
 
       if (ctx.compactor) {
@@ -78,7 +94,7 @@ export function createSessionsRouter(ctx: Context): Router {
   })
 
   // 6. Session Context Measurement
-  router.get('/sessions/:id/context', (req, res) => {
+  router.get('/sessions/:id/context', checkSession, (req, res) => {
     if (!ctx.tokenMeter) {
       return res.status(503).json({ error: 'Token meter service not available' })
     }
@@ -88,3 +104,4 @@ export function createSessionsRouter(ctx: Context): Router {
 
   return router
 }
+

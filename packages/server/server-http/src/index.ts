@@ -19,6 +19,9 @@ import { createPresetsRouter } from './routes/presets.js'
 import { createSkillsRouter } from './routes/skills.js'
 import { createPluginsMcpRouter } from './routes/plugins-mcp.js'
 import { createRagRouter } from './routes/rag.js'
+import { createSchedulesRouter } from './routes/schedules.js'
+import { createAuditRouter } from './routes/audit.js'
+import { createTraceRouter } from './routes/trace.js'
 import { setupWebSocketGateway } from './ws/gateway.js'
 
 export const name = 'server-http'
@@ -36,7 +39,10 @@ export const inject = [
   'approval',
   'rag',
   'auth',
-  'mcpClient'
+  'mcpClient',
+  'schedule',
+  'subagent',
+  'auditLog'
 ]
 
 export class HttpServerService extends ServerService {
@@ -69,6 +75,9 @@ export class HttpServerService extends ServerService {
     this.app.use('/api', createSkillsRouter(ctx))
     this.app.use('/api', createPluginsMcpRouter(ctx))
     this.app.use('/api', createRagRouter(ctx))
+    this.app.use('/api', createSchedulesRouter(ctx))
+    this.app.use('/api', createAuditRouter(ctx))
+    this.app.use('/api', createTraceRouter(ctx))
 
     // Assets & Static Files Router (Mounted at root)
     this.app.use(createAssetsRouter())

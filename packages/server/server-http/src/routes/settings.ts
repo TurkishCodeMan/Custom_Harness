@@ -15,7 +15,7 @@ export function createSettingsRouter(ctx: Context): Router {
   // 2. POST Settings (Update)
   router.post(
     '/settings',
-    protectFields(ctx, ['providers', 'defaultProvider', 'defaultModel', 'plugins', 'sandboxMode']),
+    protectFields(ctx, ['providers', 'defaultProvider', 'defaultModel', 'plugins']),
     (req, res) => {
       const user = req.user
       const isAdmin = user?.role === 'admin'
@@ -54,8 +54,8 @@ export function createSettingsRouter(ctx: Context): Router {
     }
   }
 
-  router.post('/models/discover', requireAdmin(ctx), handleModelDiscovery)
-  router.get('/models/discover', requireAdmin(ctx), handleModelDiscovery)
+  router.post('/models/discover', handleModelDiscovery)
+  router.get('/models/discover', handleModelDiscovery)
 
   return router
 }

@@ -42,4 +42,18 @@ describe('extractThoughts', () => {
     assert.equal(result.cleanContent, '')
     assert.equal(result.finalThinking, '')
   })
+
+  test('preserves inline backticked mentions of <think> without stripping text', () => {
+    const raw = 'Somut örnek: Ben `<think>` bloğunda şu adımları izliyorum:\n1. Adım A\n2. Adım B'
+    const result = extractThoughts(raw, '')
+    assert.equal(result.cleanContent, raw)
+    assert.equal(result.finalThinking, '')
+  })
+
+  test('extracts unclosed thought tag when message starts with <think>', () => {
+    const raw = '<think>I am analyzing the problem deeply and got interrupted'
+    const result = extractThoughts(raw, '')
+    assert.equal(result.cleanContent, '')
+    assert.equal(result.finalThinking, 'I am analyzing the problem deeply and got interrupted')
+  })
 })

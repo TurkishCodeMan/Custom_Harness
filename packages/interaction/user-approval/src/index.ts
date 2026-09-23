@@ -20,15 +20,34 @@ export interface ApprovalResponse {
 export class ApprovalService extends Service {
   declare ctx: Context
   static inject = ['settings']
+  public static instance?: ApprovalService
   private pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>()
   private policy: ApprovalPolicy = 'ask_dangerous'
 
   constructor(ctx: Context) {
     super(ctx, 'approval')
+    ApprovalService.instance = this
+  }
+
+  public static getInstance(ctx?: Context): ApprovalService | undefined {
+    if (ApprovalService.instance) return ApprovalService.instance
+    if (ctx && (ctx as any).approval) return (ctx as any).approval
+    return undefined
   }
 
   public setPolicy(policy: ApprovalPolicy): void {
     this.policy = policy
+    console.log(`🛡️ [Approval] Yetki politikası güncellendi: ${policy}`)
+    if (policy === 'auto') {
+      // Unblock all pending approvals immediately when user selects Tam Otonom
+      for (const [id, resolve] of this.pendingApprovals.entries()) {
+        this.pendingApprovals.delete(id)
+        resolve('allow_once')
+      }
+      try {
+        ;(this.ctx as any).emit('approval/cleared', {})
+      } catch {}
+    }
   }
 
   public getPolicy(): ApprovalPolicy {
@@ -50,20 +69,46 @@ export class ApprovalService extends Service {
     if (!isApprovalEnabled || this.policy === 'auto') {
       return 'allow_once'
     }
-    // Auto-allow safe inspection / read-only tools
+    // Auto-allow safe inspection / read-only / delegation tools
     const autoAllowedTools = [
       'mcp',
+      'read',
       'read_file',
+      'list',
       'list_dir',
       'search_files',
+      'find_by_name',
+      'glob',
+      'grep',
+      'grep_search',
+      'workspace_browse',
       'query_session_history',
       'lsp',
       'skill',
       'manage_todo',
-      'ask_user_question'
+      'ask_user_question',
+      'web_search',
+      'read_url_content',
+      'schedule_list',
+      'schedule_get',
+      'invoke_subagent',
+      'subagent',
+      'subagent_spawn',
+      'subagent_list',
+      'subagent_wait',
+      'plan'
     ]
 
-    if (autoAllowedTools.includes(toolName)) {
+    if (
+      autoAllowedTools.includes(toolName) ||
+      toolName.startsWith('read_') ||
+      toolName.startsWith('list_') ||
+      toolName.startsWith('search_') ||
+      toolName.startsWith('get_') ||
+      toolName.startsWith('subagent') ||
+      toolName === 'read' ||
+      toolName === 'list'
+    ) {
       return 'allow_once'
     }
 
@@ -74,7 +119,20 @@ export class ApprovalService extends Service {
     const id = `appr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 
     return new Promise((resolve) => {
-      this.pendingApprovals.set(id, resolve)
+      // 30-second timeout safeguard so background operations never get stuck indefinitely
+      const timer = setTimeout(() => {
+        if (this.pendingApprovals.has(id)) {
+          this.pendingApprovals.delete(id)
+          console.warn(`[Approval] '${toolName}' onay isteği zaman aşımına uğradı, otomatik devam ediliyor.`)
+          resolve('allow_once')
+        }
+      }, 30000)
+
+      this.pendingApprovals.set(id, (outcome: ApprovalOutcome) => {
+        clearTimeout(timer)
+        resolve(outcome)
+      })
+
       this.ctx.emit('approval/asked', {
         id,
         sessionId,

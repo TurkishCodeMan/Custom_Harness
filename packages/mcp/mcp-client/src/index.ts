@@ -272,6 +272,8 @@ export class McpProcessClient {
         proc.on('close', (code) => {
           console.log(`[MCP:${this.config.id}] Process exited with code ${code}`)
           this.process = undefined
+          clearTimeout(timeout)
+          finish([])
         })
 
         this.request('initialize', {
@@ -494,10 +496,11 @@ export class McpClientService extends Service {
   public listServers(): Array<McpServerConfig & { toolsCount: number; connected: boolean }> {
     return Array.from(this.serverConfigs.values()).map(cfg => {
       const client = this.clients.get(cfg.id)
+      const toolsCount = client?.activeTools.length || 0
       return {
         ...cfg,
-        connected: !!client,
-        toolsCount: client?.activeTools.length || 0
+        connected: Boolean(client && toolsCount > 0),
+        toolsCount
       }
     })
   }

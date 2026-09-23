@@ -31,16 +31,22 @@ function resolvePath(targetPath: string, cwd?: string): string {
   const root = cwd || process.cwd()
   if (!targetPath) return root
 
+  // Tilde (~) expansion for user home directory
+  let normalized = targetPath
+  if (normalized === '~' || normalized.startsWith('~/') || normalized.startsWith('~\\')) {
+    normalized = path.join(os.homedir(), normalized.slice(1))
+  }
+
   let resolved: string
-  if (path.isAbsolute(targetPath)) {
-    if (isSafeWorkspacePath(targetPath, root)) {
-      resolved = targetPath
+  if (path.isAbsolute(normalized)) {
+    if (isSafeWorkspacePath(normalized, root)) {
+      resolved = normalized
     } else {
       // Re-map absolute path to workspace root
-      resolved = path.resolve(root, targetPath.replace(/^[/\\]+/, ''))
+      resolved = path.resolve(root, normalized.replace(/^[/\\]+/, ''))
     }
   } else {
-    resolved = path.resolve(root, targetPath)
+    resolved = path.resolve(root, normalized)
   }
 
   if (!isSafeWorkspacePath(resolved, root)) {
@@ -140,8 +146,8 @@ function applyReplacement(content: string, oldStr: string, newStr: string, repla
 export function apply(ctx: Context) {
   // 1. read / read_file
   const readHandler = async (args: any, context: any) => {
-    const targetFile = args.file_path || args.path
-    if (!targetFile) throw new Error('file_path parameter is required.')
+    const targetFile = args.file_path || args.path || args.filePath || args.target_file || args.filename || args.TargetFile
+    if (!targetFile) throw new Error('file_path or path parameter is required.')
     
     const fullPath = resolvePath(targetFile, context?.cwd)
     if (!fs.existsSync(fullPath)) {
@@ -204,8 +210,8 @@ export function apply(ctx: Context) {
   // 2. edit / edit_file
   const editHandler = async (args: any, context: any) => {
     assertWritePermitted(ctx)
-    const targetFile = args.file_path || args.path
-    if (!targetFile) throw new Error('file_path parameter is required.')
+    const targetFile = args.file_path || args.path || args.filePath || args.target_file || args.filename || args.TargetFile
+    if (!targetFile) throw new Error('file_path or path parameter is required.')
 
     const fullPath = resolvePath(targetFile, context?.cwd)
     const oldStr = args.old_string ?? args.old_str ?? args.old_content
@@ -271,8 +277,8 @@ export function apply(ctx: Context) {
   // 3. write / write_file
   const writeHandler = async (args: any, context: any) => {
     assertWritePermitted(ctx)
-    const targetFile = args.file_path || args.path
-    if (!targetFile) throw new Error('file_path parameter is required.')
+    const targetFile = args.file_path || args.path || args.filePath || args.target_file || args.filename || args.TargetFile
+    if (!targetFile) throw new Error('file_path or path parameter is required.')
 
     const fullPath = resolvePath(targetFile, context?.cwd)
     fs.mkdirSync(path.dirname(fullPath), { recursive: true })

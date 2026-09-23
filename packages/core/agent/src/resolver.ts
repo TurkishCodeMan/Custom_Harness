@@ -89,10 +89,6 @@ export function resolveActivePreset(
     userSettings?.defaultPreset ||
     settings?.defaultPreset
 
-  if (presetId && userId && ctx.agentPresets?.select) {
-    ctx.agentPresets.select(presetId, userId)
-  }
-
   if (presetId) {
     const fromPresets = ctx.agentPresets?.get?.(presetId, userId)
     if (fromPresets) return fromPresets

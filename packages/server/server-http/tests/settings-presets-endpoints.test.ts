@@ -48,6 +48,14 @@ describe('Server Package - Settings & Presets Endpoints', () => {
     assert.equal(res.data.success, true)
     assert.equal(res.data.sandboxMode, 'read-only')
 
+    // User can also update sandbox mode
+    const userRes = await server.userRequest(testUserId, '/api/settings/sandbox-mode', {
+      method: 'POST',
+      body: { mode: 'danger-full-access' }
+    })
+    assert.equal(userRes.status, 200)
+    assert.equal(userRes.data.sandboxMode, 'danger-full-access')
+
     // Reset back to workspace-write
     await server.adminRequest('/api/settings/sandbox-mode', {
       method: 'POST',

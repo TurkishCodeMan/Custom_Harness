@@ -22,6 +22,7 @@
     "@custom-harness/session": "workspace:*",
     "@custom-harness/settings": "workspace:*",
     "@custom-harness/llm": "workspace:*",
+    "@custom-harness/llm-provider-openai": "workspace:*",
     "@custom-harness/tool-bash": "workspace:*",
     "@custom-harness/tool-bash-persistent": "workspace:*",
     "@custom-harness/tool-fs": "workspace:*",
@@ -46,7 +47,10 @@
     "@custom-harness/tool-session-query": "workspace:*",
     "@custom-harness/tool-fs-search": "workspace:*",
     "@custom-harness/rag-python-engine": "workspace:*",
+    "@custom-harness/reflexion": "workspace:*",
+    "@custom-harness/reflexion-local": "workspace:*",
+    "@custom-harness/schedule": "workspace:*",
+    "@custom-harness/audit-log": "workspace:*",
     "cordis": "^3.18.1"
-
   }
 }

@@ -4,7 +4,11 @@
   "description": "Conversation history compactor that summarizes older turns when reaching token budget limits",
   "type": "module",
   "main": "src/index.ts",
+  "scripts": {
+    "test": "tsx --test tests/**/*.test.ts"
+  },
   "dependencies": {
+
     "cordis": "^3.18.1",
     "@custom-harness/core-types": "workspace:^",
     "@custom-harness/core-context": "workspace:^"

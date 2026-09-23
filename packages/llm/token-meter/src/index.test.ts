@@ -7,6 +7,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { Context as CordisContext } from 'cordis'
 import { TokenMeterService } from './index.ts'
 
 // ---------------------------------------------------------------------------
@@ -386,3 +387,96 @@ describe('measureSession — disabled flag', () => {
     assert.equal(result.disabled, undefined, 'disabled should be absent when plugin is on')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Actual Token Usage & Calibration
+// ---------------------------------------------------------------------------
+
+describe('TokenMeterService — Actual Usage & Calibration', () => {
+  test('recordUsage records single-turn actual tokens', () => {
+    const svc = makeService(makeCtx())
+    svc.recordUsage('session-1', {
+      promptTokens: 150,
+      completionTokens: 45,
+      totalTokens: 195
+    }, 'qwen-model')
+
+    const usage = svc.getSessionUsage('session-1')
+    assert.ok(usage)
+    assert.equal(usage.promptTokens, 150)
+    assert.equal(usage.completionTokens, 45)
+    assert.equal(usage.totalTokens, 195)
+    assert.equal(usage.turnCount, 1)
+    assert.equal(usage.modelId, 'qwen-model')
+  })
+
+  test('recordUsage accumulates multiple turns accurately', () => {
+    const svc = makeService(makeCtx())
+    svc.recordUsage('session-1', { promptTokens: 100, completionTokens: 50, totalTokens: 150 })
+    svc.recordUsage('session-1', { promptTokens: 180, completionTokens: 70, totalTokens: 250 })
+
+    const usage = svc.getSessionUsage('session-1')
+    assert.ok(usage)
+    assert.equal(usage.promptTokens, 280)
+    assert.equal(usage.completionTokens, 120)
+    assert.equal(usage.totalTokens, 400)
+    assert.equal(usage.turnCount, 2)
+  })
+
+  test('measureSession calibrates context and marks isCalibrated: true', () => {
+    const session = {
+      messages: [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'world' }
+      ]
+    }
+    const ctx = makeCtx({ session, contextWindow: 4096 })
+    const svc = makeService(ctx)
+
+    // Before recording actual usage: isCalibrated is false
+    const uncalibrated = svc.measureSession('s1')
+    assert.equal(uncalibrated.isCalibrated, false)
+
+    // LLM completes inference with verified tokens: prompt: 210, completion: 35
+    svc.recordUsage('s1', {
+      promptTokens: 210,
+      completionTokens: 35,
+      totalTokens: 245
+    }, 'test-model')
+
+    const calibrated = svc.measureSession('s1')
+    assert.equal(calibrated.isCalibrated, true)
+    assert.equal(calibrated.actualUsage?.totalTokens, 245)
+    assert.equal(calibrated.totalTokens, 245)
+    assert.equal(calibrated.contextPressure.usedTokens, 245)
+  })
+
+  test('clearUsage resets session tracking', () => {
+    const svc = makeService(makeCtx())
+    svc.recordUsage('s1', { promptTokens: 10, completionTokens: 10, totalTokens: 20 })
+    assert.ok(svc.getSessionUsage('s1'))
+
+    svc.clearUsage('s1')
+    assert.equal(svc.getSessionUsage('s1'), undefined)
+  })
+
+  test('listens to Cordis event llm/token-usage and auto-records usage', () => {
+    const cordisCtx = new CordisContext()
+    const svc = new TokenMeterService(cordisCtx as any)
+
+    cordisCtx.emit('llm/token-usage' as any, {
+      sessionId: 'session-cordis',
+      model: 'qwen-turbo',
+      usage: { promptTokens: 300, completionTokens: 80, totalTokens: 380 }
+    })
+
+    const usage = svc.getSessionUsage('session-cordis')
+    assert.ok(usage)
+    assert.equal(usage.promptTokens, 300)
+    assert.equal(usage.completionTokens, 80)
+    assert.equal(usage.totalTokens, 380)
+  })
+})
+
+
+

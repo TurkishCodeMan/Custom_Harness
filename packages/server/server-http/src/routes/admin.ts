@@ -6,10 +6,11 @@ import path from 'node:path'
 
 export function createAdminRouter(ctx: Context): Router {
   const router = Router()
+  router.use(requireAdmin(ctx))
   const getAuthService = () => (ctx as any).auth
 
   // 1. Admin Overview Stats
-  router.get('/overview', requireAdmin(ctx), async (req, res) => {
+  router.get('/overview', async (req, res) => {
     try {
       const auth = getAuthService()
       const users = auth ? await auth.listUsers() : []
@@ -35,7 +36,7 @@ export function createAdminRouter(ctx: Context): Router {
   })
 
   // 2. Admin Sessions List
-  router.get('/sessions', requireAdmin(ctx), async (req, res) => {
+  router.get('/sessions', async (req, res) => {
     try {
       const allSessions = ctx.session.listSessions('*', true, '*')
       res.json(allSessions)
@@ -45,7 +46,7 @@ export function createAdminRouter(ctx: Context): Router {
   })
 
   // 3. Admin Uploads List
-  router.get('/uploads', requireAdmin(ctx), async (req, res) => {
+  router.get('/uploads', async (req, res) => {
     try {
       const auth = getAuthService()
       const users = auth ? await auth.listUsers() : []

@@ -60,9 +60,21 @@ describe('Server Package - Files, Plugins & MCP Endpoints', () => {
     assert.ok(Array.isArray(res.data.servers))
   })
 
+  test('POST /api/mcp/servers requires admin role (403 for non-admin)', async () => {
+    const res = await server.userRequest(testUserId, '/api/mcp/servers', {
+      method: 'POST',
+      body: {
+        id: 'unauthorized_mcp',
+        command: 'echo'
+      }
+    })
+    assert.equal(res.status, 403)
+  })
+
   test('GET /api/context/measure returns global or session token measurement', async () => {
     const res = await server.userRequest(testUserId, '/api/context/measure')
     assert.equal(res.status, 200)
     assert.ok(res.data.totalTokens !== undefined || res.data.contextPressure !== undefined)
   })
 })
+

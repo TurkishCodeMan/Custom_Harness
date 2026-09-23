@@ -16,6 +16,8 @@ import type { SpillService } from '@custom-harness/spill'
 import type { RagService } from '@custom-harness/rag'
 import type { AuthService } from '@custom-harness/auth'
 import type { ServerService } from '@custom-harness/server'
+import type { ScheduleService } from '@custom-harness/schedule'
+import type { SubagentService, SubagentTask } from '@custom-harness/subagent'
 
 declare module 'cordis' {
   interface Events {
@@ -25,6 +27,16 @@ declare module 'cordis' {
     'user-question/asked'(request: any): void
     'server/ready'(info: { port: number; url: string }): void
     'server/stop'(): void
+    'session/overflow'(info: { sessionId: string; originalLength: number }): void
+    'subagent/spawn'(task: SubagentTask): void
+    'subagent/completed'(task: SubagentTask): void
+    'schedule/triggered'(data: { record: any; sessionId?: string }): void
+    'schedule/completed'(data: { record: any; sessionId?: string; result?: any }): void
+    'agent/tool_start'(data: { sessionId: string; call: { id: string; name: string; args: any } }): void
+    'agent/tool_result'(data: { sessionId: string; result: { id: string; name: string; output: any } }): void
+    'agent/done'(data: { sessionId: string; response: string; measurement?: any }): void
+    'agent/error'(data: { sessionId: string; error: string }): void
+    'rag/progress'(progress: any): void
   }
 
   interface Context {
@@ -45,10 +57,11 @@ declare module 'cordis' {
     repeatGuard: RepeatToolGuardService
     toolResultPruner: ToolResultPrunerService
     compactor: CompactionBasicService
+    schedule: ScheduleService
+    subagent: SubagentService
     userQuestions: any
     lsp: any
     planMode: any
-    subagent: any
     mcpClient: any
     goal: any
     fs: any
@@ -61,6 +74,7 @@ declare module 'cordis' {
     terminals: any
     agentMiddleware: any
     workflowEngine: any
+    reflexion: any
   }
 }
 

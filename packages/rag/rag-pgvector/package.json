@@ -4,6 +4,9 @@
   "description": "PostgreSQL pgvector implementation of RagService for Custom Harness",
   "type": "module",
   "main": "src/index.ts",
+  "scripts": {
+    "test": "tsx --test tests/**/*.test.ts"
+  },
   "dependencies": {
     "@custom-harness/rag": "workspace:*",
     "@custom-harness/rag-vllm": "workspace:*",

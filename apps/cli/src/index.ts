@@ -1,6 +1,5 @@
 import { Context } from '@custom-harness/core-context'
 import * as headlessBundle from '@custom-harness/bundle-headless'
-import * as llmQwen from '@custom-harness/llm-qwen'
 import readline from 'node:readline'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -42,6 +41,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/logs', desc: 'Arka plandaki görevin loglarını incele (/logs <job_id>)', icon: '📜', snippet: '/logs ' },
   { name: '/kill', desc: 'Çalışan bir arka plan görevini anında durdur/iptal et (/kill <job_id>)', icon: '🛑', snippet: '/kill ' },
   { name: '/compact', desc: 'Sohbet geçmişini özetleyip bağlam penceresini temizle', icon: '📦', snippet: '/compact' },
+  { name: '/lessons', desc: 'Geçmiş hatalardan çıkarılan Reflexion hafızasını listele', icon: '🧠', snippet: '/lessons' },
 
   { name: '/tokens', desc: 'Canlı token tüketimini ve bağlam doluluğunu göster', icon: '📊', snippet: '/tokens' },
   { name: '/clear', desc: 'Terminal ekranını temizle', icon: '🧹', snippet: '/clear' },
@@ -57,10 +57,9 @@ async function main() {
   console.log(`${c.bold}${c.cyan}╚══════════════════════════════════════════════════════════════════════════════╝${c.reset}\n`)
 
   const args = process.argv.slice(2)
-  const isQwen = args.includes('qwen-local') || args.includes('--llm-qwen') || process.env.LLM_PROVIDER === 'qwen-local'
 
   const ctx = new Context()
-  ctx.plugin(headlessBundle, { llmPlugin: isQwen ? llmQwen : undefined })
+  ctx.plugin(headlessBundle)
   await ctx.start()
 
 
@@ -1212,6 +1211,23 @@ ${taskText}`
         return
       }
 
+      if (cmd === '/lessons' || cmd === '/reflections') {
+        const list = ctx.reflexion?.getReflections ? await ctx.reflexion.getReflections({ limit: 15 }) : []
+        if (!list || list.length === 0) {
+          console.log(`\n${c.gray}Henüz kaydedilmiş bir Reflexion dersi bulunmuyor.${c.reset}\n`)
+        } else {
+          console.log(`\n${c.bold}${c.cyan}🧠 [REFLEXION MEMORY — ÖĞRENİLEN DERSLER VE ÖZELEŞTİRİLER]:${c.reset}\n`)
+          list.forEach((entry: any, i: number) => {
+            console.log(`  ${c.yellow}${i + 1}.${c.reset} ${c.bold}${entry.task}${c.reset}`)
+            if (entry.error) console.log(`     ${c.red}Hata:${c.reset} ${entry.error}`)
+            console.log(`     ${c.green}Çıkarılan Ders:${c.reset} ${entry.reflection}`)
+            console.log(`     ${c.gray}Zaman:${c.reset} ${new Date(entry.timestamp).toLocaleString()}\n`)
+          })
+        }
+        promptUser()
+        return
+      }
+
       if (cmd === '/goal') {
         if (!argStr || argStr === 'status') {
           if (activeGoal) {
@@ -1259,14 +1275,17 @@ ${taskText}`
           }
 
           // Run in background without blocking CLI prompt
-          const bgPrompt = `[AUTONOMOUS BACKGROUND GOAL]\nOBJECTIVE: "${cleanGoal}"\n\n[INSTRUCTIONS]: You are running as a background autonomous engineer. Inspect the workspace, make changes, run tests, and fix all issues until the objective is 100% complete. When finished, call finish_task.`
+          const bgPrompt = `[AUTONOMOUS BACKGROUND GOAL]\nOBJECTIVE: "${cleanGoal}"\n\n[INSTRUCTIONS]: You are running as a background autonomous engineer. Inspect the workspace, make changes, run tests, and fix all issues until the objective is 100% complete. Execute tools step by step. When all steps and verifications are done, provide your final summary.`
 
           ctx.agent.run({
             sessionId: bgSession.id,
             presetId: currentPreset?.id || undefined,
             prompt: bgPrompt,
             autonomous: true,
-            enableThinking: false,
+            enableThinking: typeof ctx.settings?.getSettings?.()?.thinkingEnabled === 'boolean' ? ctx.settings.getSettings().thinkingEnabled : true,
+            onThought: (thought: string) => {
+              jobEntry.logs += thought
+            },
             onChunk: (chunk: string) => {
               jobEntry.logs += chunk
             }
@@ -1278,6 +1297,11 @@ ${taskText}`
           }).catch((err: any) => {
             jobEntry.status = 'failed'
             jobEntry.logs += `\n\n[FAILED]: ${err.message}`
+            ctx.reflexion?.recordReflection?.({
+              task: cleanGoal,
+              error: err.message,
+              reflection: `Görev şu hata nedeniyle başarısız oldu: "${err.message}". Gelecekteki denemelerde komut argümanlarını ve ortam kısıtlarını önceden doğrula.`
+            }).catch?.(() => {})
             process.stdout.write(`\n\n${c.bold}${c.red}⚠️ [BİLDİRİM - ARKA PLAN GÖREVİ HATA ALDI]:${c.reset} ${jobId}: ${err.message}\n\n`)
           })
 
@@ -1297,7 +1321,7 @@ ${taskText}`
     try {
       const isAutonomous = Boolean(activeGoal)
       const promptToSend = activeGoal
-        ? `[AKTİF HEDEF: ${activeGoal}]\n${input}\n\n[TALİMAT]: Bu hedefi tamamlamak için gerekli araçları otonom olarak art arda çalıştır. Görevi tamamen bitirip doğrulayana kadar durma. Her şey bittiğinde 'finish_task' çağırarak görevi tamamla.`
+        ? `[AKTİF HEDEF: ${activeGoal}]\n${input}\n\n[TALİMAT]: Bu hedefi tamamlamak için gerekli araçları otonom olarak art arda çalıştır. Görevi tamamen bitirip doğrulayana kadar adımları sürdür. Tüm adımlar ve doğrulamalar bittiğinde sonucu özetle.`
         : input
       let inThought = false
 

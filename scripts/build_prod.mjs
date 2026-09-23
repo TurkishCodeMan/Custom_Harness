@@ -18,7 +18,7 @@ async function buildProduction() {
   await fsp.mkdir(PUBLIC_DIR, { recursive: true })
 
   // 2. Build Backend Server (Minified, Obfuscated, Standalone ESM)
-  console.log('📦 [1/4] Backend sunucusu derleniyor ve minify ediliyor (dist/server.mjs)...')
+  console.log('📦 [1/5] Backend sunucusu derleniyor ve minify ediliyor (dist/server.mjs)...')
   await esbuild.build({
     entryPoints: [path.join(ROOT_DIR, 'apps/web/src/index.ts')],
     bundle: true,
@@ -34,6 +34,24 @@ async function buildProduction() {
     external: ['pg', 'redis', 'esbuild']
   })
   console.log('   ✅ Backend derlendi (dist/server.mjs)')
+
+  // 2b. Build CLI Agent Binary (Minified, Obfuscated, Standalone ESM)
+  console.log('💻 [2/5] CLI Agent derleniyor ve minify ediliyor (dist/cli.mjs)...')
+  await esbuild.build({
+    entryPoints: [path.join(ROOT_DIR, 'apps/cli/src/index.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    outfile: path.join(DIST_DIR, 'cli.mjs'),
+    minify: true,
+    sourcemap: false,
+    banner: {
+      js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);"
+    },
+    external: ['pg', 'redis', 'esbuild']
+  })
+  console.log('   ✅ CLI Agent derlendi (dist/cli.mjs)')
 
   // 3. Build Frontend React UI (Minified, Obfuscated Bundle)
   console.log('🎨 [2/4] Frontend React WebUI derleniyor (dist/public/bundle.js)...')

@@ -652,6 +652,8 @@ export function PresetsTab({
   const [searchTerm, setSearchTerm] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
 
+  const [liveSkills, setLiveSkills] = useState<Array<{ id: string; name: string; description?: string }>>([])
+  const [skillSearchTerm, setSkillSearchTerm] = useState('')
 
   const refreshTools = () => {
     fetch('/api/tools')
@@ -664,10 +666,22 @@ export function PresetsTab({
       .catch(() => {})
   }
 
+  const refreshSkills = () => {
+    fetch('/api/skills')
+      .then((res) => res.json())
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data?.skills || []
+        if (Array.isArray(list)) {
+          setLiveSkills(list)
+        }
+      })
+      .catch(() => {})
+  }
+
   useEffect(() => {
     refreshTools()
+    refreshSkills()
   }, [])
-
 
   const currentEnabled: string[] | undefined = presetForm.enabledTools
   const allToolNames = liveTools.map(t => t.name)
@@ -689,6 +703,34 @@ export function PresetsTab({
   const handleDeselectAll = () => {
     onPresetFormChange({ ...presetForm, enabledTools: [] })
   }
+
+  const currentEnabledSkills: string[] | undefined = presetForm.enabledSkills
+  const allSkillIds = liveSkills.map(s => s.id || s.name)
+
+  const handleToggleSkill = (skillId: string) => {
+    let nextList = currentEnabledSkills ? [...currentEnabledSkills] : [...allSkillIds]
+    if (nextList.includes(skillId)) {
+      nextList = nextList.filter(s => s !== skillId)
+    } else {
+      nextList.push(skillId)
+    }
+    onPresetFormChange({ ...presetForm, enabledSkills: nextList })
+  }
+
+  const handleSelectAllSkills = () => {
+    onPresetFormChange({ ...presetForm, enabledSkills: [...allSkillIds] })
+  }
+
+  const handleDeselectAllSkills = () => {
+    onPresetFormChange({ ...presetForm, enabledSkills: [] })
+  }
+
+  const filteredSkills = liveSkills.filter(s =>
+    !skillSearchTerm ||
+    s.name.toLowerCase().includes(skillSearchTerm.toLowerCase()) ||
+    (s.id && s.id.toLowerCase().includes(skillSearchTerm.toLowerCase())) ||
+    (s.description && s.description.toLowerCase().includes(skillSearchTerm.toLowerCase()))
+  )
 
   const filteredTools = liveTools.filter(t =>
     !searchTerm ||
@@ -885,6 +927,113 @@ export function PresetsTab({
               </label>
             )
           })}
+        </div>
+      </div>
+
+      {/* Dynamic Skills Selector (Directly from Skills Service / Atlantic AI Style) */}
+      <div className="form-group" style={{ marginTop: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label className="form-label" style={{ margin: 0, fontWeight: 700, color: '#e2e8f0' }}>
+              ⚡ Yetkili Uzmanlık Becerileri ({liveSkills.length} Beceri Mevcut)
+            </label>
+            <Badge variant={currentEnabledSkills ? 'purple' : 'default'}>
+              {currentEnabledSkills ? `${currentEnabledSkills.length} Seçili` : 'Tümü Açık'}
+            </Badge>
+          </div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              className="btn-action-small"
+              onClick={refreshSkills}
+              title="Beceri Listesini Yenile"
+              style={{ fontSize: '11px', padding: '2px 8px', background: 'rgba(59, 130, 246, 0.2)', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '4px', color: '#93c5fd', cursor: 'pointer' }}
+            >
+              🔄 Yenile
+            </button>
+            <button
+              type="button"
+              className="btn-action-small"
+              onClick={handleSelectAllSkills}
+              style={{ fontSize: '11px', padding: '2px 8px', background: 'rgba(168, 85, 247, 0.2)', border: '1px solid rgba(168, 85, 247, 0.4)', borderRadius: '4px', color: '#e9d5ff', cursor: 'pointer' }}
+            >
+              ✓ Tümünü Seç
+            </button>
+            <button
+              type="button"
+              className="btn-action-small"
+              onClick={handleDeselectAllSkills}
+              style={{ fontSize: '11px', padding: '2px 8px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', color: '#fca5a5', cursor: 'pointer' }}
+            >
+              ✕ Tümünü Kaldır
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '8px' }}>
+          <input
+            type="text"
+            className="form-input"
+            style={{ fontSize: '12px', padding: '6px 10px' }}
+            placeholder="🔍 Beceri veya açıklama ara (örn: butce, tedarik, sql, rag)..."
+            value={skillSearchTerm}
+            onChange={(e) => setSkillSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '8px',
+          background: 'rgba(15, 23, 42, 0.6)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: '8px',
+          padding: '12px',
+          maxHeight: '260px',
+          overflowY: 'auto'
+        }}>
+          {filteredSkills.length === 0 ? (
+            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '16px', color: '#64748b', fontSize: '12px' }}>
+              Tanımlı aktif beceri bulunamadı.
+            </div>
+          ) : (
+            filteredSkills.map((skill) => {
+              const skillKey = skill.id || skill.name
+              const isChecked = !currentEnabledSkills || currentEnabledSkills.includes(skillKey) || currentEnabledSkills.includes(skill.name)
+
+              return (
+                <label
+                  key={skillKey}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    padding: '8px 10px',
+                    background: isChecked ? 'rgba(168, 85, 247, 0.1)' : 'rgba(255, 255, 255, 0.02)',
+                    border: isChecked ? '1px solid rgba(168, 85, 247, 0.35)' : '1px solid rgba(255, 255, 255, 0.04)',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleToggleSkill(skillKey)}
+                    style={{ marginTop: '3px', cursor: 'pointer', accentColor: '#a855f7' }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <code style={{ fontSize: '12px', fontWeight: 700, color: isChecked ? '#f1f5f9' : '#94a3b8' }}>
+                      {skill.name}
+                    </code>
+                    <span style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', lineHeight: 1.3 }}>
+                      {skill.description || 'Özel uzmanlık becerisi'}
+                    </span>
+                  </div>
+                </label>
+              )
+            })
+          )}
         </div>
       </div>
 

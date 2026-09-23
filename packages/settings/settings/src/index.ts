@@ -203,7 +203,7 @@ export class SettingsService extends Service {
                 
                 // Categorize
                 let category: PluginConfig['category'] = 'core'
-                if (group.name === 'shell' || group.name === 'skill' || id.startsWith('tool-')) {
+                if (group.name === 'shell' || group.name === 'skill' || group.name === 'memory' || id.startsWith('tool-') || id.includes('reflexion')) {
                   category = 'tool'
                 } else if (group.name === 'llm' || id.includes('token') || id.includes('llm')) {
                   category = 'llm'
@@ -217,6 +217,10 @@ export class SettingsService extends Service {
                   if (id === 'tool-bash') description = 'Ajanın çalışma alanında güvenli bash komutları ve terminal işlemleri yürütmesini sağlar.'
                   else if (id === 'tool-skill') description = '.agents/skills/ altındaki özel becerileri ve talimatları dinamik olarak modele yükler.'
                   else if (id === 'token-meter') description = 'Sistem istemleri, araçlar ve geçmişin kapladığı bütçeyi ve anlık context doluluğunu ölçer.'
+                  else if (id === 'llm') description = 'Soyut LLM akış ve çıkarım kabiliyeti dikişi (Capability Seam).'
+                  else if (id === 'llm-provider-openai') description = 'vLLM, llama.cpp, Ollama, DeepSeek ve OpenAI için somut LLM sağlayıcısı.'
+                  else if (id === 'reflexion') description = 'Başarısızlıklardan öğrenme ve kalıcı sözel özeleştiri hafızası (Roitman [224] Reflexion).'
+                  else if (id === 'reflexion-local') description = 'Kalıcı disk tabanlı Reflexion bellek sağlayıcısı, prompt enjektörü ve record_reflection aracı.'
                   else if (id === 'core-agent') description = 'Otonom döngü ve çok turlu akıl yürütme motoru.'
                   else if (id === 'core-tools') description = 'Fonksiyon ve araç kayıt ve yürütme merkezi.'
                   else if (id === 'session') description = 'Sohbet geçmişi ve durum kalıcılığı servisi.'
@@ -253,7 +257,7 @@ export class SettingsService extends Service {
       ...(this.doc.plugins || {})
     }
 
-    // Ensure all discovered entries exist
+    // Ensure all discovered entries exist with live category and descriptions, preserving only saved enabled state
     for (const [k, v] of Object.entries(discovered)) {
       if (this.doc.plugins[k]) {
         this.doc.plugins[k] = { ...v, enabled: this.doc.plugins[k].enabled }
@@ -266,6 +270,10 @@ export class SettingsService extends Service {
   }
 
   private formatPluginTitle(id: string, moduleName?: string): string {
+    if (id === 'llm') return 'LLM Inference Seam (ctx.llm)'
+    if (id === 'llm-provider-openai') return 'OpenAI-Compatible LLM Provider'
+    if (id === 'reflexion') return 'Reflexion Memory Seam (ctx.reflexion)'
+    if (id === 'reflexion-local') return 'Reflexion Episodic Memory Provider'
     if (id === 'fs') return 'Filesystem Seam (ctx.fs)'
     if (id === 'fs-local') return 'Local Filesystem Provider'
     if (id === 'subprocess') return 'Process Execution Seam (ctx.subprocess)'
@@ -452,6 +460,9 @@ export class SettingsService extends Service {
       if (plugin && plugin.enabled === false) return false
     } else if (toolName === 'search_files') {
       const plugin = plugins['tool-fs-search']
+      if (plugin && plugin.enabled === false) return false
+    } else if (toolName === 'record_reflection') {
+      const plugin = plugins['reflexion-local'] || plugins['reflexion']
       if (plugin && plugin.enabled === false) return false
     }
 

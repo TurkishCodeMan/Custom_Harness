@@ -57,6 +57,7 @@ export interface ChatMessageItem {
   attachments?: UploadedAttachment[]
   presetName?: string
   modelName?: string
+  isInternal?: boolean
 }
 
 export interface ApprovalItem {
@@ -126,6 +127,11 @@ export function ConversationTimeline({
       const msg = messages[i]
       const key = `msg-${i}`
 
+      // Skip internal messages (e.g. Ralph Loop rounds or internal agent runs)
+      if (msg.isInternal || msg.content?.includes('[RALPH LOOP - ROUND')) {
+        continue
+      }
+
       if (msg.compactionInfo) {
         if (currentAssistantGroup) {
           result.push(currentAssistantGroup)
@@ -153,16 +159,29 @@ export function ConversationTimeline({
             presetName: msg.presetName,
             isStreaming: msg.isStreaming,
             tool_calls: msg.tool_calls ? [...msg.tool_calls] : [],
-            toolResults: msg.toolResults ? [...msg.toolResults] : (msg.role === 'tool' ? [{ id: (msg as any).tool_call_id || `tool-${i}`, name: (msg as any).name || 'Tool Result', output: msg.content, status: 'done' as const }] : []),
+            toolResults: msg.toolResults
+              ? [...msg.toolResults]
+              : (msg.role === 'tool'
+                ? [{
+                    id: (msg as any).tool_call_id || `tool-${i}`,
+                    name: (msg as any).name || 'Tool Result',
+                    output: msg.content,
+                    status: 'done' as const
+                  }]
+                : []),
             key: `asst-group-${i}`
           }
         } else {
           // Merge consecutive assistant/tool turns into single bubble
           if (msg.role === 'assistant') {
             if (msg.content) {
-              currentAssistantGroup.content = currentAssistantGroup.content 
-                ? `${currentAssistantGroup.content}\n\n${msg.content}`
-                : msg.content
+              const prevText = currentAssistantGroup.content ? currentAssistantGroup.content.trim() : ''
+              const nextText = msg.content.trim()
+              if (nextText) {
+                currentAssistantGroup.content = prevText 
+                  ? `${prevText}\n\n${nextText}`
+                  : nextText
+              }
             }
             if (msg.reasoning_content) {
               currentAssistantGroup.reasoning_content = currentAssistantGroup.reasoning_content
@@ -170,10 +189,26 @@ export function ConversationTimeline({
                 : msg.reasoning_content
             }
             if (msg.tool_calls && msg.tool_calls.length > 0) {
-              currentAssistantGroup.tool_calls = [
-                ...(currentAssistantGroup.tool_calls || []),
-                ...msg.tool_calls
-              ]
+              const existingCalls = currentAssistantGroup.tool_calls ? [...currentAssistantGroup.tool_calls] : []
+              for (const tc of msg.tool_calls) {
+                const tcId = tc.id || (tc.function?.name || tc.name)
+                if (!existingCalls.some(c => (c.id || c.function?.name || c.name) === tcId)) {
+                  existingCalls.push(tc)
+                }
+              }
+              currentAssistantGroup.tool_calls = existingCalls
+            }
+            if (msg.toolResults && msg.toolResults.length > 0) {
+              const existingTools = currentAssistantGroup.toolResults ? [...currentAssistantGroup.toolResults] : []
+              for (const tr of msg.toolResults) {
+                const exIdx = existingTools.findIndex(t => t.id === tr.id)
+                if (exIdx >= 0) {
+                  existingTools[exIdx] = { ...existingTools[exIdx], ...tr }
+                } else {
+                  existingTools.push({ ...tr })
+                }
+              }
+              currentAssistantGroup.toolResults = existingTools
             }
             if (msg.presetName) {
               currentAssistantGroup.presetName = msg.presetName
@@ -182,19 +217,27 @@ export function ConversationTimeline({
               currentAssistantGroup.isStreaming = msg.isStreaming
             }
           } else if (msg.role === 'tool') {
-            const tr: ToolResultItem = {
-              id: (msg as any).tool_call_id || `tool-${i}`,
-              name: (msg as any).name || 'Tool Result',
-              output: msg.content,
-              status: 'done'
+            const toolId = (msg as any).tool_call_id || `tool-${i}`
+            const toolName = (msg as any).name || 'Tool Result'
+            const existingTools = currentAssistantGroup.toolResults ? [...currentAssistantGroup.toolResults] : []
+            const exIdx = existingTools.findIndex(t => t.id === toolId)
+            if (exIdx >= 0) {
+              existingTools[exIdx] = {
+                ...existingTools[exIdx],
+                output: msg.content,
+                status: 'done'
+              }
+            } else {
+              existingTools.push({
+                id: toolId,
+                name: toolName,
+                output: msg.content,
+                status: 'done'
+              })
             }
-            currentAssistantGroup.toolResults = [
-              ...(currentAssistantGroup.toolResults || []),
-              tr
-            ]
+            currentAssistantGroup.toolResults = existingTools
           }
         }
-
       }
     }
 
@@ -268,7 +311,7 @@ export function ConversationTimeline({
             <ApprovalCard approval={pendingApproval} onRespond={onRespondApproval} />
           )}
 
-          <div ref={bottomRef} style={{ height: 40 }} />
+          <div ref={bottomRef} style={{ height: 12 }} />
         </div>
       )}
     </div>
@@ -341,12 +384,77 @@ export function AssistantMessageBubble({
     }
   }
 
-  const hasTools = message.tool_calls && message.tool_calls.length > 0
-  const hasToolResults = message.toolResults && message.toolResults.length > 0
+  // Combine tool_calls and toolResults into a single, deduplicated, ordered list
+  const unifiedTools = React.useMemo(() => {
+    const list: UnifiedToolItem[] = []
+    const indexMap = new Map<string, number>()
+
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      for (const tc of message.tool_calls) {
+        const id = tc.id || `tc-${tc.function?.name || tc.name}`
+        const name = tc.function?.name || tc.name || 'Bilinmeyen Araç'
+        const args = tc.function?.arguments || tc.args
+        const item: UnifiedToolItem = {
+          id,
+          name,
+          args,
+          status: message.isStreaming ? 'running' : 'done'
+        }
+        indexMap.set(id, list.length)
+        indexMap.set(name, list.length)
+        list.push(item)
+      }
+    }
+
+    if (message.toolResults && message.toolResults.length > 0) {
+      for (const tr of message.toolResults) {
+        const targetIdx = indexMap.has(tr.id)
+          ? indexMap.get(tr.id)!
+          : (indexMap.has(tr.name) ? indexMap.get(tr.name)! : -1)
+
+        if (targetIdx >= 0 && list[targetIdx]) {
+          const existing = list[targetIdx]
+          if (tr.output !== undefined) existing.output = tr.output
+          if (tr.args && !existing.args) existing.args = tr.args
+          if (tr.status && tr.status !== 'running') {
+            existing.status = tr.status
+          } else if (existing.output !== undefined || tr.output !== undefined) {
+            existing.status = 'done'
+          } else if (tr.status) {
+            existing.status = tr.status
+          }
+        } else {
+          const hasOutput = tr.output !== undefined && tr.output !== null
+          const item: UnifiedToolItem = {
+            id: tr.id,
+            name: tr.name || 'Bilinmeyen Araç',
+            args: tr.args,
+            output: tr.output,
+            status: hasOutput ? 'done' : (tr.status || (message.isStreaming ? 'running' : 'done'))
+          }
+          indexMap.set(tr.id, list.length)
+          list.push(item)
+        }
+      }
+    }
+
+    return list.map((item) => {
+      const hasOutput = item.output !== undefined && item.output !== null
+      const isFinished = hasOutput || !message.isStreaming
+      let status = item.status
+      if (isFinished && status === 'running') {
+        status = 'done'
+      }
+      return {
+        ...item,
+        status
+      }
+    })
+  }, [message.tool_calls, message.toolResults, message.isStreaming])
 
   // 🧠 Extract inline <thought> / <think> tags from content if present (e.g. Gemma, DeepSeek, Qwen)
-  let displayContent = message.content || ''
-  let displayReasoning = message.reasoning_content || ''
+  let displayContent = (message.content || '').trim()
+  let displayReasoning = (message.reasoning_content || '').trim()
 
   if (displayContent && (displayContent.includes('<thought') || displayContent.includes('<think') || displayContent.includes('<commentary'))) {
     const thoughtRegex = /<(?:thought|think|commentary)(?:>|[\s\n\r])([\s\S]*?)(?:<\/(?:thought|think|commentary)>|$)/gi
@@ -362,7 +470,9 @@ export function AssistantMessageBubble({
     }
   }
 
-  const isPending = message.isStreaming && !displayContent && !displayReasoning
+  const hasRunningTools = unifiedTools.some(t => t.status === 'running')
+  const hasTools = unifiedTools.length > 0
+  const isPending = message.isStreaming && !displayContent && !displayReasoning && !hasRunningTools && !hasTools
 
   return (
     <div className="msg-row assistant-row">
@@ -384,20 +494,11 @@ export function AssistantMessageBubble({
           <ThinkingBlock reasoning={displayReasoning} isStreaming={message.isStreaming} />
         ) : null}
 
-        {/* Tool Invocations */}
+        {/* Unified Tool Execution Cards */}
         {hasTools && (
-          <div className="tool-cards-container">
-            {message.tool_calls!.map((tc, idx) => (
-              <ToolCallCard key={tc.id || `tc-${idx}`} call={tc} />
-            ))}
-          </div>
-        )}
-
-        {/* Tool Results */}
-        {hasToolResults && (
-          <div className="tool-results-container">
-            {message.toolResults!.map((tr, idx) => (
-              <ToolResultCard key={tr.id || `tr-${idx}`} result={tr} />
+          <div className="unified-tools-list">
+            {unifiedTools.map((t, idx) => (
+              <UnifiedToolCard key={t.id || `tool-${idx}`} tool={t} />
             ))}
           </div>
         )}
@@ -490,57 +591,205 @@ export function ThinkingBlock({
   )
 }
 
-export function ToolCallCard({ call }: { call: any }) {
+export interface UnifiedToolItem {
+  id: string
+  name: string
+  args?: any
+  output?: any
+  status: 'running' | 'done' | 'error'
+}
+
+export function UnifiedToolCard({ tool }: { tool: UnifiedToolItem }) {
   const [isOpen, setIsOpen] = useState(false)
-  const fnName = call.function?.name || call.name || 'Bilinmeyen Araç'
-  let argsStr = call.function?.arguments || call.args || '{}'
-  if (typeof argsStr !== 'string') argsStr = JSON.stringify(argsStr, null, 2)
+
+  // Extract a concise 1-line argument summary for the header chip
+  let argsSummary = ''
+  if (tool.args) {
+    try {
+      const parsed = typeof tool.args === 'string' ? JSON.parse(tool.args) : tool.args
+      if (typeof parsed === 'object' && parsed !== null) {
+        const keys = Object.keys(parsed)
+        if (keys.length === 1) {
+          const val = String(parsed[keys[0]])
+          argsSummary = `${keys[0]}="${val.length > 35 ? val.substring(0, 32) + '...' : val}"`
+        } else if (keys.length > 1) {
+          const firstKey = keys[0]
+          const val = String(parsed[firstKey])
+          argsSummary = `${firstKey}="${val.length > 25 ? val.substring(0, 22) + '...' : val}" (+${keys.length - 1})`
+        }
+      } else if (typeof parsed === 'string') {
+        argsSummary = parsed.length > 35 ? parsed.substring(0, 32) + '...' : parsed
+      }
+    } catch {
+      if (typeof tool.args === 'string') {
+        argsSummary = tool.args.length > 35 ? tool.args.substring(0, 32) + '...' : tool.args
+      }
+    }
+  }
+
+  let formattedArgs = ''
+  if (tool.args) {
+    try {
+      const parsed = typeof tool.args === 'string' ? JSON.parse(tool.args) : tool.args
+      formattedArgs = JSON.stringify(parsed, null, 2)
+    } catch {
+      formattedArgs = String(tool.args)
+    }
+  }
+
+  let formattedOutput = ''
+  if (tool.output !== undefined && tool.output !== null) {
+    try {
+      const parsed = typeof tool.output === 'string' ? JSON.parse(tool.output) : tool.output
+      formattedOutput = typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : String(parsed)
+    } catch {
+      formattedOutput = String(tool.output)
+    }
+  }
+
+  const hasOutput = tool.output !== undefined && tool.output !== null
+  const effectiveStatus = (tool.status === 'running' && hasOutput) ? 'done' : tool.status
+  const isRunning = effectiveStatus === 'running' && !hasOutput
+  const isError = effectiveStatus === 'error'
+
+  const isSubagent = tool.name === 'invoke_subagent'
+  let subagentTaskName = ''
+  let subagentPreset = ''
+  let subagentResult = ''
+  let subagentDuration = ''
+
+  if (isSubagent) {
+    try {
+      const pArgs = typeof tool.args === 'string' ? JSON.parse(tool.args) : tool.args
+      subagentTaskName = pArgs?.taskName || ''
+      subagentPreset = pArgs?.preset || ''
+    } catch {}
+
+    try {
+      const pOut = typeof tool.output === 'string' ? JSON.parse(tool.output) : tool.output
+      if (pOut?.result) {
+        subagentResult = pOut.result
+      }
+      if (pOut?.durationSeconds) {
+        subagentDuration = `${pOut.durationSeconds}s`
+      }
+    } catch {}
+  }
 
   return (
-    <div className={`tool-card tool-call ${isOpen ? 'open' : 'closed'}`}>
-      <div className="tool-card-header" onClick={() => setIsOpen(!isOpen)}>
-        <div className="tool-badge-info">
-          <IconTerminal size={13} className="tool-badge-icon" />
-          <span className="tool-title">Araç Çağrısı:</span>
-          <code className="tool-name">{fnName}</code>
+    <div className={`unified-tool-card ${effectiveStatus} ${isOpen ? 'open' : 'closed'} ${isSubagent ? 'subagent-card' : ''}`}>
+      <div className="unified-tool-header" onClick={() => setIsOpen(!isOpen)}>
+        <div className="unified-tool-left">
+          {isSubagent ? (
+            <>
+              <span className="unified-tool-icon-wrap" style={{ background: 'rgba(99, 102, 241, 0.18)', borderColor: 'rgba(99, 102, 241, 0.45)' }}>
+                {isRunning ? (
+                  <span className="tool-spinner-ring" />
+                ) : isError ? (
+                  <span className="tool-status-error">✕</span>
+                ) : (
+                  <span style={{ fontSize: '13px' }}>🤖</span>
+                )}
+              </span>
+              <span className="unified-tool-label" style={{ color: '#818cf8', fontWeight: 600 }}>Alt Ajan:</span>
+              <code className="unified-tool-name" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.35)' }}>
+                {subagentPreset || 'novatrend-subagent'}
+              </code>
+              {subagentTaskName && (
+                <span className="unified-tool-args-preview" title={subagentTaskName} style={{ color: '#c7d2fe', fontWeight: 500 }}>
+                  {subagentTaskName}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="unified-tool-icon-wrap">
+                {isRunning ? (
+                  <span className="tool-spinner-ring" />
+                ) : isError ? (
+                  <span className="tool-status-error">✕</span>
+                ) : (
+                  <IconTerminal size={12} className="tool-icon-term" />
+                )}
+              </span>
+              <span className="unified-tool-label">Araç:</span>
+              <code className="unified-tool-name">{tool.name}</code>
+              {argsSummary && (
+                <span className="unified-tool-args-preview" title={typeof tool.args === 'string' ? tool.args : JSON.stringify(tool.args)}>
+                  {argsSummary}
+                </span>
+              )}
+            </>
+          )}
         </div>
-        <span className={`tool-toggle-arrow ${isOpen ? 'open' : ''}`}>
-          <IconChevronDown size={13} />
-        </span>
+
+        <div className="unified-tool-right">
+          <span className={`unified-tool-badge ${effectiveStatus}`}>
+            {isRunning ? 'Çalışıyor...' : isError ? 'Hata' : 'Tamamlandı'}
+          </span>
+          <span className={`unified-tool-arrow ${isOpen ? 'open' : ''}`}>
+            <IconChevronDown size={12} />
+          </span>
+        </div>
       </div>
+
       {isOpen && (
-        <div className="tool-card-body">
-          <pre><code>{argsStr}</code></pre>
+        <div className="unified-tool-body">
+          {formattedArgs && !isSubagent && (
+            <div className="unified-tool-section">
+              <div className="unified-tool-section-label">Parametreler (Girdi)</div>
+              <pre className="unified-tool-pre"><code>{formattedArgs}</code></pre>
+            </div>
+          )}
+
+          {isSubagent && subagentResult ? (
+            <div className="unified-tool-section subagent-result-section">
+              <div className="unified-tool-section-label" style={{ display: 'flex', justifyContent: 'space-between', color: '#a5b4fc', marginBottom: '6px' }}>
+                <span>Alt Ajan Bulguları ve Raporu</span>
+                {subagentDuration && <span style={{ opacity: 0.75 }}>Süre: {subagentDuration}</span>}
+              </div>
+              <div
+                className="subagent-markdown-content"
+                style={{
+                  padding: '12px 16px',
+                  background: 'rgba(15, 23, 42, 0.75)',
+                  border: '1px solid rgba(99, 102, 241, 0.28)',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  lineHeight: '1.6',
+                  color: '#e2e8f0',
+                  maxHeight: '420px',
+                  overflowY: 'auto'
+                }}
+                dangerouslySetInnerHTML={{ __html: formatMarkdown(subagentResult) }}
+              />
+            </div>
+          ) : hasOutput ? (
+            <div className="unified-tool-section">
+              <div className="unified-tool-section-label">Sonuç (Çıktı)</div>
+              <pre className="unified-tool-pre"><code>{formattedOutput || '(Boş çıktı / Başarılı)'}</code></pre>
+            </div>
+          ) : isRunning ? (
+            <div className="unified-tool-section running-notice">
+              <span className="tool-spinner-ring" />
+              <span>{isSubagent ? 'Alt ajan araştırmasını yürütüyor, sonuç bekleniyor...' : 'Komut yürütülüyor, sonuç bekleniyor...'}</span>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
   )
 }
 
-export function ToolResultCard({ result }: { result: ToolResultItem }) {
-  const [isOpen, setIsOpen] = useState(false)
-  let outStr = result.output
-  if (typeof outStr !== 'string') outStr = JSON.stringify(outStr, null, 2)
+// Backwards-compatibility wrapper
+export function ToolCallCard({ call }: { call: any }) {
+  const fnName = call.function?.name || call.name || 'Bilinmeyen Araç'
+  return <UnifiedToolCard tool={{ id: call.id || 'tc', name: fnName, args: call.function?.arguments || call.args, status: 'done' }} />
+}
 
-  return (
-    <div className={`tool-card tool-result ${isOpen ? 'open' : 'closed'}`}>
-      <div className="tool-card-header" onClick={() => setIsOpen(!isOpen)}>
-        <div className="tool-badge-info">
-          <span className="result-icon">⚡</span>
-          <span className="tool-title">Sonuç:</span>
-          <code className="tool-name">{result.name}</code>
-        </div>
-        <span className={`tool-toggle-arrow ${isOpen ? 'open' : ''}`}>
-          <IconChevronDown size={13} />
-        </span>
-      </div>
-      {isOpen && (
-        <div className="tool-card-body">
-          <pre><code>{outStr}</code></pre>
-        </div>
-      )}
-    </div>
-  )
+// Backwards-compatibility wrapper
+export function ToolResultCard({ result }: { result: ToolResultItem }) {
+  return <UnifiedToolCard tool={{ id: result.id, name: result.name, args: result.args, output: result.output, status: result.status || 'done' }} />
 }
 
 export function CompactionCard({ info }: { info: { messageCount: number; summary: string } }) {
@@ -974,6 +1223,9 @@ function formatMarkdown(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
 
+  // Normalize line endings
+  html = html.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
   // 1. Code blocks (preserve and format)
   const codeBlocks: string[] = []
   html = html.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, (_match, lang, code) => {
@@ -981,11 +1233,11 @@ function formatMarkdown(text: string): string {
     codeBlocks.push(
       `<div class="code-block-wrapper"><div class="code-header"><span class="code-lang">${lang || 'kod'}</span><button class="btn-code-copy" onclick="navigator.clipboard.writeText(this.closest('.code-block-wrapper').querySelector('code').innerText);this.innerText='✓ Kopyalandı';setTimeout(()=>this.innerText='Kopyala',2000)">Kopyala</button></div><pre><code>${code}</code></pre></div>`
     )
-    return `__CODE_BLOCK_${idx}__`
+    return `\n__CODE_BLOCK_${idx}__\n`
   })
 
   // 2. GFM Markdown Tables
-  html = html.replace(/((?:^[ \t]*\|.+?\|[ \t]*(?:\r?\n|$)){2,})/gm, (tableBlock) => {
+  html = html.replace(/((?:^[ \t]*\|.+?\|[ \t]*(?:\n|$)){2,})/gm, (tableBlock) => {
     const lines = tableBlock.trim().split('\n').map(l => l.trim()).filter(Boolean)
     if (lines.length < 2) return tableBlock
 
@@ -1003,11 +1255,11 @@ function formatMarkdown(text: string): string {
       return `<tr>${cols.map(c => `<td>${c}</td>`).join('')}</tr>`
     }).join('')
 
-    return `<div class="md-table-wrapper"><table class="md-table">${headerHtml}<tbody>${bodyRows}</tbody></table></div>`
+    return `\n<div class="md-table-wrapper"><table class="md-table">${headerHtml}<tbody>${bodyRows}</tbody></table></div>\n`
   })
 
   // 3. Images: ![alt](url)
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<div class="md-image-wrapper"><img src="$2" alt="$1" class="md-image" /><span class="md-image-caption">$1</span></div>')
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '\n<div class="md-image-wrapper"><img src="$2" alt="$1" class="md-image" /><span class="md-image-caption">$1</span></div>\n')
 
   // 4. Links: [text](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1 ↗</a>')
@@ -1016,31 +1268,54 @@ function formatMarkdown(text: string): string {
   html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
 
   // 6. Headings with gradient accents
-  html = html.replace(/^#### (.*$)/gim, '<h4 class="md-h4">$1</h4>')
-  html = html.replace(/^### (.*$)/gim, '<h3 class="md-h3">$1</h3>')
-  html = html.replace(/^## (.*$)/gim, '<h2 class="md-h2">$1</h2>')
-  html = html.replace(/^# (.*$)/gim, '<h1 class="md-h1">$1</h1>')
+  html = html.replace(/^#### (.*$)/gim, '\n<h4 class="md-h4">$1</h4>\n')
+  html = html.replace(/^### (.*$)/gim, '\n<h3 class="md-h3">$1</h3>\n')
+  html = html.replace(/^## (.*$)/gim, '\n<h2 class="md-h2">$1</h2>\n')
+  html = html.replace(/^# (.*$)/gim, '\n<h1 class="md-h1">$1</h1>\n')
 
   // 7. Blockquotes / Callout Highlights
-  html = html.replace(/^>\s*(.*$)/gim, '<blockquote class="md-blockquote">$1</blockquote>')
+  html = html.replace(/^>\s*(.*$)/gim, '\n<blockquote class="md-blockquote">$1</blockquote>\n')
 
   // 8. Horizontal rules
-  html = html.replace(/^(?:---|___|\*\*\*)$/gim, '<hr class="md-hr" />')
+  html = html.replace(/^(?:---|___|\*\*\*)$/gim, '\n<hr class="md-hr" />\n')
 
   // 9. Bold & Italic
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="md-strong">$1</strong>')
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
 
-  // 10. Bullet points
+  // 10. Bullet points (wrap in <ul> and remove inner newlines)
   html = html.replace(/^[\*\-]\s+(.*$)/gim, '<li class="md-list-item">$1</li>')
+  html = html.replace(/((?:<li class="md-list-item">[\s\S]*?<\/li>\s*)+)/g, (_m, listItems) => {
+    const cleanItems = listItems.replace(/\n+/g, '')
+    return `\n<ul class="md-list">${cleanItems}</ul>\n`
+  })
 
-  // 11. Newlines
+  // 11. Clean up newlines around block elements so they NEVER get <br/>
+  const blockTags = 'h[1-6]|blockquote|hr|div|ul|ol|li|table|thead|tbody|tr|th|td|__CODE_BLOCK_\\d+__'
+  const openOrCloseBlockRegex = new RegExp(`\\n*(<\\/?(?:${blockTags})[^>]*>)\\n*`, 'gi')
+  html = html.replace(openOrCloseBlockRegex, '$1')
+
+  // 12. Collapse excessive consecutive newlines in remaining inline text
+  html = html.replace(/\n{3,}/g, '\n\n')
+
+  // 13. Convert paragraph breaks (\n\n) to a single <br/> with clean line spacing, or single \n to <br/>
+  html = html.replace(/\n\n/g, '<br/><br/>')
   html = html.replace(/\n/g, '<br/>')
 
-  // 12. Restore code blocks
+  // 14. Purge any accidental <br/> adjacent to block elements
+  html = html.replace(/(?:<br\s*\/?>\s*)+(<\/?(?:h[1-6]|blockquote|hr|div|ul|ol|li|table|thead|tbody|tr|th|td)[^>]*>)/gi, '$1')
+  html = html.replace(/(<\/?(?:h[1-6]|blockquote|hr|div|ul|ol|li|table|thead|tbody|tr|th|td)[^>]*>)(?:\s*<br\s*\/?>)+/gi, '$1')
+  // Collapse 3 or more consecutive <br/> into at most 2 (standard paragraph break)
+  html = html.replace(/(?:<br\s*\/?>\s*){3,}/gi, '<br/><br/>')
+
+  // 15. Restore code blocks
   codeBlocks.forEach((block, idx) => {
     html = html.replace(`__CODE_BLOCK_${idx}__`, block)
   })
 
-  return html
+  // Clean any <br/> touching code-block-wrapper
+  html = html.replace(/(?:<br\s*\/?>\s*)+(<div class="code-block-wrapper">)/gi, '$1')
+  html = html.replace(/(<\/div>)(?:\s*<br\s*\/?>)+(?=\s*<div class="code-block-wrapper">|$)/gi, '$1')
+
+  return html.trim()
 }

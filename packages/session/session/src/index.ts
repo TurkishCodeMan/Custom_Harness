@@ -4,6 +4,7 @@ import type { SessionData, ChatMessage } from '@custom-harness/core-types'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { createHash } from 'node:crypto'
 
 const getDshDir = () => process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
 const getSessionsDir = () => path.join(getDshDir(), 'sessions')
@@ -44,7 +45,9 @@ export class SessionService extends Service {
     title: string = 'Yeni Sohbet',
     workspace?: string,
     userId?: string,
-    clientType: 'web' | 'cli' | 'vscode' | string = 'web'
+    clientType: 'web' | 'cli' | 'vscode' | string = 'web',
+    isInternal?: boolean,
+    setActive: boolean = true
   ): SessionData {
     const id = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const uid = userId || 'user_admin'
@@ -56,9 +59,12 @@ export class SessionService extends Service {
       updatedAt: Date.now(),
       workspace: workspace || this.ctx.settings?.getWorkspaceForUser?.(uid) || this.ctx.settings?.getWorkspace?.() || process.cwd(),
       userId: uid,
-      messages: []
+      messages: [],
+      ...(isInternal ? { isInternal: true } : {})
     }
-    this.activeSessionId = id
+    if (setActive) {
+      this.activeSessionId = id
+    }
     this.sessions.set(id, session)
     this.saveSession(session)
     return session
@@ -141,6 +147,25 @@ export class SessionService extends Service {
           seen.add(session.id)
           const sessionClientType = session.clientType || 'web'
           if (clientType === '*' || sessionClientType === clientType) {
+            // Filter out internal / sub-agent / ralph child sessions from sidebar history
+            if (
+              session.isInternal ||
+              (session as any).isSubagentTrace ||
+              session.title?.startsWith('[Trace') ||
+              session.title?.startsWith('[RALPH LOOP') ||
+              session.title?.startsWith('Ralph Round') ||
+              session.title?.startsWith('Subagent:') ||
+              session.title?.startsWith('[AUTONOMOUS BACKGROUND GOAL]')
+            ) {
+              return
+            }
+
+            // Filter out empty sessions with default title (ghost sessions with 0 messages)
+            const hasMessages = Array.isArray(session.messages) && session.messages.length > 0
+            const isDefaultTitle = !session.title || session.title === 'Yeni Sohbet' || session.title === 'Yeni Oturum'
+            if (!hasMessages && isDefaultTitle) {
+              return
+            }
             list.push({
               id: session.id,
               title: session.title,
@@ -189,6 +214,22 @@ export class SessionService extends Service {
     if (userId && !session.userId) {
       session.userId = userId
     }
+
+    // Silent Overflow Guard: prevent gigantic message payloads from overwhelming context and memory
+    const MAX_MESSAGE_CHARS = 160_000
+    if (typeof message.content === 'string' && message.content.length > MAX_MESSAGE_CHARS) {
+      const originalLen = message.content.length
+      const head = message.content.slice(0, 40_000)
+      const tail = message.content.slice(-20_000)
+      message.content = `${head}\n\n... [İÇERİK KIRPILDI / SILENT OVERFLOW GUARD: Orijinal boyut ${originalLen} karakter. Token patlamasını önlemek için orta kısım budandı.] ...\n\n${tail}`
+      console.warn(`[SessionGuard] Silent overflow prevented in session '${sessionId}': message truncated from ${originalLen} chars.`)
+      ;(this.ctx as any)?.emit?.('session/overflow', { sessionId, originalLength: originalLen })
+    }
+
+    if (!message.timestamp) {
+      message.timestamp = Date.now()
+    }
+
     session.messages.push(message)
     session.updatedAt = Date.now()
 
@@ -263,6 +304,27 @@ export class SessionService extends Service {
         try { fs.rmSync(p, { recursive: true, force: true }) } catch (e) {}
       }
     }
+
+    // Clean up session tool output spills (SpillStore)
+    try {
+      if ((this.ctx as any).spillStore?.deleteSessionSpills) {
+        (this.ctx as any).spillStore.deleteSessionSpills(id)
+      } else {
+        const safeSession = createHash('sha256').update(id).digest('hex').slice(0, 12)
+        const spillDir = path.join(getDshDir(), 'spills', `session-${safeSession}`)
+        if (fs.existsSync(spillDir)) {
+          fs.rmSync(spillDir, { recursive: true, force: true })
+        }
+      }
+    } catch (e) {
+      try {
+        const safeSession = createHash('sha256').update(id).digest('hex').slice(0, 12)
+        const spillDir = path.join(getDshDir(), 'spills', `session-${safeSession}`)
+        if (fs.existsSync(spillDir)) {
+          fs.rmSync(spillDir, { recursive: true, force: true })
+        }
+      } catch {}
+    }
   }
 
   public clearAllSessions(userId?: string, isAdmin?: boolean) {
@@ -277,6 +339,11 @@ export class SessionService extends Service {
             const id = f.replace('.json', '')
             this.sessions.delete(id)
             try { fs.unlinkSync(path.join(tenantDir, f)) } catch (e) {}
+            try {
+              if ((this.ctx as any).spillStore?.deleteSessionSpills) {
+                (this.ctx as any).spillStore.deleteSessionSpills(id)
+              }
+            } catch (e) {}
           }
         } catch (e) {}
       }
@@ -293,6 +360,11 @@ export class SessionService extends Service {
           try {
             fs.unlinkSync(path.join(getSessionsDir(), f))
           } catch (e) {}
+          try {
+            if ((this.ctx as any).spillStore?.deleteSessionSpills) {
+              (this.ctx as any).spillStore.deleteSessionSpills(id)
+            }
+          } catch (e) {}
         }
       }
     } catch (e) {}
@@ -302,6 +374,10 @@ export class SessionService extends Service {
       const uploadsBase = path.join(getDshDir(), 'uploads')
       if (fs.existsSync(uploadsBase)) {
         try { fs.rmSync(uploadsBase, { recursive: true, force: true }) } catch (e) {}
+      }
+      const spillsBase = path.join(getDshDir(), 'spills')
+      if (fs.existsSync(spillsBase)) {
+        try { fs.rmSync(spillsBase, { recursive: true, force: true }) } catch (e) {}
       }
     } else if (userId) {
       const tenantUploads = path.join(getTenantsDir(), userId, 'uploads')
@@ -320,6 +396,10 @@ export class SessionService extends Service {
   }
 
   public saveSession(session: SessionData) {
+    // Never persist internal subagent sessions to disk
+    if (session.isInternal) {
+      return
+    }
     try {
       const uid = session.userId || 'user_admin'
       const tenantDir = this.getTenantSessionsDir(uid)

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Context } from '@custom-harness/core-context'
+import { requireSession } from '../middleware/auth.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -48,11 +49,50 @@ export function createWorkspaceRouter(ctx: Context): Router {
         .map(e => e.name)
         .sort()
 
+      let allFiles: Array<{
+        name: string
+        relativePath: string
+        fullPath: string
+        size: number
+        extension: string
+      }> | undefined
+
+      if (req.body?.recursive === true) {
+        allFiles = []
+        const rootDir = dirToRead
+        const scan = (curDir: string) => {
+          try {
+            const list = fs.readdirSync(curDir, { withFileTypes: true })
+            for (const item of list) {
+              if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === 'dist' || item.name === 'dist-web') continue
+              const full = path.join(curDir, item.name)
+              if (item.isDirectory()) {
+                scan(full)
+              } else if (item.isFile()) {
+                try {
+                  const s = fs.statSync(full)
+                  allFiles!.push({
+                    name: item.name,
+                    relativePath: path.relative(rootDir, full),
+                    fullPath: full,
+                    size: s.size,
+                    extension: path.extname(item.name).toLowerCase()
+                  })
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+        scan(rootDir)
+        allFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+      }
+
       res.json({
         current: dirToRead,
         parent: path.dirname(dirToRead),
         directories,
-        files
+        files,
+        allFiles
       })
     } catch (e: any) {
       res.status(500).json({ error: e.message })
@@ -60,7 +100,7 @@ export function createWorkspaceRouter(ctx: Context): Router {
   })
 
   // 3. POST Set Workspace
-  router.post('/workspace', (req, res) => {
+  router.post('/workspace', requireSession(ctx, 'sessionId', { optional: true }), (req, res) => {
     const user = req.user || { id: 'user_admin', role: 'admin' }
     const { path: wsPath, sessionId, global: isGlobal } = req.body
     if (wsPath && fs.existsSync(wsPath)) {

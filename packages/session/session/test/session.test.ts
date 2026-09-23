@@ -1,5 +1,9 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import { createHash } from 'node:crypto'
 import { Context } from '@custom-harness/core-context'
 import * as settings from '@custom-harness/settings'
 
@@ -54,4 +58,37 @@ describe('SessionService Client Type Separation (Web vs CLI)', async () => {
     assert.ok(clientTypes.has('cli'))
   })
 
+  test('deleteSession removes spilled output directory from disk', () => {
+    const s = ctx.session.createSession('Spill Cleanup Test', undefined, 'user_test')
+    const safeHash = createHash('sha256').update(s.id).digest('hex').slice(0, 12)
+    const baseDir = process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
+    const spillDir = path.join(baseDir, 'spills', `session-${safeHash}`)
+
+    // Simulate spilled files created for this session
+    fs.mkdirSync(spillDir, { recursive: true })
+    fs.writeFileSync(path.join(spillDir, 'test_output.txt'), 'spilled content')
+    assert.ok(fs.existsSync(spillDir), 'Spill directory should exist before deletion')
+
+    // Delete the session
+    ctx.session.deleteSession(s.id, 'user_test')
+
+    // Spill directory should be completely removed
+    assert.equal(fs.existsSync(spillDir), false, 'Spill directory should be deleted on deleteSession')
+  })
+
+  test('appendMessage truncates gigantic message content to prevent silent overflow', () => {
+    const s = ctx.session.createSession('Overflow Test', undefined, 'user_test')
+    const giganticPayload = 'A'.repeat(200_000)
+
+    ctx.session.appendMessage(s.id, {
+      role: 'user',
+      content: giganticPayload
+    })
+
+    const fetched = ctx.session.getSession(s.id, 'user_test')
+    const savedMsg = fetched?.messages[0]
+    assert.ok(savedMsg)
+    assert.ok((savedMsg.content?.length || 0) < 100_000, 'Content must be truncated below overflow threshold')
+    assert.match(savedMsg.content || '', /SILENT OVERFLOW GUARD/)
+  })
 })

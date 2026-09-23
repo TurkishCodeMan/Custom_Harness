@@ -1,0 +1,21 @@
+{
+  "name": "@custom-harness/llm-provider-openai",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "@custom-harness/core-context": "workspace:*",
+    "@custom-harness/core-types": "workspace:*",
+    "@custom-harness/settings": "workspace:*",
+    "@custom-harness/llm": "workspace:*",
+    "cordis": "^3.18.1"
+  }
+}

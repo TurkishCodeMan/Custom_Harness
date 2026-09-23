@@ -1,0 +1,38 @@
+FROM node:20-slim
+
+LABEL maintainer="Custom Harness Team"
+LABEL description="Custom Harness AI Agent CLI — Interactive terminal for autonomous coding"
+
+# ── Ajanın build/test süreçlerinde kullanacağı sistem araçları ──────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    bash \
+    python3 \
+    python3-pip \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Uygulama dosyalarını kopyala ─────────────────────────────────────────────
+WORKDIR /app
+
+# Prodüksiyon bağımlılıkları (sadece pg driver gerekli)
+COPY dist/package.json ./package.json
+RUN npm install --omit=dev --silent
+
+# Derlenmiş ve gizlenmiş CLI motoru
+COPY dist/cli.mjs ./cli.mjs
+
+# ── Ortam ayarları ────────────────────────────────────────────────────────────
+ENV NODE_ENV=production
+# Ajan'ın çalışacağı dizin — müşterinin projesi buraya bağlanır (bind mount)
+ENV WORKSPACE_DIR=/workspace
+# Oturum & hafıza verilerinin kalıcı olarak saklanacağı dizin
+ENV DSH_DIR=/root/.dsh
+
+# ── Çalışma dizini bind mount noktasını oluştur ───────────────────────────────
+WORKDIR /workspace
+
+# ── İnteraktif terminal modunda CLI'yi başlat ────────────────────────────────
+ENTRYPOINT ["node", "/app/cli.mjs"]

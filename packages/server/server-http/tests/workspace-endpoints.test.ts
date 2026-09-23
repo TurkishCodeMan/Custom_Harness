@@ -90,4 +90,31 @@ describe('Server Package - Workspace & Directory Endpoints', () => {
     assert.equal(res.status, 400)
     assert.ok(res.data.error)
   })
+
+  test('POST /api/workspace protects session ownership from other users (HTTP 403)', async () => {
+    const userA = `user_sess_owner_${Date.now()}`
+    const userB = `user_sess_attacker_${Date.now()}`
+    const regA = await server.request('/api/auth/register', {
+      method: 'POST',
+      body: { username: userA, name: 'Owner', role: 'user' }
+    })
+    const regB = await server.request('/api/auth/register', {
+      method: 'POST',
+      body: { username: userB, name: 'Attacker', role: 'user' }
+    })
+
+    const sessA = server.ctx.session.createSession('Owner Session', undefined, regA.data.user.id, 'web')
+
+    // Attacker tries to set workspace for Owner's session
+    const res = await server.userRequest(regB.data.user.id, '/api/workspace', {
+      method: 'POST',
+      body: {
+        path: path.resolve(process.cwd()),
+        sessionId: sessA.id
+      }
+    })
+
+    assert.equal(res.status, 403)
+  })
 })
+

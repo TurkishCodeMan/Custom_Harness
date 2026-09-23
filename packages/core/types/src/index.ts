@@ -28,6 +28,8 @@ export interface ChatMessage {
   name?: string
   presetName?: string
   modelName?: string
+  isInternal?: boolean
+  timestamp?: number
 }
 
 export interface TokenUsage {
@@ -83,6 +85,7 @@ export interface AgentPreset {
   modelId?: string
   providerId?: string
   enabledTools?: string[]
+  enabledSkills?: string[]
   temperature?: number
   ownerId?: string
   isGlobal?: boolean
@@ -152,6 +155,7 @@ export interface SessionData {
   workspace: string
   userId?: string
   messages: ChatMessage[]
+  isInternal?: boolean
 }
 
 

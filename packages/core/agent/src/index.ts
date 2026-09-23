@@ -67,12 +67,14 @@ export class AgentService extends Service {
     this.assertRequiredServices()
 
     const { sessionId, prompt, signal } = options
+    const runId = options.runId || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
     const session = this.ctx.session.getSession(sessionId) || this.ctx.session.createSession(undefined, undefined, options.userId)
 
     // 1. Record User Prompt in canonical session history
     this.ctx.session.appendMessage(sessionId, {
       role: 'user',
-      content: prompt
+      content: prompt,
+      ...(options.isInternal ? { isInternal: true } : {})
     })
 
     const settings = this.ctx.settings.getSettings()
@@ -127,8 +129,8 @@ export class AgentService extends Service {
       // Prune older tool result messages in payload to preserve critical context window headroom
       compactedMessages = pruneToolMessages(compactedMessages)
 
-      // Prepare available tools schemas for active preset
-      const toolsToPass = this.ctx.tools.getOpenAiSchemas()
+      // Prepare available tools schemas scoped to active preset
+      const toolsToPass = this.ctx.tools.getOpenAiSchemas(activePreset?.enabledTools)
 
       // Execute Agent Middleware (beforeChat)
       const beforeChatCtx = {
@@ -141,13 +143,19 @@ export class AgentService extends Service {
         messages: compactedMessages,
         tools: toolsToPass,
         options: options as any,
-        availableSkills: this.ctx.skills
-          ? this.ctx.skills.listActiveSkills(userId).map((s: any) => ({
-              id: s.id,
-              name: s.name,
-              description: s.description ?? ''
-            }))
-          : []
+        availableSkills: (() => {
+          if (!this.ctx.skills) return []
+          let list = this.ctx.skills.listActiveSkills(userId, false, cwd)
+          if (activePreset?.enabledSkills && activePreset.enabledSkills.length > 0) {
+            const allowedSet = new Set(activePreset.enabledSkills)
+            list = list.filter((s: any) => allowedSet.has(s.id) || allowedSet.has(s.name))
+          }
+          return list.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description ?? ''
+          }))
+        })()
       }
 
       if (this.ctx.agentMiddleware?.runBeforeChat) {
@@ -171,7 +179,8 @@ export class AgentService extends Service {
         signal,
         tools: beforeChatCtx.tools,
         enableThinking: options.enableThinking,
-        thinkingBudgetTokens: options.thinkingBudgetTokens
+        thinkingBudgetTokens: options.thinkingBudgetTokens,
+        sessionId
       })) {
         if (signal?.aborted) break
 
@@ -187,11 +196,6 @@ export class AgentService extends Service {
             name: event.toolCall.name,
             arguments: event.toolCall.arguments || ''
           })
-          options.onToolStart?.({
-            id: event.toolCall.id || '',
-            name: event.toolCall.name,
-            args: event.toolCall.arguments
-          })
         } else if (event.type === 'error') {
           const errMsg = `\n[Model Hatası: ${event.error}]`
           currentAssistantContent += errMsg
@@ -205,12 +209,17 @@ export class AgentService extends Service {
       // Extract embedded XML thoughts if present in content
       const { cleanContent, finalThinking } = extractThoughts(currentAssistantContent, currentThinking)
 
+      // Fallback: If model emitted thinking without tool calls but cleanContent is empty,
+      // promote thinking to content so the user/caller receives the result
+      const effectiveContent = cleanContent || (pendingToolCalls.length === 0 ? finalThinking : undefined)
+
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: cleanContent || undefined,
+        content: effectiveContent || undefined,
         reasoning_content: finalThinking || undefined,
         presetName: activePreset?.name || activePreset?.id || 'Full-Stack Developer',
-        modelName: model?.name || model?.id
+        modelName: model?.name || model?.id,
+        ...(options.isInternal ? { isInternal: true } : {})
       }
 
       // Case A: Model issued tool calls
@@ -256,24 +265,30 @@ export class AgentService extends Service {
 
         // Conversation turn completed with meaningful output — persist final assistant response
         this.ctx.session.appendMessage(sessionId, assistantMsg)
+        finalResponse = effectiveContent || finalThinking || ''
         break
       }
 
-      // Execute Tools sequentially
+
+      // Execute Tools in Parallel via Promise.all (with per-tool safety, approval, backoff, and event emission)
       const toolExecContext: ToolExecutionContext = {
         sessionId,
+        runId,
         userId,
         activePreset,
         turnCount,
         signal,
         cwd,
+        onToolStart: options.onToolStart,
         onToolResult: options.onToolResult
       }
 
-      for (const call of pendingToolCalls) {
-        if (signal?.aborted) break
-        await executeToolCall(this.ctx, call, toolExecContext)
-      }
+      await Promise.all(
+        pendingToolCalls.map(async (call) => {
+          if (signal?.aborted) return
+          await executeToolCall(this.ctx, call, toolExecContext)
+        })
+      )
     }
 
     if (this.ctx.repeatGuard) {

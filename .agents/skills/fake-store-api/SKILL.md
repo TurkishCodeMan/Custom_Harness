@@ -1,6 +1,8 @@
 ---
 name: fake-store-api
-description: E-Ticaret Mağaza API'sine (DummyJSON) bağlanarak ürünleri, stokları, fiyatları ve kullanıcı sepetlerini sorgular.
+description: E-Ticaret Mağaza API'sine (DummyJSON) bağlanarak ürünleri,
+  stokları, fiyatları ve kullanıcı sepetlerini sorgular.
+enabled: false
 ---
 
 # 🛒 Fake Store REST API Entegrasyon Rehberi

@@ -8,6 +8,9 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "scripts": {
+    "test": "tsx --test test/**/*.test.ts"
+  },
   "dependencies": {
     "@custom-harness/core-context": "workspace:*",
     "@custom-harness/core-types": "workspace:*",

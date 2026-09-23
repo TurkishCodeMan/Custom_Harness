@@ -15,26 +15,32 @@ echo "======================================================"
 
 cd "${ROOT_DIR}"
 
-# 1. Kaynak Kodları Derle ve Gizle (dist/ klasörü üretimi)
-echo "📦 [1/4] TypeScript kaynak kodları derleniyor ve karartılıyor (pnpm build)..."
+# 1. Kaynak Kodları Derle ve Gizle (dist/ klasörü üretimi - Server + CLI)
+echo "📦 [1/4] TypeScript kaynak kodları derleniyor (pnpm build)..."
 pnpm build
 
-# 2. Custom Harness App Docker İmajını Derle
-echo "🐳 [2/4] custom-harness-app:v1.0.0 Docker imajı derleniyor..."
+
+# 2. Custom Harness App Docker İmajını Derle (Web UI)
+echo "🐳 [2/5] custom-harness-app:v1.0.0 Docker imajı derleniyor (Web UI)..."
 docker build -t custom-harness-app:v1.0.0 -f musteri/Dockerfile.app .
 
-# 3. Bağımlı Mikroservis İmajlarını Derle
-echo "🛠️  [3/4] Mikroservis imajları derleniyor (OCR, Reranker, Image Search)..."
+# 3. CLI Docker İmajını Derle
+echo "🐳 [3/5] custom-harness-cli:v1.0.0 Docker imajı derleniyor (Terminal CLI)..."
+docker build -t custom-harness-cli:v1.0.0 -f musteri/Dockerfile.cli .
+
+# 4. Bağımlı Mikroservis İmajlarını Derle
+echo "🛠️  [4/5] Mikroservis imajları derleniyor (OCR, Reranker, Image Search)..."
 docker build -t custom-harness-ocr:v1.0.0 services/ocr-service/
 docker build -t custom-harness-reranker:v1.0.0 services/reranker-service/
 docker build -t custom-harness-image-search:v1.0.0 services/image-search-service/
 
-# 4. Tüm İmajları Tek Bir Arşiv Dosyasına Kaydet
-echo "🗜️  [4/4] Tüm Docker imajları ${MUSTERI_DIR}/harness-images.tar.gz olarak arşivleniyor..."
+# 5. Tüm İmajları Tek Bir Arşiv Dosyasına Kaydet (CLI imajı dahil)
+echo "🗄️  [5/5] Tüm Docker imajları ${MUSTERI_DIR}/harness-images.tar.gz olarak arşivleniyor..."
 rm -f "${MUSTERI_DIR}/harness-images.tar" "${MUSTERI_DIR}/harness-images.tar.gz"
 
 docker save -o "${MUSTERI_DIR}/harness-images.tar" \
   custom-harness-app:v1.0.0 \
+  custom-harness-cli:v1.0.0 \
   custom-harness-ocr:v1.0.0 \
   custom-harness-reranker:v1.0.0 \
   custom-harness-image-search:v1.0.0 \

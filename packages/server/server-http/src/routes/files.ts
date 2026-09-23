@@ -14,6 +14,14 @@ export function createFilesRouter(ctx: Context): Router {
     try {
       const user = req.user!
       const sessionId = req.params.sessionId || req.body?.sessionId || 'default'
+
+      if (sessionId && sessionId !== 'default') {
+        const session = ctx.session?.getSession ? ctx.session.getSession(sessionId) : null
+        if (session && session.userId && session.userId !== user.id && user.role !== 'admin') {
+          return res.status(403).json({ error: 'Bu oturuma erişim yetkiniz bulunmuyor.' })
+        }
+      }
+
       const uploadsDir = ctx.session?.getUploadsDir ? ctx.session.getUploadsDir(sessionId, user.id) : path.join(os.homedir(), '.dsh', 'tenants', user.id, 'uploads', sessionId)
       
       if (!fs.existsSync(uploadsDir)) {
@@ -75,6 +83,14 @@ export function createFilesRouter(ctx: Context): Router {
     try {
       const user = req.user!
       const sessionId = req.params.sessionId
+
+      if (sessionId && sessionId !== 'default') {
+        const session = ctx.session?.getSession ? ctx.session.getSession(sessionId) : null
+        if (session && session.userId && session.userId !== user.id && user.role !== 'admin') {
+          return res.status(403).json({ error: 'Bu oturuma erişim yetkiniz bulunmuyor.' })
+        }
+      }
+
       const uploadsDir = ctx.session?.getUploadsDir ? ctx.session.getUploadsDir(sessionId, user.id) : path.join(os.homedir(), '.dsh', 'tenants', user.id, 'uploads', sessionId)
       if (!fs.existsSync(uploadsDir)) {
         return res.json({ files: [] })
@@ -164,20 +180,43 @@ export function createFilesRouter(ctx: Context): Router {
       if (!filePath) return res.status(400).json({ error: 'filePath is required' })
 
       // Security check: ensure path belongs to tenant or legacy uploads
-      const safeTenantPrefix = path.join(os.homedir(), '.dsh', 'tenants', user.id, 'uploads')
-      const safeLegacyPrefix = path.join(os.homedir(), '.dsh', 'uploads')
-      const isAllowed = user.role === 'admin' || filePath.startsWith(safeTenantPrefix) || filePath.startsWith(safeLegacyPrefix)
+      const resolvedPath = path.resolve(filePath)
+      const safeTenantPrefix = path.resolve(path.join(os.homedir(), '.dsh', 'tenants', user.id, 'uploads'))
+      const safeLegacyPrefix = path.resolve(path.join(os.homedir(), '.dsh', 'uploads'))
+      const isAllowed = user.role === 'admin'
+        ? (resolvedPath.startsWith(safeTenantPrefix) || resolvedPath.startsWith(safeLegacyPrefix))
+        : resolvedPath.startsWith(safeTenantPrefix)
 
       if (!isAllowed) {
         return res.status(403).json({ error: 'Bu dosyayı silme yetkiniz bulunmuyor' })
       }
 
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
+      if (fs.existsSync(resolvedPath)) {
+        fs.unlinkSync(resolvedPath)
       }
       res.json({ success: true })
     } catch (e: any) {
       res.status(500).json({ error: e.message })
+    }
+  })
+
+  // 5. Read File Content (for Markdown Reports & Inspection)
+  router.get('/files/read', async (req, res) => {
+    try {
+      const filePath = req.query.path as string
+      if (!filePath) {
+        return res.status(400).json({ error: 'path query parametresi zorunludur' })
+      }
+
+      const resolved = path.resolve(filePath)
+      if (!fs.existsSync(resolved)) {
+        return res.status(404).json({ error: `Dosya bulunamadı: ${filePath}` })
+      }
+
+      const content = await fs.promises.readFile(resolved, 'utf-8')
+      res.json({ success: true, path: resolved, content })
+    } catch (e: any) {
+      res.status(500).json({ error: `Dosya okuma hatası: ${e.message}` })
     }
   })
 

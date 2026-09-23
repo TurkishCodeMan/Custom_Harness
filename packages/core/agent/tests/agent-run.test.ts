@@ -154,4 +154,60 @@ describe('AgentService.run (End-to-End & Fail-Fast)', () => {
     assert.equal(response, '')
     assert.equal(llmCalled, false, 'LLM stream must not be invoked after abort')
   })
+
+  test('executes multiple tool calls concurrently in parallel with runId', async () => {
+    let callCount = 0
+    let executingTools = 0
+    let maxConcurrent = 0
+    const executedOrder: string[] = []
+
+    const mockCtx = createMockContext({
+      llm: {
+        streamChat: async function* () {
+          callCount++
+          if (callCount === 1) {
+            yield {
+              type: 'tool_call',
+              toolCall: { id: 'call_1', name: 'tool_a', arguments: '{"file":"a"}' }
+            }
+            yield {
+              type: 'tool_call',
+              toolCall: { id: 'call_2', name: 'tool_b', arguments: '{"file":"b"}' }
+            }
+          } else {
+            yield { type: 'chunk', content: 'Both tools finished' }
+          }
+        }
+      },
+      tools: {
+        getOpenAiSchemas: () => [],
+        execute: async (name: string) => {
+          executingTools++
+          maxConcurrent = Math.max(maxConcurrent, executingTools)
+          // simulate async I/O
+          await new Promise((r) => setTimeout(r, 20))
+          executedOrder.push(name)
+          executingTools--
+          return `result of ${name}`
+        }
+      }
+    })
+
+    const agent = createAgentService(mockCtx)
+    const session = mockCtx.session.createSession()
+    const collectedResults: any[] = []
+
+    const response = await agent.run({
+      sessionId: session.id,
+      prompt: 'run parallel tools',
+      runId: 'custom_trace_999',
+      onToolResult: (res) => collectedResults.push(res)
+    })
+
+    assert.equal(response, 'Both tools finished')
+    assert.equal(maxConcurrent, 2, 'Both tools must execute concurrently in parallel')
+    assert.equal(collectedResults.length, 2)
+    assert.equal(collectedResults[0].runId, 'custom_trace_999')
+    assert.equal(collectedResults[1].runId, 'custom_trace_999')
+  })
 })

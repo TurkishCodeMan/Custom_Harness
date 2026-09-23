@@ -7,6 +7,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: User
+      sessionData?: any
     }
   }
 }
@@ -32,6 +33,16 @@ export const resolveUser = async (req: Request, ctx: Context): Promise<User> => 
         if (user) return user
       }
     } catch {}
+  }
+
+  if (auth && userId && userId !== 'user_admin') {
+    return {
+      id: userId,
+      username: userId,
+      name: 'Kullanıcı',
+      role: 'user' as const,
+      createdAt: Date.now()
+    }
   }
 
   return {
@@ -133,3 +144,40 @@ export const protectFields = (ctx: Context, fields: string[]) => {
     }
   }
 }
+
+/**
+ * Middleware: Validates session existence (404) and enforces multi-tenant ownership (403).
+ * Attaches the verified session object to `req.sessionData`.
+ * If options.optional is true and no sessionId is found in params/body/query, it passes through.
+ */
+export const requireSession = (ctx: Context, paramName: string = 'id', options?: { optional?: boolean }) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const sessionId = (req.params as any)?.[paramName] || (req.body as any)?.[paramName] || (req.query as any)?.[paramName]
+      if (!sessionId) {
+        if (options?.optional) {
+          return next()
+        }
+        return res.status(400).json({ error: `${paramName} zorunludur` })
+      }
+
+      const session = ctx.session?.getSession ? ctx.session.getSession(sessionId) : null
+      if (!session) {
+        return res.status(404).json({ error: 'Oturum bulunamadı' })
+      }
+
+      const caller = req.user || (await resolveUser(req, ctx))
+      req.user = caller
+
+      if (caller.role !== 'admin' && session.userId && session.userId !== caller.id) {
+        return res.status(403).json({ error: 'Bu oturuma erişim yetkiniz bulunmuyor.' })
+      }
+
+      req.sessionData = session
+      next()
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Oturum doğrulama hatası.' })
+    }
+  }
+}
+

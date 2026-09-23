@@ -12,7 +12,12 @@ export function recordAndEmitToolResult(
   toolName: string,
   outputContent: string
 ): void {
-  execContext.onToolResult?.({ id: callId, name: toolName, output: outputContent })
+  execContext.onToolResult?.({
+    id: callId,
+    name: toolName,
+    output: outputContent,
+    ...(execContext.runId ? { runId: execContext.runId } : {})
+  })
   ctx.session.appendMessage(execContext.sessionId, {
     role: 'tool',
     tool_call_id: callId,
@@ -21,12 +26,37 @@ export function recordAndEmitToolResult(
   })
 }
 
+async function executeWithRetry<T>(
+  fn: () => Promise<T>,
+  options: { maxRetries?: number; initialDelayMs?: number; signal?: AbortSignal }
+): Promise<T> {
+  const maxRetries = options.maxRetries ?? 2
+  const initialDelay = options.initialDelayMs ?? 200
+  let attempt = 0
+
+  while (true) {
+    if (options.signal?.aborted) {
+      throw new Error('Tool execution aborted by signal')
+    }
+    try {
+      return await fn()
+    } catch (err: any) {
+      attempt++
+      if (attempt > maxRetries) {
+        throw err
+      }
+      const delay = initialDelay * Math.pow(2, attempt - 1)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+}
+
 /**
  * Executes a single tool call through the complete 7-step safety and execution lifecycle:
  * 1. BeforeTool Middleware (Permissions / Guardrails)
  * 2. Human-in-the-loop Approval
  * 3. Repeat Loop Guard
- * 4. Tool Execution
+ * 4. Tool Execution (with Exponential Backoff Retry)
  * 5. SpillStore / Result Pruning
  * 6. AfterTool Middleware
  * 7. Persistence & Event Emission
@@ -44,6 +74,14 @@ export async function executeToolCall(
   } catch {
     parsedArgs = { raw: call.arguments }
   }
+
+  // Emit onToolStart event
+  execContext.onToolStart?.({
+    id: call.id,
+    name: call.name,
+    args: parsedArgs,
+    ...(execContext.runId ? { runId: execContext.runId } : {})
+  })
 
   // 1. BeforeTool Middleware (tool-guard, permissions, sql safety)
   if (ctx.agentMiddleware?.runBeforeTool) {
@@ -92,13 +130,16 @@ export async function executeToolCall(
     }
   }
 
-  // 4. Physical Tool Execution
+  // 4. Physical Tool Execution with Exponential Backoff
   let output: any = ''
   try {
     if (!ctx.tools) {
       throw new Error("[AgentService] 'tools' servisi Context üzerinde bulunamadı.")
     }
-    output = await ctx.tools.execute(call.name, parsedArgs, { signal, cwd, sessionId })
+    output = await executeWithRetry(
+      () => ctx.tools.execute(call.name, parsedArgs, { signal, cwd, sessionId, activePreset }),
+      { maxRetries: 2, initialDelayMs: 200, signal }
+    )
   } catch (err: any) {
     output = `Araç Çalıştırma Hatası: ${err.message}`
   }

@@ -41,8 +41,13 @@ export class ToolsService extends Service {
     })
   }
 
-  public getOpenAiSchemas(): any[] {
-    return this.getActiveTools().map(tool => ({
+  public getOpenAiSchemas(allowedTools?: string[]): any[] {
+    let tools = this.getActiveTools()
+    if (allowedTools && allowedTools.length > 0) {
+      const allowedSet = new Set(allowedTools)
+      tools = tools.filter(t => allowedSet.has(t.name))
+    }
+    return tools.map(tool => ({
       type: 'function',
       function: {
         name: tool.name,
@@ -55,7 +60,7 @@ export class ToolsService extends Service {
   public async execute(
     name: string,
     args: any,
-    context?: { signal?: AbortSignal; cwd?: string; sessionId?: string }
+    context?: { signal?: AbortSignal; cwd?: string; sessionId?: string; activePreset?: any }
   ): Promise<any> {
     const isEnabled = this.ctx.settings?.isToolEnabled ? this.ctx.settings.isToolEnabled(name) : true
     if (!isEnabled) {
