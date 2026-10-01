@@ -1,0 +1,16 @@
+{
+  "case_id": "D11",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "MISSING_RECEIPTS",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV"
+      ]
+    }
+  ],
+  "summary": "Fatura siparişle tutarlı (SKU-A, 100 EA x 10.00 TRY); ancak receipts null olduğundan teslimat verisi alınamamış ve UNRECEIVED_QTY kontrolü yapılamamıştır."
+}

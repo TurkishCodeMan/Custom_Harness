@@ -1,0 +1,58 @@
+{
+  "case_id": "T03",
+  "tenant_id": "demo-company",
+  "synthetic": true,
+  "as_of": "2026-09-29T09:00:00Z",
+  "purchase_order": {
+    "evidence_id": "PO",
+    "order_id": "PO-001",
+    "supplier_id": "SUP-A",
+    "currency": "TRY",
+    "lines": [
+      {
+        "evidence_id": "PO:L1",
+        "line_id": "L1",
+        "sku": "SKU-A",
+        "unit": "EA",
+        "quantity": "30",
+        "unit_price": "8"
+      }
+    ]
+  },
+  "invoice": {
+    "evidence_id": "INV",
+    "invoice_id": "INV-001",
+    "order_id": "PO-001",
+    "supplier_id": "SUP-A",
+    "currency": "TRY",
+    "lines": [
+      {
+        "evidence_id": "INV:L1",
+        "line_id": "L1",
+        "sku": "SKU-A",
+        "unit": "EA",
+        "quantity": "30",
+        "unit_price": "8"
+      }
+    ],
+    "note": "Sentetik test faturası; tüm fiyatlar KDV hariçtir."
+  },
+  "receipts": [
+    {
+      "evidence_id": "GRN:R1",
+      "order_id": "PO-001",
+      "sku": "SKU-A",
+      "unit": "EA",
+      "quantity": "17"
+    },
+    {
+      "evidence_id": "GRN:R2",
+      "order_id": "PO-001",
+      "sku": "SKU-A",
+      "unit": "EA",
+      "quantity": "5"
+    }
+  ],
+  "invoice_history": [],
+  "notes": []
+}

@@ -1,0 +1,7 @@
+{
+  "case_id": "D19",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura siparişle tutarlı: birim fiyat eşit (10.00), önceki kabul edilen fatura (60 EA) ile toplam fatura edilen miktar (100 EA) sipariş ve teslimat miktarını aşmıyor; para birimi, tedarikçi ve sipariş referansı uyumlu."
+}

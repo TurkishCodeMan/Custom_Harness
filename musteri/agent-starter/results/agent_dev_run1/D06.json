@@ -1,0 +1,17 @@
+{
+  "case_id": "D06",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "PRICE_OVER",
+      "line_id": "L1",
+      "amount": "200.00",
+      "evidence_ids": [
+        "INV:L1",
+        "PO:L1"
+      ]
+    }
+  ],
+  "summary": "Fatura birim fiyatı (12.00) sipariş birim fiyatını (10.00) 2.00 TL aşmaktadır; tolerans (0.01) üzerinde olduğundan PRICE_OVER bulgusu oluştu (2 x 100 = 200.00 TRY). Tedarikçi, para birimi ve sipariş referansı uyumlu; teslimat miktarı (10 EA x 1) fatura miktarıyla eşleştiği için UNRECEIVED_QTY ve ORDER_QTY_OVER bulgusu yok; geçmiş fatura kaydı bulunmuyor."
+}

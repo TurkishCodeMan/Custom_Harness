@@ -1,0 +1,7 @@
+{
+  "case_id": "D01",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura INV-001 sipariş PO-001 ile tedarikçi, para birimi ve sipariş referansı açısından uyumlu; satır L1'de SKU-A/EA için miktar (100) ve birim fiyat (10.00 TRY) siparişle eşleşiyor ve teslimat GRN:R1 ile tam karşılanıyor. Geçmişte aktif fatura yok; nicel fark veya mükerrerlik bulunmadı."
+}

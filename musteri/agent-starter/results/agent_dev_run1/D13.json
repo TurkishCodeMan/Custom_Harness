@@ -1,0 +1,17 @@
+{
+  "case_id": "D13",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "SUPPLIER_MISMATCH",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Sipariş tedarikçisi SUP-A iken fatura tedarikçisi SUP-B; tedarikçi uyumsuzluğu nedeniyle inceleme durduruldu ve ek bilgi istendi."
+}

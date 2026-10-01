@@ -1,0 +1,17 @@
+{
+  "case_id": "T04",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "DUPLICATE_INVOICE",
+      "line_id": null,
+      "amount": "150.00",
+      "evidence_ids": [
+        "INV",
+        "HIST:H1"
+      ]
+    }
+  ],
+  "summary": "Yapılandırılmış veriye dayalı deterministik referans inceleme; dış işlem yapılmadı."
+}

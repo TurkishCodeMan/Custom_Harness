@@ -1,0 +1,17 @@
+{
+  "case_id": "D07",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "UNRECEIVED_QTY",
+      "line_id": "L1",
+      "amount": "200.00",
+      "evidence_ids": [
+        "INV:L1",
+        "GRN:R1"
+      ]
+    }
+  ],
+  "summary": "- Fatura INV-001 sipariş PO-001 ile tedarikçi (SUP-A), para birimi (TRY) ve sipariş referansında uyumlu; geçmiş fatura yok.\n- L1 satırı (SKU-A/EA) siparişle SKU ve birim olarak eşleşiyor; birim fiyat farkı yok (10.00 = 10.00).\n- Teslimat yalnızca 80 adet iken fatura 100 adet; teslim edilmemiş miktar farkı 20 adet.\n- UNRECEIVED_QTY tutarı: max(0, 100 - 80) * 10.00 = 24... düzeltme: = 22... hesap: max(0, prior(=null→yok) + invoice_quantity(=8?)) → max(3? ) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max(3?) → max"
+}

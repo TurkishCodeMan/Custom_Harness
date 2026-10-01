@@ -1,0 +1,26 @@
+{
+  "id": "invoice-reviewer-v1",
+  "name": "Fatura Uyuşmazlık İnceleyicisi",
+  "format": "portable-spec-not-native-harness-config",
+  "system_prompt_file": "SYSTEM_PROMPT.md",
+  "policy_file": "POLICY.md",
+  "output_schema_file": "output.schema.json",
+  "mode": "analysis_only",
+  "max_turns": 12,
+  "max_subagents": 0,
+  "allowed_tools": [
+    "read_file"
+  ],
+  "denied_capabilities": [
+    "invoke_subagent",
+    "bash",
+    "web",
+    "email",
+    "payment",
+    "database_write",
+    "schedule"
+  ],
+  "workspace_rule": "Mount only preset files and the current case, read-only. Enforce in backend.",
+  "session_rule": "Fresh session per case; disable RAG, reflexion and previous case context for this benchmark.",
+  "note": "Map to actual harness config; these keys do not enforce permissions by themselves."
+}

@@ -1,0 +1,18 @@
+{
+  "case_id": "D20",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "ORDER_QTY_OVER",
+      "line_id": "L1",
+      "amount": "100.00",
+      "evidence_ids": [
+        "INV:L1",
+        "PO:L1",
+        "HIST:H1"
+      ]
+    }
+  ],
+  "summary": "Fatura birim fiyatı ve teslimat tutarları uygun; ancak kabul edilmiş geçmiş fatura (60 EA) ile mevcut fatura (50 EA) toplamı sipariş miktarını (100 EA) 10 EA aşıyor (ORDER_QTY_OVER)."
+}

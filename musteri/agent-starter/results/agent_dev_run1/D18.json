@@ -1,0 +1,7 @@
+{
+  "case_id": "D18",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura satırı L1 siparişle tam eşleşiyor; fiyat farkı yok ve teslimat miktarı yeterli."
+}

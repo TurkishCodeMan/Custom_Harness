@@ -1,0 +1,7 @@
+{
+  "case_id": "D03",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura sipariş ve teslimat kayıtlarıyla tutarlı: tedarikçi, para birimi ve sipariş referansı eşleşiyor; SKU-A/EA satırı siparişe eşleşiyor; fatura birim fiyatı (9.00) sipariş fiyatının (10.00) altında olduğundan fiyat farkı yok; miktarlar (100/100/100) eşit olduğundan miktar bulgusu oluşmuyor; geçmişte mükerrer fatura yok."
+}

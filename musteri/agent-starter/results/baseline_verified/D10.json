@@ -1,0 +1,16 @@
+{
+  "case_id": "D10",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "MISSING_PO",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV"
+      ]
+    }
+  ],
+  "summary": "Yapılandırılmış veriye dayalı deterministik referans inceleme; dış işlem yapılmadı."
+}

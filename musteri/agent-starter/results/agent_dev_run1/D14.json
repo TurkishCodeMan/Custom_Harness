@@ -1,0 +1,17 @@
+{
+  "case_id": "D14",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "UNMATCHED_SKU",
+      "line_id": "L1",
+      "amount": null,
+      "evidence_ids": [
+        "INV:L1",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Fatura satırı L1'deki SKU-Z, sipariş PO-001'deki SKU-A ile eşleşmiyor; siparişte bu SKU yok. Teslimat GRN:R1 yalnızca 100 adet SKU-A için mevcut. Aşama 6'da durduruldu; nicel farklar hesaplanmadı."
+}

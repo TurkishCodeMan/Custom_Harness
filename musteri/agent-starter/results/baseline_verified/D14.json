@@ -1,0 +1,17 @@
+{
+  "case_id": "D14",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "UNMATCHED_SKU",
+      "line_id": "L1",
+      "amount": null,
+      "evidence_ids": [
+        "INV:L1",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Yapılandırılmış veriye dayalı deterministik referans inceleme; dış işlem yapılmadı."
+}

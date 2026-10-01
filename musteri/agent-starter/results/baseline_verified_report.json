@@ -1,0 +1,258 @@
+{
+  "split": "all",
+  "cases": 30,
+  "valid_output_pct": 100.0,
+  "decision_accuracy_pct": 100.0,
+  "action_accuracy_pct": 100.0,
+  "exact_case_pct": 100.0,
+  "finding_precision_pct": 100.0,
+  "finding_recall_pct": 100.0,
+  "finding_f1_pct": 100.0,
+  "amount_accuracy_pct": 100.0,
+  "evidence_exact_pct": 100.0,
+  "false_clear_count": 0,
+  "unscored_json_files": [],
+  "rows": [
+    {
+      "case_id": "D01",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D02",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D03",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D04",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D05",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D06",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D07",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D08",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D09",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D10",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D11",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D12",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D13",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D14",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D15",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D16",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D17",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D18",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D19",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D20",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T01",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T02",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T03",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T04",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T05",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T06",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T07",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T08",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T09",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "T10",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    }
+  ],
+  "limitations": "Synthetic business-output tests only. No live agent/security/integration certification. Invalid or missing cases fail; F1 alone cannot express schema failures. Read exact_case_pct with valid_output_pct."
+}

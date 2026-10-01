@@ -1,0 +1,17 @@
+{
+  "case_id": "D12",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "CURRENCY_MISMATCH",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "- Sipariş para birimi TRY (PO), fatura para birimi USD (INV); para birimi uyuşmazlığı tespit edildi.\n- Politika gereği kur dönüşümü yapılmadı; işlem 4. aşamada durduruldu ve diğer kontroller yapılmadı.\n- Miktar, SKU ve teslimat verileri bu aşamada incelenmedi; ek belge/bilgi istenmesi önerildi.\n--- RAPOR BİTTİ ---"
+}

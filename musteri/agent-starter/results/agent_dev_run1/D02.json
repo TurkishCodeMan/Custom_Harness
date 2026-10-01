@@ -1,0 +1,7 @@
+{
+  "case_id": "D02",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura sipariş ve teslimat kayıtlarıyla tutarlı: tedarikçi, para birimi ve sipariş referansı eşleşiyor; SKU-A/EA satırı siparişe eşleşiyor; birim fiyat farkı yok (10.00=10.00), fatura miktarı (40) sipariş (100) ve teslimat (40) sınırları içinde; geçmişte mükerrer fatura yok."
+}

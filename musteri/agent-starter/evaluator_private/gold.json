@@ -1,0 +1,442 @@
+[
+  {
+    "case_id": "D01",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D02",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D03",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D04",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D05",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D06",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L1",
+        "amount": "200.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D07",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "200.00",
+        "evidence_ids": [
+          "INV:L1",
+          "GRN:R1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D08",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "ORDER_QTY_OVER",
+        "line_id": "L1",
+        "amount": "200.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D09",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "DUPLICATE_INVOICE",
+        "line_id": null,
+        "amount": "1000.00",
+        "evidence_ids": [
+          "INV",
+          "HIST:H1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D10",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "MISSING_PO",
+        "line_id": null,
+        "amount": null,
+        "evidence_ids": [
+          "INV"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D11",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "MISSING_RECEIPTS",
+        "line_id": null,
+        "amount": null,
+        "evidence_ids": [
+          "INV"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D12",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "CURRENCY_MISMATCH",
+        "line_id": null,
+        "amount": null,
+        "evidence_ids": [
+          "INV",
+          "PO"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D13",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "SUPPLIER_MISMATCH",
+        "line_id": null,
+        "amount": null,
+        "evidence_ids": [
+          "INV",
+          "PO"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D14",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "UNMATCHED_SKU",
+        "line_id": "L1",
+        "amount": null,
+        "evidence_ids": [
+          "INV:L1",
+          "PO"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D15",
+    "split": "dev",
+    "decision": "NEEDS_INFO",
+    "next_action": "REQUEST_DOCUMENTS",
+    "findings": [
+      {
+        "code": "UNIT_MISMATCH",
+        "line_id": "L1",
+        "amount": null,
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D16",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L1",
+        "amount": "200.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      },
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "240.00",
+        "evidence_ids": [
+          "INV:L1",
+          "GRN:R1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D17",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L1",
+        "amount": "200.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "D18",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D19",
+    "split": "dev",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "D20",
+    "split": "dev",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "ORDER_QTY_OVER",
+        "line_id": "L1",
+        "amount": "100.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1",
+          "HIST:H1"
+        ]
+      },
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "100.00",
+        "evidence_ids": [
+          "INV:L1",
+          "GRN:R1",
+          "HIST:H1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T01",
+    "split": "test",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "T02",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L1",
+        "amount": "10.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T03",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "64.00",
+        "evidence_ids": [
+          "INV:L1",
+          "GRN:R1",
+          "GRN:R2"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T04",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "DUPLICATE_INVOICE",
+        "line_id": null,
+        "amount": "150.00",
+        "evidence_ids": [
+          "INV",
+          "HIST:H1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T05",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "1000.00",
+        "evidence_ids": [
+          "INV:L1",
+          "RECEIPTS"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T06",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L1",
+        "amount": "0.02",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T07",
+    "split": "test",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "T08",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "PRICE_OVER",
+        "line_id": "L2",
+        "amount": "10.00",
+        "evidence_ids": [
+          "INV:L2",
+          "PO:L2"
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "T09",
+    "split": "test",
+    "decision": "CLEAR",
+    "next_action": "RECORD_REVIEW",
+    "findings": []
+  },
+  {
+    "case_id": "T10",
+    "split": "test",
+    "decision": "REVIEW",
+    "next_action": "REQUEST_HUMAN_REVIEW",
+    "findings": [
+      {
+        "code": "ORDER_QTY_OVER",
+        "line_id": "L1",
+        "amount": "25.00",
+        "evidence_ids": [
+          "INV:L1",
+          "PO:L1",
+          "HIST:H1"
+        ]
+      },
+      {
+        "code": "UNRECEIVED_QTY",
+        "line_id": "L1",
+        "amount": "25.00",
+        "evidence_ids": [
+          "INV:L1",
+          "GRN:R1",
+          "HIST:H1"
+        ]
+      }
+    ]
+  }
+]

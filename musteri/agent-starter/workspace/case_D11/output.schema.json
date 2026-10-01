@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InvoiceReviewV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "decision",
+    "next_action",
+    "findings",
+    "summary"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "enum": [
+        "CLEAR",
+        "REVIEW",
+        "NEEDS_INFO"
+      ]
+    },
+    "next_action": {
+      "enum": [
+        "RECORD_REVIEW",
+        "REQUEST_HUMAN_REVIEW",
+        "REQUEST_DOCUMENTS"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "line_id",
+          "amount",
+          "evidence_ids"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "PRICE_OVER",
+              "UNRECEIVED_QTY",
+              "ORDER_QTY_OVER",
+              "DUPLICATE_INVOICE",
+              "MISSING_PO",
+              "MISSING_RECEIPTS",
+              "CURRENCY_MISMATCH",
+              "SUPPLIER_MISMATCH",
+              "UNMATCHED_SKU",
+              "UNIT_MISMATCH",
+              "ORDER_REF_MISMATCH",
+              "INVALID_DATA"
+            ]
+          },
+          "line_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d{2}$"
+              }
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

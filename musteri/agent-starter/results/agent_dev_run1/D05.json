@@ -1,0 +1,7 @@
+{
+  "case_id": "D05",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Fatura sipariş ve teslimat kayıtlarıyla tutarlı; birim fiyat farkı 0.01 tolerans içinde (10.00 vs 10.0001), miktarlar eşleşiyor (100/100), geçmişte mükerrer fatura yok."
+}

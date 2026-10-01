@@ -1,0 +1,183 @@
+{
+  "split": "dev",
+  "cases": 20,
+  "valid_output_pct": 100.0,
+  "decision_accuracy_pct": 100.0,
+  "action_accuracy_pct": 100.0,
+  "exact_case_pct": 95.0,
+  "finding_precision_pct": 100.0,
+  "finding_recall_pct": 93.33,
+  "finding_f1_pct": 96.55,
+  "amount_accuracy_pct": 88.89,
+  "evidence_exact_pct": 93.33,
+  "false_clear_count": 0,
+  "unscored_json_files": [
+    "eval_report.json"
+  ],
+  "rows": [
+    {
+      "case_id": "D01",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D02",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D03",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D04",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D05",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D06",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D07",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D08",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D09",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D10",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D11",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D12",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D13",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D14",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D15",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D16",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D17",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D18",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D19",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": true,
+      "false_clear": false
+    },
+    {
+      "case_id": "D20",
+      "valid": true,
+      "decision_correct": true,
+      "action_correct": true,
+      "exact": false,
+      "false_clear": false,
+      "errors": [
+        "business output differs from gold; inspect case and gold locally"
+      ]
+    }
+  ],
+  "limitations": "Synthetic business-output tests only. No live agent/security/integration certification. Invalid or missing cases fail; F1 alone cannot express schema failures. Read exact_case_pct with valid_output_pct."
+}

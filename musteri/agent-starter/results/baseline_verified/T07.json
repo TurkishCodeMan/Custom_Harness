@@ -1,0 +1,7 @@
+{
+  "case_id": "T07",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "Yapılandırılmış veriye dayalı deterministik referans inceleme; dış işlem yapılmadı."
+}
