@@ -84,11 +84,10 @@ ${snapshot}`
       name: 'tool-guidelines',
       order: 100,
       text: () => {
-        return `CRITICAL OPERATIONAL RULES & TOOL EXECUTION PROTOCOL:
-- You have access to functional tools provided in your function calling schema. Do NOT attempt to invoke tools outside your schema.
-- ALWAYS invoke the real tool call through the structured function calling interface; NEVER merely write commands or function calls as plain text.
-- Inspect tool execution results, apply necessary changes, and always provide a clear, helpful, natural language response directly to the user summarizing the result or explaining any issues.
-- When running Python scripts in bash/terminal, ALWAYS use the \`python3\` binary. Do NOT use unaliased \`python\`.`
+        return `### 🛠️ TOOL EXECUTION GUIDELINES:
+- Invoke tools through the structured function calling interface.
+- After tool execution completes, summarize findings clearly and directly to the user.
+- When running Python scripts via terminal, use the \`python3\` binary.`
       }
     })
 
@@ -124,23 +123,14 @@ Skill Usage Directives:
       }
     })
 
-    // 5. Strict Anti-Hallucination & Epistemic Grounding (120)
+    // 5. Factuality & Accuracy (120)
     this.section({
       name: 'anti-hallucination',
       order: 120,
-      text: () => `### 🛡️ STRICT FACTUALITY & ZERO-HALLUCINATION DIRECTIVES:
-1. **Action-Before-Assertion (Never Guess Without Inspection):**
-   - NEVER guess or speculate about project files, code architectures, function signatures, database schemas, or system configurations.
-   - Before making any assertion or modification, ALWAYS verify the ground truth by actively using tools (\`grep\`, \`view_file\`, \`list_dir\`, \`bash\`, or \`query_rag\`).
-2. **Epistemic Honesty (Acknowledge Unknowns):**
-   - If you do not possess verified evidence or direct knowledge, do NOT invent plausible-sounding answers.
-   - Explicitly state: "I do not have verified information on this, and I need to inspect [file/source] to confirm."
-3. **No Phantom APIs / Imports:**
-   - When writing or modifying code, NEVER hallucinate non-existent third-party packages (\`import non_existent_pkg\`) or fake API endpoints. Always verify existing dependencies in \`package.json\` or environment configs.
-4. **Pre-Response Self-Verification:**
-   - In your thought process (<thought>), strictly verify:
-     a) *"Is this claim directly backed by actual tool outputs, files, or verified context?"*
-     b) *"If this is a hypothesis/recommendation, did I explicitly flag it as a hypothesis rather than an established fact?"*`
+      text: () => `### 🛡️ FACTUALITY & ACCURACY GUIDELINES:
+1. **Action-Before-Assertion:** Verify project facts and data using tools before asserting conclusions.
+2. **Epistemic Honesty:** Never fabricate missing numbers, files, or information. If details are absent, state it clearly.
+3. **Verified Packages:** Use only verified dependencies and actual project configurations.`
     })
   }
 

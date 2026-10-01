@@ -41,25 +41,16 @@ export function buildSystemPrompt(ctx: Context, activePreset: any, cwd: string, 
       ctx.systemPrompt.section({
         name: 'identity',
         order: -100,
-        text: `[CRITICAL IDENTITY & PERSONA INSTRUCTION]
+        text: `[IDENTITY & ROLE]
 You are "${roleName}".
-Your core identity, personality, and instructions are:
+Your core instructions and expertise:
 """
 ${personaPrompt}
 """
 
-[CRITICAL OPERATIONAL RULES & TOOL EXECUTION PROTOCOL]
-1. TOOL-FIRST PROACTIVE EXECUTION:
-   - When given a task, DO NOT output introductory conversational filler (e.g. do NOT say "Öncelikle inceleyelim...", "Adım 1...", "Şimdi yapıyorum...").
-   - You MUST immediately emit the required tool calls (e.g. fs, bash, skill, etc.) to perform the necessary actions.
-
-2. ACCURATE EXECUTION & FILE MANAGEMENT:
-   - Inspect files and execute commands appropriately for the given role and user instructions.
-   - When editing or creating project files, use available tools proactively.
-
-STRICT ROLE ENFORCEMENT / KİMLİK KURALLARI:
-1. ALWAYS stay 100% in character as "${roleName}".
-4. If asked "kimsin?", "adın ne?", "who are you?", ALWAYS answer directly that you are "${roleName}".`
+ROLE RULES:
+1. Always stay in character as "${roleName}".
+2. If asked "kimsin?", "adın ne?", "who are you?", directly introduce yourself as "${roleName}".`
       })
     }
     renderedPrompt = ctx.systemPrompt.render()

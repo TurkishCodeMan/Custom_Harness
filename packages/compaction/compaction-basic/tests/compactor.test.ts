@@ -4,34 +4,34 @@ import { Context } from 'cordis'
 import { CompactionBasicService } from '../src/index.js'
 import type { ChatMessage } from '@custom-harness/core-types'
 
-describe('CompactionBasicService — 10 Messages or 12,000 Tokens Threshold', () => {
-  test('does NOT compact when message count <= 10 and tokens < 12,000', () => {
+describe('CompactionBasicService — 30 Messages or 12,000 Tokens Threshold', () => {
+  test('does NOT compact when message count <= 30 and tokens < 12,000', () => {
     const ctx = new Context()
     const compactor = new CompactionBasicService(ctx as any)
 
-    // 8 short messages
-    const messages: ChatMessage[] = Array.from({ length: 8 }, (_, i) => ({
+    // 24 short messages (<= 30)
+    const messages: ChatMessage[] = Array.from({ length: 24 }, (_, i) => ({
       role: i % 2 === 0 ? 'user' : 'assistant',
       content: `Kısa mesaj no ${i}: Merhaba dünya!`
     }))
 
     const result = compactor.compact(messages)
-    assert.equal(result.compacted, false, 'Should not compact when messages <= 10 and tokens < 12,000')
-    assert.equal(result.messages.length, 8)
+    assert.equal(result.compacted, false, 'Should not compact when messages <= 30 and tokens < 12,000')
+    assert.equal(result.messages.length, 24)
   })
 
-  test('compacts when message count > 10', () => {
+  test('compacts when message count > 30', () => {
     const ctx = new Context()
     const compactor = new CompactionBasicService(ctx as any)
 
-    // 14 short messages
-    const messages: ChatMessage[] = Array.from({ length: 14 }, (_, i) => ({
+    // 34 short messages (> 30)
+    const messages: ChatMessage[] = Array.from({ length: 34 }, (_, i) => ({
       role: i % 2 === 0 ? 'user' : 'assistant',
       content: `Mesaj no ${i}: İşlem adımı.`
     }))
 
     const result = compactor.compact(messages, 4)
-    assert.equal(result.compacted, true, 'Should compact when messages > 10')
+    assert.equal(result.compacted, true, 'Should compact when messages > 30')
     assert.ok(result.summary)
     assert.ok(result.prunedCount! >= 1)
 

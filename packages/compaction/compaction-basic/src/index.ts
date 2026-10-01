@@ -12,12 +12,13 @@ export class CompactionBasicService extends Service {
   }
 
   /**
-   * Compacts conversation messages if message count > 10 or token volume >= 12,000 tokens (~30,000 chars) or if forced.
+   * Compacts conversation messages if message count > 30 or token volume >= 12,000 tokens (~30,000 chars) or if forced.
    */
   public compact(
     messages: ChatMessage[],
     maxRetainedTurns: number = 8,
-    force = false
+    force = false,
+    messageThreshold: number = 30
   ): { messages: ChatMessage[]; compacted: boolean; summary?: string; prunedCount?: number } {
     if (!messages || messages.length <= 2) {
       return { messages, compacted: false }
@@ -26,8 +27,8 @@ export class CompactionBasicService extends Service {
     const totalChars = messages.reduce((acc, m) => acc + (m.content?.length || 0) + (m.reasoning_content?.length || 0), 0)
     const approxTokens = Math.ceil(totalChars / 2.5)
 
-    // Trigger compaction when message count > 20 OR tokens >= 12,000 (or if forced)
-    const shouldCompact = force || messages.length > 20 || approxTokens >= 12000
+    // Trigger compaction when message count > messageThreshold (default 30) OR tokens >= 12,000 (or if forced)
+    const shouldCompact = force || messages.length > messageThreshold || approxTokens >= 12000
 
     if (!shouldCompact) {
       return { messages, compacted: false }
