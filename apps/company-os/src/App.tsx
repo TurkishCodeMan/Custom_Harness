@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
-import type { Position, Routine, ActivityReceipt, NavView, ApprovalItem, ChatThread, ExecutionActionCard, ThreadMessage } from './types.js'
-import { INITIAL_POSITIONS, REPORTING_GUARDRAIL } from './defaultPositions.js'
+import type { Position, Routine, ActivityReceipt, NavView, ApprovalItem, ChatThread, ExecutionActionCard, ExecutionActionItem, ThreadMessage } from './types.js'
 import { Sidebar } from './components/Sidebar.js'
 import { AssistantPage } from './pages/AssistantPage.js'
 import { ApprovalsPage } from './pages/ApprovalsPage.js'
 import { DashboardPage } from './pages/DashboardPage.js'
 import { IntegrationsPage } from './pages/IntegrationsPage.js'
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage.js'
+import { SkillsPage } from './pages/SkillsPage.js'
 import { WorkflowsPage } from './pages/WorkflowsPage.js'
 import { AgentsPage } from './pages/AgentsPage.js'
 import { TasksPage } from './pages/TasksPage.js'
+import { InspectorPage } from './pages/InspectorPage.js'
 import { OrgChart } from './components/OrgChart.js'
 import { ExecutionDagViewer, type DagNode } from './components/ExecutionDagViewer.js'
 import { PositionDrawer } from './components/PositionDrawer.js'
@@ -19,10 +20,11 @@ import { ActivityStream } from './components/ActivityStream.js'
 import { NewPositionModal } from './components/NewPositionModal.js'
 import { ReportViewerModal } from './components/ReportViewerModal.js'
 import { CompanyWorkspaceModal } from './components/CompanyWorkspaceModal.js'
-import { fetchSchedules, createSchedule, deleteSchedule, triggerSchedule, createSession, savePreset, fetchSessions, fetchSession, deleteSession, clearAllSessions, setWorkspaceApi } from './api.js'
+import { fetchSchedules, createSchedule, deleteSchedule, triggerSchedule, createSession, fetchSessions, fetchSession, deleteSession, clearAllSessions, setWorkspaceApi } from './api.js'
 import { wsClient } from './ws.js'
 import { usePositions } from './hooks/usePositions.js'
 import { useApprovals } from './hooks/useApprovals.js'
+import { groupMessagesByRound } from './messageGrouping.js'
 import { FlowIcon, OrganizationIcon } from './components/Icons.js'
 
 export const App: React.FC = () => {
@@ -48,7 +50,10 @@ export const App: React.FC = () => {
   const {
     positions,
     setPositions,
-    updatePositionStatus
+    updatePositionStatus,
+    handleAddPosition: hookAddPosition,
+    handleUpdatePosition: hookUpdatePosition,
+    handleDeletePosition: hookDeletePosition
   } = usePositions()
 
   const {
@@ -111,16 +116,21 @@ export const App: React.FC = () => {
     try {
       const data = await fetchSession(sessionId)
       if (data && Array.isArray(data.messages)) {
-        const mapped: ThreadMessage[] = data.messages.map((m: any, idx: number) => ({
-          id: `msg_${idx}_${m.timestamp || Date.now()}`,
-          role: m.role,
-          content: m.content,
-          reasoning_content: m.reasoning_content,
-          presetName: m.presetName,
-          tool_calls: m.tool_calls,
-          timestamp: m.timestamp || (idx === 0 ? data.createdAt : data.updatedAt || Date.now())
-        }))
+        const rawMessages = data.messages
+        const mapped: ThreadMessage[] = groupMessagesByRound(rawMessages, positions)
         setMessages(mapped)
+
+        // Backend session.presetId — kaynak gerçek
+        if (data.presetId) {
+          sessionToPositionRef.current.set(sessionId, data.presetId)
+          setChatThreads(prev =>
+            prev.map(t =>
+              t.id === sessionId && !t.targetPositionId
+                ? { ...t, targetPositionId: data.presetId }
+                : t
+            )
+          )
+        }
       }
     } catch (err) {
       console.warn('Session messages yüklenemedi:', err)
@@ -150,16 +160,11 @@ export const App: React.FC = () => {
           const diff = now - time
           const period: ChatThread['period'] = diff < oneDayMs ? 'today' : diff < 2 * oneDayMs ? 'yesterday' : 'last_7_days'
           
-          let displayTitle = s.title || `Oturum ${s.id.slice(-6)}`
-          if (s.workspace) {
-            const pos = positions
-              .slice()
-              .sort((a, b) => (b.workspace?.length || 0) - (a.workspace?.length || 0))
-              .find(p => p.workspace === s.workspace || (s.workspace && s.workspace.includes(p.workspace)))
+          const displayTitle = s.title || `Oturum ${s.id.slice(-6)}`
 
-            if (pos && !displayTitle.includes(pos.title) && !displayTitle.includes(pos.icon)) {
-              displayTitle = `${pos.icon} ${pos.title.split('&')[0].trim()} • ${displayTitle}`
-            }
+          // Backend'den gelen presetId — bu kaynak gerçektir
+          if (s.presetId) {
+            sessionToPositionRef.current.set(s.id, s.presetId)
           }
 
           return {
@@ -167,7 +172,8 @@ export const App: React.FC = () => {
             title: displayTitle,
             period,
             timestamp: time,
-            sessionId: s.id
+            sessionId: s.id,
+            targetPositionId: s.presetId
           }
         })
         mapped.sort((a, b) => b.timestamp - a.timestamp)
@@ -232,6 +238,11 @@ export const App: React.FC = () => {
 
   // Real Action Cards (Populated dynamically during execution)
   const [actionCards, setActionCards] = useState<ExecutionActionCard[]>([])
+  const actionCardsRef = useRef<ExecutionActionCard[]>([])
+
+  useEffect(() => {
+    actionCardsRef.current = actionCards
+  }, [actionCards])
 
   const toggleCard = (cardId: string) => {
     setActionCards(prev => prev.map(c => c.id === cardId ? { ...c, isExpanded: !c.isExpanded } : c))
@@ -345,10 +356,20 @@ export const App: React.FC = () => {
     const handleToolStart = (data: any) => {
       const targetPos = getTargetPosition(data)
       const call = data.call || data
+      const toolCallId = call.id || data.id || `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
       const toolName = call.name || data.name || data.toolName || 'tool'
       const args = call.args || data.args || {}
       const argStr = typeof args === 'object' ? JSON.stringify(args) : String(args)
-      const detail = argStr.length > 70 ? argStr.slice(0, 70) + '...' : argStr
+      const detail = args.command || args.path || args.query || args.taskName || args.prompt || (argStr.length > 70 ? argStr.slice(0, 70) + '...' : argStr)
+
+      const newItem: ExecutionActionItem = {
+        id: toolCallId,
+        label: toolName,
+        status: 'running',
+        detail: String(detail || ''),
+        input: args,
+        startedAt: Date.now()
+      }
 
       if (targetPos) {
         updatePositionStatus(targetPos.id, 'executing', `Araç çalıştırılıyor: ${toolName}`)
@@ -361,26 +382,52 @@ export const App: React.FC = () => {
           details: args
         })
 
-        // Add real action item into Assistant Action Cards
         setActionCards(prev => {
           const cardId = targetPos.id
           const existing = prev.find(c => c.id === cardId)
+          let nextCards: ExecutionActionCard[]
           if (existing) {
-            return prev.map(c => c.id === cardId ? {
+            nextCards = prev.map(c => c.id === cardId ? {
               ...c,
               badgeText: `${c.items.length + 1} eylem`,
-              items: [{ label: `${toolName}`, status: 'running' as const, detail }, ...c.items]
+              items: [newItem, ...c.items]
             } : c)
           } else {
-            return [{
+            nextCards = [{
               id: cardId,
               name: `${targetPos.title}`,
               icon: targetPos.icon,
               badgeText: '1 eylem yürütülüyor',
-              isExpanded: true,
-              items: [{ label: `${toolName}`, status: 'running' as const, detail }]
+              isExpanded: false,
+              items: [newItem]
             }, ...prev]
           }
+          actionCardsRef.current = nextCards
+          return nextCards
+        })
+      } else {
+        setActionCards(prev => {
+          const cardId = 'agent'
+          const existing = prev.find(c => c.id === cardId)
+          let nextCards: ExecutionActionCard[]
+          if (existing) {
+            nextCards = prev.map(c => c.id === cardId ? {
+              ...c,
+              badgeText: `${c.items.length + 1} eylem`,
+              items: [newItem, ...c.items]
+            } : c)
+          } else {
+            nextCards = [{
+              id: cardId,
+              name: 'Ajan Aksiyonları',
+              icon: '⚡',
+              badgeText: '1 eylem yürütülüyor',
+              isExpanded: false,
+              items: [newItem]
+            }, ...prev]
+          }
+          actionCardsRef.current = nextCards
+          return nextCards
         })
       }
     }
@@ -392,18 +439,43 @@ export const App: React.FC = () => {
     const handleToolResult = (data: any) => {
       const targetPos = getTargetPosition(data)
       const resultObj = data.result || data
+      const toolCallId = resultObj.id || data.id || data.callId
       const toolName = resultObj.name || data.name || data.toolName || 'tool'
       const toolArgs = data.call?.args || data.args || {}
+      const rawOutput = resultObj.output !== undefined
+        ? resultObj.output
+        : (resultObj.result !== undefined ? resultObj.result : (data.output !== undefined ? data.output : resultObj))
 
-      setActionCards(prev => prev.map(c => {
-        if (!targetPos || c.id === targetPos.id) {
-          return {
-            ...c,
-            items: c.items.map(it => it.label === toolName && it.status === 'running' ? { ...it, status: 'completed' as const } : it)
+      setActionCards(prev => {
+        let matched = false
+        const nextCards = prev.map(c => {
+          if (!targetPos || c.id === targetPos.id || c.id === 'agent') {
+            return {
+              ...c,
+              items: c.items.map(it => {
+                const isMatch = (!matched) && (
+                  (toolCallId && it.id === toolCallId) ||
+                  (!toolCallId && it.label === toolName && it.status === 'running') ||
+                  (it.label === toolName && it.status === 'running')
+                )
+                if (isMatch) {
+                  matched = true
+                  return {
+                    ...it,
+                    status: 'completed' as const,
+                    output: rawOutput,
+                    durationMs: it.startedAt ? (Date.now() - it.startedAt) : undefined
+                  }
+                }
+                return it
+              })
+            }
           }
-        }
-        return c
-      }))
+          return c
+        })
+        actionCardsRef.current = nextCards
+        return nextCards
+      })
 
       if (toolName.startsWith('schedule_')) {
         loadRoutines()
@@ -457,7 +529,23 @@ export const App: React.FC = () => {
       const responseText = data.response || data.finalResponse || streamingTextRef.current
       const thoughtText = streamingThoughtRef.current
 
-      if (responseText) {
+      // Backend bizim için presetId'yi kaydetti ve done event'inde gönderdi
+      // sessionToPositionRef ve chatThreads'i bununla güncelle
+      if (data.presetId && data.sessionId) {
+        sessionToPositionRef.current.set(data.sessionId, data.presetId)
+        setChatThreads(prev =>
+          prev.map(t =>
+            t.id === data.sessionId ? { ...t, targetPositionId: data.presetId } : t
+          )
+        )
+      }
+
+      const targetSessionId = data.sessionId || activeThreadIdRef.current
+      if (targetSessionId) {
+        // Single Source of Truth: Doğrudan backend'deki kanonik oturum mesajlarını çek
+        loadSessionMessages(targetSessionId)
+      } else if (responseText) {
+        const finalActionCards = actionCardsRef.current.length > 0 ? [...actionCardsRef.current] : undefined
         setMessages(prev => [
           ...prev,
           {
@@ -465,7 +553,8 @@ export const App: React.FC = () => {
             role: 'assistant',
             content: responseText,
             reasoning_content: thoughtText || undefined,
-            presetName: targetPos?.presetId || targetPos?.id,
+            presetName: data.presetId || targetPos?.presetId || targetPos?.id,
+            actionCards: finalActionCards,
             timestamp: Date.now()
           }
         ])
@@ -490,6 +579,8 @@ export const App: React.FC = () => {
       streamingThoughtRef.current = ''
       setStreamingText('')
       setStreamingThought('')
+      actionCardsRef.current = []
+      setActionCards([])
       setIsDirectiveRunning(false)
       loadRealSessions()
       loadRoutines()
@@ -722,6 +813,7 @@ export const App: React.FC = () => {
     scheduleType: 'instant' | 'after' | 'cron'
     afterSeconds?: number
     cron?: string
+    attachments?: any[]
   }) => {
     setIsDirectiveRunning(true)
     setLastDirectivePrompt(params.prompt)
@@ -802,7 +894,8 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
           sessionId: session.id,
           prompt: meetingPrompt,
           preset: moderator.presetId,
-          workspace: moderator.workspace
+          workspace: moderator.workspace,
+          attachments: params.attachments
         })
 
         addReceipt({
@@ -851,7 +944,8 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             sessionId: session.id,
             prompt: effectivePrompt,
             preset: pos.presetId,
-            workspace: pos.workspace
+            workspace: pos.workspace,
+            attachments: params.attachments
           })
 
           addReceipt({
@@ -897,11 +991,17 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
   }
 
   // Handle send message from Assistant chat
-  const handleSendMessage = (text: string, targets: string[]) => {
+  const handleSendMessage = (text: string, targets: string[], attachments?: any[]) => {
+    let displayContent = text
+    if (attachments && attachments.length > 0) {
+      const attNames = attachments.map(a => `📎 ${a.fileName}`).join(', ')
+      displayContent = text ? `${text}\n\n[Eklenen Dosyalar: ${attNames}]` : `[Eklenen Dosyalar: ${attNames}]`
+    }
+
     const userMsg: ThreadMessage = {
       id: `usr_${Date.now()}`,
       role: 'user',
-      content: text,
+      content: displayContent,
       timestamp: Date.now()
     }
     setMessages(prev => [...prev, userMsg])
@@ -911,41 +1011,51 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
     streamingThoughtRef.current = ''
     setActionCards([])
 
+    const effectivePrompt = text.trim() || (attachments && attachments.length > 0 ? `Lütfen ekteki ${attachments.map(a => a.fileName).join(', ')} dosyasını incele.` : 'Merhaba')
+
     // CASE 1: If user already has an active conversation thread open, continue inside it!
     if (activeThreadId) {
       const existingThread = chatThreads.find(t => t.id === activeThreadId)
-      let targetPos = existingThread?.targetPositionId
-        ? positions.find(p => p.id === existingThread.targetPositionId)
-        : undefined
+      let targetPos: Position | undefined
 
+      // 1. Explicit @ mention
+      if (targets.length > 0) {
+        targetPos = positions.find(p => p.id === targets[0] || p.presetId === targets[0])
+      }
+
+      // 2. Backend session'dan gelen presetId (kaynak gerçek)
+      if (!targetPos && existingThread?.targetPositionId) {
+        const pid = existingThread.targetPositionId
+        targetPos = positions.find(p => p.id === pid || p.presetId === pid)
+      }
+
+      // 3. sessionToPositionRef (backend seed)
       if (!targetPos && sessionToPositionRef.current.has(activeThreadId)) {
-        const posId = sessionToPositionRef.current.get(activeThreadId)
-        targetPos = positions.find(p => p.id === posId)
+        const pid = sessionToPositionRef.current.get(activeThreadId)!
+        targetPos = positions.find(p => p.id === pid || p.presetId === pid)
       }
 
-      if (!targetPos && targets.length > 0) {
-        targetPos = positions.find(p => p.id === targets[0])
-      }
-
+      // 4. Son çare: CEO veya ilk pozisyon
       if (!targetPos) {
         targetPos = positions.find(p => p.id === 'ceo' || p.level === 1) || positions[0]
       }
 
       if (targetPos) {
         setIsDirectiveRunning(true)
-        updatePositionStatus(targetPos.id, 'executing', `Yürütülüyor: ${text.slice(0, 30)}...`)
+        updatePositionStatus(targetPos.id, 'executing', `Yürütülüyor: ${effectivePrompt.slice(0, 30)}...`)
         wsClient.sendDirective({
           sessionId: activeThreadId,
-          prompt: text,
-          preset: targetPos.presetId,
-          workspace: targetPos.workspace
+          prompt: effectivePrompt,
+          preset: targetPos.presetId || targetPos.id,
+          workspace: targetPos.workspace,
+          attachments
         })
         addReceipt({
           positionId: targetPos.id,
           positionTitle: targetPos.title,
           actionType: 'directive_issued',
-          summary: `💬 ${targetPos.title} oturumuna mesaj iletildi: "${text.slice(0, 80)}..."`,
-          details: { sessionId: activeThreadId, prompt: text }
+          summary: `💬 ${targetPos.title} oturumuna mesaj iletildi: "${displayContent.slice(0, 80)}..."`,
+          details: { sessionId: activeThreadId, prompt: displayContent }
         })
         return
       }
@@ -953,9 +1063,10 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
 
     // CASE 2: Fresh chat - start new meeting or directive
     handleExecuteDirective({
-      prompt: text,
+      prompt: effectivePrompt,
       targetPositionIds: targets,
-      scheduleType: 'instant'
+      scheduleType: 'instant',
+      attachments
     })
   }
 
@@ -992,29 +1103,14 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
   }
 
   // Add Position
-  const handleAddPosition = (newPosData: Omit<Position, 'status' | 'currentAction' | 'lastActive'>) => {
-    let finalPrompt = newPosData.systemPrompt || ''
-    if (!finalPrompt.includes('RAPOR BİTTİ')) {
-      finalPrompt = `${finalPrompt}\n\n${REPORTING_GUARDRAIL}`
-    }
-
+  const handleAddPosition = async (newPosData: Omit<Position, 'status' | 'currentAction' | 'lastActive'>) => {
     const newPos: Position = {
       ...newPosData,
-      systemPrompt: finalPrompt,
+      systemPrompt: newPosData.systemPrompt || '',
       status: 'idle',
       currentAction: 'Yeni eklendi, hazır'
     }
-
-    setPositions(prev => [...prev, newPos])
-    savePreset({
-      id: newPos.presetId,
-      name: newPos.title,
-      description: newPos.role,
-      systemPrompt: newPos.systemPrompt,
-      enabledTools: newPos.tools,
-      enabledSkills: newPos.skills || []
-    }).catch(err => console.warn('Yeni preset kaydedilemedi:', err))
-
+    await hookAddPosition(newPos)
     addReceipt({
       positionId: newPos.id,
       positionTitle: newPos.title,
@@ -1025,8 +1121,8 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
   }
 
   // Update Position
-  const handleUpdatePosition = (updated: Position) => {
-    setPositions(prev => prev.map(p => p.id === updated.id ? updated : p))
+  const handleUpdatePosition = async (updated: Position) => {
+    await hookUpdatePosition(updated)
     setSelectedPosition(updated)
     addReceipt({
       positionId: updated.id,
@@ -1038,9 +1134,9 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
   }
 
   // Delete Position
-  const handleDeletePosition = (posId: string) => {
+  const handleDeletePosition = async (posId: string) => {
     const pos = positions.find(p => p.id === posId)
-    setPositions(prev => prev.filter(p => p.id !== posId))
+    await hookDeletePosition(posId)
     setSelectedPosition(null)
     addReceipt({
       positionId: posId,
@@ -1197,8 +1293,10 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
               {currentView === 'agents' && 'Organizasyon & Ajan Koltukları'}
               {currentView === 'company' && 'Organizasyon Şeması'}
               {currentView === 'knowledge' && 'Knowledge Base (Dokümanlar)'}
+              {currentView === 'skills' && 'Uzmanlık Becerileri (Skills)'}
               {currentView === 'integrations' && 'Kurumsal Entegrasyonlar'}
               {currentView === 'roi' && 'Denetim İzi & Receipts'}
+              {currentView === 'inspector' && 'Ajan Röntgeni (LLM Payload & Context Debug)'}
               {currentView === 'settings' && 'Ayarlar'}
             </span>
           </div>
@@ -1244,7 +1342,14 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             />
           )}
 
-          {currentView === 'assistant' && (
+          {/* Always Keep AssistantPage Mounted to Prevent Interrupted Live Streaming & Lost Input State */}
+          <div style={{
+            display: currentView === 'assistant' ? 'flex' : 'none',
+            flexDirection: 'column',
+            height: '100%',
+            width: '100%',
+            position: 'relative'
+          }}>
             <AssistantPage
               positions={positions}
               messages={messages}
@@ -1256,6 +1361,7 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
               actionCards={actionCards}
               onToggleCard={toggleCard}
               onOpenReport={(path) => setSelectedReportPath(path)}
+              activeSessionId={activeThreadId || undefined}
               activeSessionTitle={chatThreads.find(t => t.id === activeThreadId)?.title}
               onDeleteActiveSession={() => {
                 if (activeThreadId) {
@@ -1269,7 +1375,7 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
               }}
               companyWorkspace={companyWorkspace}
             />
-          )}
+          </div>
 
           {currentView === 'approvals' && (
             <ApprovalsPage
@@ -1422,6 +1528,13 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             />
           )}
 
+          {currentView === 'skills' && (
+            <SkillsPage
+              companyWorkspace={companyWorkspace}
+              companyName={companyName}
+            />
+          )}
+
           {currentView === 'workflows' && (
             <WorkflowsPage
               positions={positions}
@@ -1434,6 +1547,14 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
                 setCurrentView('assistant')
               }}
               isExecuting={isDirectiveRunning}
+            />
+          )}
+
+          {currentView === 'inspector' && (
+            <InspectorPage
+              chatThreads={chatThreads}
+              activeSessionId={activeThreadId || undefined}
+              companyWorkspace={companyWorkspace}
             />
           )}
         </div>

@@ -7,6 +7,8 @@ import * as sandbox from '@custom-harness/sandbox'
 import * as sandboxLocal from '@custom-harness/sandbox-local'
 import * as spill from '@custom-harness/spill'
 import * as spillLocal from '@custom-harness/spill-local'
+import * as inspector from '@custom-harness/inspector'
+import * as inspectorLocal from '@custom-harness/inspector-local'
 import * as userApproval from '@custom-harness/user-approval'
 import * as userQuestions from '@custom-harness/user-questions'
 import * as lsp from '@custom-harness/lsp'
@@ -82,6 +84,8 @@ export function apply(ctx: Context) {
   ctx.plugin(subprocessLocal)
   ctx.plugin(spill)
   ctx.plugin(spillLocal)
+  ctx.plugin(inspector)
+  ctx.plugin(inspectorLocal)
   ctx.plugin(userApproval)
   ctx.plugin(userQuestions)
   ctx.plugin(lsp)

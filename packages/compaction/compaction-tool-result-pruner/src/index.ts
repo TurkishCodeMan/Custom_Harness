@@ -16,9 +16,9 @@ export class ToolResultPrunerService extends Service {
   constructor(ctx: Context, config?: PrunerConfig) {
     super(ctx, 'toolResultPruner')
     this.config = {
-      thresholdChars: config?.thresholdChars ?? 4000,
-      headChars: config?.headChars ?? 1400,
-      tailChars: config?.tailChars ?? 1400
+      thresholdChars: config?.thresholdChars ?? 12000, // ~3000+ token
+      headChars: config?.headChars ?? 2000,
+      tailChars: config?.tailChars ?? 1000
     }
   }
 

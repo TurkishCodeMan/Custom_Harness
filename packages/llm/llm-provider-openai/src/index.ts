@@ -99,7 +99,7 @@ export class OpenAiLlmService extends LlmService {
         body.thinking = { type: 'disabled' }
         body.enable_thinking = false
       } else {
-        const budget = options.thinkingBudgetTokens || 2048
+        const budget = options.thinkingBudgetTokens || 1024
         body.thinking = { type: 'enabled', budget_tokens: budget }
         body.enable_thinking = true
       }
@@ -116,18 +116,26 @@ export class OpenAiLlmService extends LlmService {
     }
 
     // Context headroom & Proactive compaction safety
-    const contextLimit = model?.contextWindow || 32768
-    const MAX_SAFE_INPUT_TOKENS = Math.floor(contextLimit * 0.85)
+    // Fallback: 16384 (16K) — matches typical Qwen3 / local vLLM deployment.
+    // Do NOT use 32768 as fallback: it causes budama to never trigger on 16K models.
+    const contextLimit = model?.contextWindow || 16384
+    // Reserve 15% for token estimation inaccuracy (char/token ratio varies ±20% for TR+code mix)
+    const MAX_SAFE_INPUT_TOKENS = Math.floor(contextLimit * 0.80)
 
     let totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
     let approxInputTokens = Math.ceil(totalPayloadChars / 2.2) + 250
 
     if (approxInputTokens > MAX_SAFE_INPUT_TOKENS) {
-      // Step 1: Truncate very large tool results
-      for (let i = 0; i < sanitizedMessages.length - 2; i++) {
+      // Protect the last 8 messages (recent turns) — only trim older history.
+      // With a 16K context model and ~2.2 char/token ratio, each 1000 chars ≈ 454 tokens.
+      // Trim threshold: only kick in if individual old messages are excessively large.
+      const protectFromIdx = Math.max(0, sanitizedMessages.length - 8)
+
+      // Step 1: Trim old tool results > 6000 chars → keep 4000 chars (~1818 tokens)
+      for (let i = 0; i < protectFromIdx; i++) {
         const m = sanitizedMessages[i]
-        if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 250) {
-          m.content = m.content.slice(0, 150) + '\n... [Bağlam emniyeti için budandı / Output truncated]'
+        if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 6000) {
+          m.content = m.content.slice(0, 4000) + '\n... [Eski tool çıktısı bağlam tasarrufu için kısaltıldı]'
         }
       }
       totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
@@ -135,13 +143,17 @@ export class OpenAiLlmService extends LlmService {
     }
 
     if (approxInputTokens > MAX_SAFE_INPUT_TOKENS) {
-      // Step 2: Truncate older assistant or user summary messages
-      for (let i = 0; i < sanitizedMessages.length - 1; i++) {
+      // Step 2: Still overflowing — trim older assistant and user messages.
+      const protectFromIdx = Math.max(0, sanitizedMessages.length - 8)
+      for (let i = 0; i < protectFromIdx; i++) {
         const m = sanitizedMessages[i]
-        if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 400) {
-          m.content = m.content.slice(0, 250) + '\n... [Bağlam emniyeti için budandı]'
-        } else if (m.role === 'user' && typeof m.content === 'string' && m.content.length > 800) {
-          m.content = m.content.slice(0, 600) + '\n... [Özet bağlam emniyeti için kısaltıldı]'
+        if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > 2000) {
+          // Second pass: be more aggressive on already-old tool results
+          m.content = m.content.slice(0, 1500) + '\n... [Kısaltıldı]'
+        } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 5000) {
+          m.content = m.content.slice(0, 3500) + '\n... [Eski asistan mesajı kısaltıldı]'
+        } else if (m.role === 'user' && typeof m.content === 'string' && m.content.length > 6000) {
+          m.content = m.content.slice(0, 4500) + '\n... [Eski kullanıcı mesajı kısaltıldı]'
         }
       }
       totalPayloadChars = JSON.stringify(sanitizedMessages).length + JSON.stringify(options.tools || []).length
@@ -153,12 +165,16 @@ export class OpenAiLlmService extends LlmService {
       sanitizedMessages.push({ role: 'user', content: 'Devam et.' })
     }
 
-    // Guarantee full, uninterrupted output tokens
-    const availableHeadroom = Math.max(1024, contextLimit - approxInputTokens - 64)
-    const targetMaxTokens = Math.min(model?.maxTokens || 4096, 4096)
-    body.max_tokens = Math.min(targetMaxTokens, availableHeadroom)
+    // Guarantee full, uninterrupted output tokens.
+    // Thinking tokens count against max_tokens; add budget so real output isn't starved.
+    const thinkingBudget = body.thinking?.budget_tokens ?? 0
+    // 512-token safety margin accounts for token estimation inaccuracy (±20% for TR+code)
+    const availableHeadroom = Math.max(1024, contextLimit - approxInputTokens - 512)
+    // Allow up to model's own maxTokens (up to 8192) — not hard-locked at 4096
+    const targetMaxTokens = Math.min(model?.maxTokens || 4096, 8192)
+    body.max_tokens = Math.min(targetMaxTokens + thinkingBudget, availableHeadroom)
 
-    body.temperature = 0.2
+    body.temperature = typeof options.temperature === 'number' ? options.temperature : 0.2
     body.frequency_penalty = 0.3
     body.presence_penalty = 0.2
 

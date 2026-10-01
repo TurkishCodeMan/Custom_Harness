@@ -9,26 +9,28 @@ import {
   type ReflexionQueryOptions
 } from '@custom-harness/reflexion'
 
-function getReflectionsFilePath(): string {
+function getReflectionsFilePath(userId?: string): string {
   const baseDir = process.env.DSH_DIR || path.join(os.homedir(), '.dsh')
+  if (userId) {
+    return path.join(baseDir, 'tenants', userId, 'reflections.json')
+  }
   return path.join(baseDir, 'reflections.json')
 }
 
 export class LocalReflexionService extends ReflexionService {
   declare ctx: Context
-  private cache: ReflexionEntry[] | null = null
-  private storagePath: string
+  private defaultStoragePath: string
 
   constructor(ctx: Context, customStoragePath?: string) {
     super(ctx)
-    this.storagePath = customStoragePath || getReflectionsFilePath()
-    this.ensureStorageDir()
+    this.defaultStoragePath = customStoragePath || getReflectionsFilePath()
+    this.ensureStorageDir(this.defaultStoragePath)
     this.registerSystemPromptHook()
     this.registerTool()
   }
 
-  private ensureStorageDir() {
-    const dir = path.dirname(this.storagePath)
+  private ensureStorageDir(filePath: string) {
+    const dir = path.dirname(filePath)
     if (!fs.existsSync(dir)) {
       try {
         fs.mkdirSync(dir, { recursive: true })
@@ -36,60 +38,66 @@ export class LocalReflexionService extends ReflexionService {
     }
   }
 
-  private loadEntries(): ReflexionEntry[] {
-    if (this.cache !== null) return this.cache
-    if (!fs.existsSync(this.storagePath)) {
-      this.cache = []
-      return this.cache
+  private loadEntries(userId?: string): ReflexionEntry[] {
+    const filePath = getReflectionsFilePath(userId)
+    if (!fs.existsSync(filePath)) {
+      // If tenant file doesn't exist, start empty (prevent cross-tenant leakage)
+      if (userId) return []
+      return []
     }
     try {
-      const raw = fs.readFileSync(this.storagePath, 'utf8')
-      this.cache = JSON.parse(raw) as ReflexionEntry[]
+      const raw = fs.readFileSync(filePath, 'utf8')
+      return JSON.parse(raw) as ReflexionEntry[]
     } catch {
-      this.cache = []
+      return []
     }
-    return this.cache
   }
 
-  private saveEntries(entries: ReflexionEntry[]) {
-    this.cache = entries
-    this.ensureStorageDir()
+  private saveEntries(entries: ReflexionEntry[], userId?: string) {
+    const filePath = getReflectionsFilePath(userId)
+    this.ensureStorageDir(filePath)
     try {
-      fs.writeFileSync(this.storagePath, JSON.stringify(entries, null, 2), 'utf8')
+      fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf8')
     } catch (err: any) {
-      console.warn(`[LocalReflexionService] Failed to persist reflections: ${err.message}`)
+      console.warn(`[LocalReflexionService] Failed to persist reflections for user ${userId || 'default'}: ${err.message}`)
     }
   }
 
   public async recordReflection(
-    entry: Omit<ReflexionEntry, 'id' | 'timestamp'>
+    entry: Omit<ReflexionEntry, 'id' | 'timestamp'>,
+    userId?: string
   ): Promise<ReflexionEntry> {
-    const entries = this.loadEntries()
+    const effectiveUserId = userId || entry.userId
+    const entries = this.loadEntries(effectiveUserId)
+
     const newEntry: ReflexionEntry = {
       id: `refl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: Date.now(),
       task: entry.task,
       workspace: entry.workspace,
+      presetId: entry.presetId,
+      userId: effectiveUserId,
+      sessionId: entry.sessionId,
       error: entry.error,
       reflection: entry.reflection,
       tags: entry.tags || []
     }
 
     entries.unshift(newEntry)
-    // Keep maximum 100 most recent reflections to prevent memory bloating
+    // Keep maximum 100 most recent reflections per tenant to prevent memory bloating
     if (entries.length > 100) {
       entries.length = 100
     }
 
-    this.saveEntries(entries)
+    this.saveEntries(entries, effectiveUserId)
     return newEntry
   }
 
   public async getReflections(
     options: ReflexionQueryOptions = {}
   ): Promise<ReflexionEntry[]> {
-    const entries = this.loadEntries()
-    const { query, workspace, limit = 5 } = options
+    const { query, workspace, userId, limit = 5 } = options
+    const entries = this.loadEntries(userId)
 
     if (!query && !workspace) {
       return entries.slice(0, limit)
@@ -125,12 +133,12 @@ export class LocalReflexionService extends ReflexionService {
       .map((s) => s.entry)
   }
 
-  public async clearReflections(): Promise<void> {
-    this.saveEntries([])
+  public async clearReflections(userId?: string): Promise<void> {
+    this.saveEntries([], userId)
   }
 
-  public async renderPromptSection(task?: string, workspace?: string): Promise<string> {
-    const relevant = await this.getReflections({ query: task, workspace, limit: 3 })
+  public async renderPromptSection(task?: string, workspace?: string, userId?: string): Promise<string> {
+    const relevant = await this.getReflections({ query: task, workspace, userId, limit: 3 })
     if (relevant.length === 0) return ''
 
     const lines = relevant.map((r, i) => {
@@ -146,10 +154,22 @@ export class LocalReflexionService extends ReflexionService {
       (this.ctx as any).systemPrompt.section({
         name: 'reflexion',
         order: 85,
-        text: () => {
-          const ws = (this.ctx as any).systemPrompt?.currentSessionWorkspace || process.cwd()
-          const entries = this.loadEntries()
-          const relevant = entries.slice(0, 3)
+        text: (context?: any) => {
+          const ws = context?.cwd || (this.ctx as any).systemPrompt?.currentSessionWorkspace || process.cwd()
+          const userId = context?.userId || (this.ctx as any).systemPrompt?.currentSessionUserId
+          const presetId = context?.activePreset?.id || context?.preset?.id || (this.ctx as any).systemPrompt?.currentSessionPresetId
+          const entries = this.loadEntries(userId)
+
+          const relevant = entries.filter(e => {
+            // Must strictly match current workspace (no leaking cross-workspace lessons)
+            if (e.workspace && ws && e.workspace !== ws) return false
+            // Must strictly match presetId if specified
+            if ((e as any).presetId && presetId && (e as any).presetId !== presetId) return false
+            // If entry has no workspace, do not inject into specific workspaces
+            if (!e.workspace && ws) return false
+            return true
+          }).slice(0, 3)
+
           if (relevant.length === 0) return ''
 
           const lines = relevant.map((r, i) => {
@@ -183,13 +203,18 @@ export class LocalReflexionService extends ReflexionService {
               },
               required: ['task', 'lesson_learned']
             },
-            execute: async (args: any) => {
+            execute: async (args: any, context?: any) => {
+              const userId = context?.userId || context?.activePreset?.userId
               const entry = await this.recordReflection({
                 task: args.task,
                 error: args.mistake_or_error,
                 reflection: args.lesson_learned,
-                tags: args.tags || []
-              })
+                tags: args.tags || [],
+                workspace: context?.cwd,
+                presetId: context?.activePreset?.id || context?.preset?.id,
+                userId,
+                sessionId: context?.sessionId
+              }, userId)
               return `✅ [Reflexion Kaydedildi]: Ders kalıcı hafızaya alındı (ID: ${entry.id}). Gelecekteki benzer görevlerde hatırlanacak.`
             }
           })

@@ -325,7 +325,7 @@ export class SkillsService extends Service {
     const exactName = list.find(s => s.name?.toLowerCase() === cleanQuery || s.id?.toLowerCase() === cleanQuery)
     if (exactName) return exactName
 
-    // 3. Normalized slug comparison (e.g. 'far-trans-demo-db' vs 'Far Trans Demo DB SQL')
+    // 3. Normalized slug comparison (e.g. 'my-custom-skill' vs 'My Custom Skill')
     const slugMatch = list.find(s => {
       const sNameSlug = (s.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
       const sIdSlug = (s.id || '').toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -522,13 +522,13 @@ export function apply(ctx: Context) {
   ctx.tools.register(
     defineTool({
       name: 'skill',
-      description: 'Uzmanlık becerilerini (.agents/skills/) okur; veritabanı bağlantı bilgilerini, SQL şemalarını ve ML analiz şablonlarını yükler. Veri analizi veya veritabanı işlemlerinde skillName belirterek (örn. "Far Trans Demo DB SQL") çağrılmalıdır.',
+      description: 'Uzmanlık becerilerini (.agents/skills/) okur ve oturuma yükler. Yalnızca bu role atanmış yetkili becerileri yüklemek için skillName parametresiyle çağrılmalıdır.',
       parameters: {
         type: 'object',
         properties: {
           skillName: {
             type: 'string',
-            description: "Yüklenecek becerinin adı (Örn: 'Far Trans Demo DB SQL', 'pandas-plotly-sklearn-ml-models-skill')."
+            description: 'Yüklenecek becerinin sistem adı veya tanımlayıcısı (skillName).'
           }
         },
         required: ['skillName']
@@ -540,16 +540,20 @@ export function apply(ctx: Context) {
         service.discover(context?.cwd)
         const targetName = params.skillName || params.name || params.skill
 
-        // Enforce role-based skill permissions (Atlantic AI style position scoping)
+        // Enforce role-based skill permissions: Preset'te açıkça seçilmemişse hiçbir beceri çağrılamaz (Zero-Trust)
         const allowedSkills = context?.activePreset?.enabledSkills
-        if (allowedSkills && Array.isArray(allowedSkills) && allowedSkills.length > 0 && targetName) {
+        const roleTitle = context?.activePreset?.name || context?.activePreset?.id || 'Mevcut Koltuk'
+        if (!allowedSkills || !Array.isArray(allowedSkills) || allowedSkills.length === 0) {
+          return `[YETKİ SINIRI / ROLE SCOPE]: '${roleTitle}' koltuğuna atanmış herhangi bir beceri bulunmamaktadır. Bir becerinin kullanılabilmesi için önce Koltuk/Preset Ayarları üzerinden açıkça seçilmiş (enabled) olması gerekir.`
+        }
+
+        if (targetName) {
           const query = targetName.trim().toLowerCase()
           const isAllowed = allowedSkills.some((s: string) => {
             const cleanS = s.trim().toLowerCase()
             return cleanS === query || query.includes(cleanS) || cleanS.includes(query)
           })
           if (!isAllowed) {
-            const roleTitle = context?.activePreset?.name || context?.activePreset?.id || 'Mevcut Koltuk'
             return `[YETKİ SINIRI / ROLE SCOPE]: '${targetName}' becerisi '${roleTitle}' koltuğunun yetki alanında değildir. Bu koltuğun kullanabileceği beceriler: ${allowedSkills.join(', ')}`
           }
         }
@@ -566,15 +570,19 @@ export function apply(ctx: Context) {
           }
         }
 
-        // 2. Fallback: If no exact name was given, auto-load the primary database/ML skill
-        const activeSkills = service.listActiveSkills()
-        const primarySkill = activeSkills.find(s => s.name.toLowerCase().includes('sql') || s.name.toLowerCase().includes('far')) || activeSkills[0]
+        // 2. Fallback: If no exact name was given, auto-load from allowedSkills only
+        const activeSkills = service.listActiveSkills().filter(s => {
+          const lower = s.name.toLowerCase()
+          const idLower = s.id.toLowerCase()
+          return allowedSkills.some((a: string) => a.toLowerCase() === lower || a.toLowerCase() === idLower)
+        })
+        const primarySkill = activeSkills[0]
 
         if (primarySkill) {
           return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${primarySkill.name}):\n\n${primarySkill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu metni kullanıcıya kopyalama; HEMEN sıradaki eylem olarak bash aracını çağırarak veritabanı sorgunu veya analizini çalıştır.`
         }
 
-        return 'Sistemde yüklü aktif bir beceri bulunamadı.'
+        return 'Bu koltuk için tanımlanmış aktif bir beceri bulunamadı.'
       }
     })
   )

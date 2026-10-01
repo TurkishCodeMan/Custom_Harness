@@ -159,6 +159,12 @@ importers:
       '@custom-harness/guard-repeat-tool-reminder':
         specifier: workspace:*
         version: link:../../guard/repeat-tool-reminder
+      '@custom-harness/inspector':
+        specifier: workspace:*
+        version: link:../../inspector/inspector
+      '@custom-harness/inspector-local':
+        specifier: workspace:*
+        version: link:../../inspector/inspector-local
       '@custom-harness/llm':
         specifier: workspace:*
         version: link:../../llm/llm
@@ -563,6 +569,30 @@ importers:
         specifier: ^3.18.1
         version: 3.18.1
 
+  packages/inspector/inspector:
+    dependencies:
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
+  packages/inspector/inspector-local:
+    dependencies:
+      '@custom-harness/agent-middleware':
+        specifier: workspace:*
+        version: link:../../middleware/agent-middleware
+      '@custom-harness/core-context':
+        specifier: workspace:*
+        version: link:../../core/context
+      '@custom-harness/core-types':
+        specifier: workspace:*
+        version: link:../../core/types
+      '@custom-harness/inspector':
+        specifier: workspace:*
+        version: link:../inspector
+      cordis:
+        specifier: ^3.18.1
+        version: 3.18.1
+
   packages/interaction/tool-ask-user:
     dependencies:
       '@custom-harness/core-context':
@@ -756,6 +786,9 @@ importers:
         specifier: ^3.4.0
         version: 3.18.1
     devDependencies:
+      '@types/node':
+        specifier: ^22.13.4
+        version: 22.20.1
       typescript:
         specifier: ^5.4.0
         version: 5.9.3

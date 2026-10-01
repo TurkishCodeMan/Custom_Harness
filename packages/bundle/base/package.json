@@ -18,6 +18,8 @@
     "@custom-harness/subprocess-local": "workspace:*",
     "@custom-harness/spill": "workspace:*",
     "@custom-harness/spill-local": "workspace:*",
+    "@custom-harness/inspector": "workspace:*",
+    "@custom-harness/inspector-local": "workspace:*",
     "@custom-harness/user-approval": "workspace:*",
     "@custom-harness/session": "workspace:*",
     "@custom-harness/settings": "workspace:*",

@@ -393,7 +393,9 @@ export class McpClientService extends Service {
       if (!fs.existsSync(p)) continue
       try {
         const raw = fs.readFileSync(p, 'utf8')
-        const json = JSON.parse(raw)
+        // Strip comments to gracefully support JSON with comments
+        const cleanJson = raw.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm, '$1')
+        const json = JSON.parse(cleanJson)
         const servers = json.mcpServers || json.servers || json
         if (typeof servers === 'object') {
           for (const [id, srv] of Object.entries(servers)) {

@@ -40,6 +40,8 @@
       "@custom-harness/reflexion-local": ["./packages/memory/reflexion-local/src/index.ts"],
       "@custom-harness/spill": ["./packages/spill/spill/src/index.ts"],
       "@custom-harness/spill-local": ["./packages/spill/spill-local/src/index.ts"],
+      "@custom-harness/inspector": ["./packages/inspector/inspector/src/index.ts"],
+      "@custom-harness/inspector-local": ["./packages/inspector/inspector-local/src/index.ts"],
       "@custom-harness/user-approval": ["./packages/interaction/user-approval/src/index.ts"],
       "@custom-harness/bundle-base": ["./packages/bundle/base/src/index.ts"],
       "@custom-harness/bundle-web-app": ["./packages/bundle/web-app/src/index.ts"],

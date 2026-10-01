@@ -1,12 +1,268 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import type { Position, ExecutionActionCard, ThreadMessage } from '../types.js'
-import { browseWorkspace, type WorkspaceFileItem } from '../api.js'
+import type { Position, ExecutionActionCard, ExecutionActionItem, ThreadMessage } from '../types.js'
+import { browseWorkspace, uploadClientFiles, type WorkspaceFileItem, type UploadedFileInfo } from '../api.js'
 import { LayaService, type LayaRouteResult } from '../services/layaService.js'
+import { groupMessagesByRound } from '../messageGrouping.js'
+
+const getToolCategoryInfo = (toolName: string) => {
+  const name = (toolName || '').toLowerCase()
+  if (name === 'bash' || name === 'exec' || name === 'terminal' || name === 'command') {
+    return { icon: '💻', category: 'Shell & Terminal Komutu', accentColor: '#38bdf8' }
+  }
+  if (name.includes('read') || name.includes('view') || name.includes('cat')) {
+    return { icon: '📄', category: 'Dosya İnceleme & Okuma', accentColor: '#34d399' }
+  }
+  if (name.includes('write') || name.includes('edit') || name.includes('replace') || name.includes('create')) {
+    return { icon: '✏️', category: 'Dosya Yazma & Düzenleme', accentColor: '#a78bfa' }
+  }
+  if (name.includes('list') || name.includes('glob') || name.includes('find') || name.includes('dir')) {
+    return { icon: '📂', category: 'Dizin & Dosya Arama', accentColor: '#fbbf24' }
+  }
+  if (name.includes('web') || name.includes('search') || name.includes('url') || name.includes('http') || name.includes('fetch')) {
+    return { icon: '🌐', category: 'Web & Ağ Araması', accentColor: '#60a5fa' }
+  }
+  if (name.includes('subagent') || name.includes('agent')) {
+    return { icon: '🤝', category: 'Departman Alt Ajanı', accentColor: '#f43f5e' }
+  }
+  if (name.includes('schedule') || name.includes('cron') || name.includes('routine')) {
+    return { icon: '⏱️', category: 'Zamanlanmış Rutin / Görev', accentColor: '#f59e0b' }
+  }
+  return { icon: '⚙️', category: 'Sistem Entegrasyon Aracı', accentColor: '#94a3b8' }
+}
+
+interface ActionItemViewerProps {
+  item: ExecutionActionItem
+  index: number
+  allMessages?: ThreadMessage[]
+}
+
+const ActionItemViewer: React.FC<ActionItemViewerProps> = ({ item, index, allMessages }) => {
+  const [isOpen, setIsOpen] = useState<boolean>(false)
+  const [copiedType, setCopiedType] = useState<'input' | 'output' | null>(null)
+
+  const toolInfo = getToolCategoryInfo(item.label)
+
+  // 1. Resolve Input ("Ne Giriyor")
+  let resolvedInput: any = item.input
+  if (!resolvedInput && allMessages) {
+    for (const m of allMessages) {
+      if (m.tool_calls && Array.isArray(m.tool_calls)) {
+        const tc = m.tool_calls.find((c: any) =>
+          (item.id && c.id === item.id) ||
+          ((c.function?.name || c.name) === item.label)
+        )
+        if (tc) {
+          try {
+            resolvedInput = typeof tc.function?.arguments === 'string'
+              ? JSON.parse(tc.function.arguments)
+              : (tc.function?.arguments || tc.args || {})
+          } catch {
+            resolvedInput = { raw: tc.function?.arguments }
+          }
+          break
+        }
+      }
+    }
+  }
+
+  // 2. Resolve Output ("Ne Geliyor")
+  let resolvedOutput: any = item.output
+  if (resolvedOutput === undefined && allMessages) {
+    const match = allMessages.find(m =>
+      m.role === 'tool' && (
+        (item.id && m.tool_call_id === item.id) ||
+        (m.name === item.label)
+      )
+    )
+    if (match) {
+      resolvedOutput = match.content
+    }
+  }
+
+  // Extract command and working directory for bash
+  let commandStr = ''
+  let workingDir = ''
+  if (resolvedInput && typeof resolvedInput === 'object') {
+    commandStr = resolvedInput.command || resolvedInput.cmd || ''
+    workingDir = resolvedInput.cwd || resolvedInput.workingDirectory || resolvedInput.path || ''
+  }
+
+  let formattedInputText = ''
+  if (resolvedInput !== undefined && resolvedInput !== null) {
+    if (typeof resolvedInput === 'string') {
+      formattedInputText = resolvedInput
+    } else {
+      formattedInputText = JSON.stringify(resolvedInput, null, 2)
+    }
+  } else if (item.detail) {
+    formattedInputText = item.detail
+  }
+
+  // Format Output
+  let formattedOutputText = ''
+  if (resolvedOutput !== undefined && resolvedOutput !== null) {
+    if (typeof resolvedOutput === 'string') {
+      try {
+        const parsed = JSON.parse(resolvedOutput)
+        formattedOutputText = typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : resolvedOutput
+      } catch {
+        formattedOutputText = resolvedOutput
+      }
+    } else {
+      formattedOutputText = JSON.stringify(resolvedOutput, null, 2)
+    }
+  }
+
+  const hasOutput = Boolean(formattedOutputText && formattedOutputText.trim().length > 0)
+  const isRunning = item.status === 'running' && !hasOutput
+  const isError = item.status === 'error'
+
+  const copyToClipboard = (text: string, type: 'input' | 'output') => {
+    try {
+      navigator.clipboard.writeText(text)
+      setCopiedType(type)
+      setTimeout(() => setCopiedType(null), 1800)
+    } catch (e) {
+      console.warn('Clipboard write failed:', e)
+    }
+  }
+
+  const preview = commandStr || (typeof resolvedInput?.path === 'string' ? resolvedInput.path : '') || item.detail || ''
+
+  return (
+    <div className={`collapsible-tool-card ${isOpen ? 'open' : 'closed'} ${item.status}`}>
+      {/* Clickable Header Bar */}
+      <div className="tool-card-header" onClick={() => setIsOpen(!isOpen)}>
+        <div className="tool-header-left">
+          <div className="tool-status-glyph">
+            {item.status === 'completed' && <span className="check-emerald">✓</span>}
+            {item.status === 'running' && <span className="spinner-amber">◌</span>}
+            {item.status === 'pending' && <span className="pending-dot">•</span>}
+            {item.status === 'error' && <span className="error-cross">✕</span>}
+          </div>
+
+          <div className="tool-badge-pill" style={{ borderColor: `${toolInfo.accentColor}55`, color: toolInfo.accentColor }}>
+            <span className="tool-badge-icon">{toolInfo.icon}</span>
+            <span className="tool-badge-name">{item.label}</span>
+          </div>
+
+          {preview && (
+            <span className="tool-preview-snippet" title={preview}>
+              {preview}
+            </span>
+          )}
+        </div>
+
+        <div className="tool-header-right">
+          {item.durationMs !== undefined && (
+            <span className="tool-duration-badge">
+              {item.durationMs < 1000 ? `${item.durationMs}ms` : `${(item.durationMs / 1000).toFixed(1)}s`}
+            </span>
+          )}
+          <span className="tool-toggle-text">
+            {isOpen ? 'Gizle' : 'Detaylar'}
+          </span>
+          <span className={`tool-chevron-icon ${isOpen ? 'open' : ''}`}>▾</span>
+        </div>
+      </div>
+
+      {/* Expandable Body: Ne Giriyor & Ne Geliyor */}
+      {isOpen && (
+        <div className="tool-card-body-expanded">
+          {/* 📥 NE GİRİYOR */}
+          <div className="tool-io-panel io-in-panel">
+            <div className="io-panel-top">
+              <div className="io-panel-title-wrap">
+                <span className="io-icon-badge io-badge-in">📥 Ne Giriyor</span>
+                <span className="io-sub-label">{toolInfo.category}</span>
+                {workingDir && (
+                  <span className="io-path-pill" title={`Çalışma Dizini: ${workingDir}`}>
+                    📁 {workingDir}
+                  </span>
+                )}
+              </div>
+              {formattedInputText && (
+                <button
+                  type="button"
+                  className="io-copy-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    copyToClipboard(commandStr || formattedInputText, 'input')
+                  }}
+                  title="Girdiyi panoya kopyala"
+                >
+                  {copiedType === 'input' ? '✓ Kopyalandı' : '📋 Kopyala'}
+                </button>
+              )}
+            </div>
+
+            <div className="io-terminal-surface">
+              {item.label === 'bash' && commandStr ? (
+                <div className="bash-cmd-display">
+                  <span className="terminal-prompt">$</span>
+                  <code className="terminal-cmd">{commandStr}</code>
+                </div>
+              ) : (
+                <pre className="io-pre-text">{formattedInputText || '{}'}</pre>
+              )}
+            </div>
+          </div>
+
+          {/* 📤 NE GELİYOR */}
+          <div className="tool-io-panel io-out-panel">
+            <div className="io-panel-top">
+              <div className="io-panel-title-wrap">
+                <span className="io-icon-badge io-badge-out">📤 Ne Geliyor</span>
+                <span className="io-sub-label">
+                  {isRunning ? 'Çalıştırılıyor...' : isError ? 'Hata Çıktısı' : 'Sonuç & Çıktı'}
+                </span>
+              </div>
+              {hasOutput && (
+                <button
+                  type="button"
+                  className="io-copy-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    copyToClipboard(formattedOutputText, 'output')
+                  }}
+                  title="Çıktıyı panoya kopyala"
+                >
+                  {copiedType === 'output' ? '✓ Kopyalandı' : '📋 Kopyala'}
+                </button>
+              )}
+            </div>
+
+            <div className="io-terminal-surface">
+              {isRunning ? (
+                <div className="io-running-indicator">
+                  <span className="spinner-amber">◌</span>
+                  <span>Araç çalıştırılıyor, sistem çıktısı bekleniyor...</span>
+                </div>
+              ) : isError ? (
+                <div className="io-error-display">
+                  <span className="error-mark">✕</span>
+                  <pre className="io-pre-text error-color">{formattedOutputText || 'Araç çalıştırma hatası.'}</pre>
+                </div>
+              ) : hasOutput ? (
+                <pre className="io-pre-text output-success-color">{formattedOutputText}</pre>
+              ) : (
+                <div className="io-quiet-display">
+                  <span className="quiet-mark">✓</span>
+                  <span>Komut başarıyla yürütüldü (herhangi bir standart çıktı üretilmedi).</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface AssistantPageProps {
   positions: Position[]
   messages: ThreadMessage[]
-  onSendMessage: (text: string, targetPositionIds: string[]) => void
+  onSendMessage: (text: string, targetPositionIds: string[], attachments?: UploadedFileInfo[]) => void
   onAbort?: () => void
   isExecuting: boolean
   streamingText?: string
@@ -14,6 +270,7 @@ interface AssistantPageProps {
   actionCards: ExecutionActionCard[]
   onToggleCard: (cardId: string) => void
   onOpenReport?: (reportPath: string) => void
+  activeSessionId?: string
   activeSessionTitle?: string
   onDeleteActiveSession?: () => void
   onRefreshSession?: () => void
@@ -31,6 +288,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   actionCards,
   onToggleCard,
   onOpenReport,
+  activeSessionId,
   activeSessionTitle,
   onDeleteActiveSession,
   onRefreshSession,
@@ -40,10 +298,54 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
   const [docPickerOpen, setDocPickerOpen] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<UploadedFileInfo[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
   const [expandedToolOutputs, setExpandedToolOutputs] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const feedRef = useRef<HTMLDivElement>(null)
+  const isAutoScrollEnabledRef = useRef<boolean>(true)
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState<boolean>(false)
+
+  const handleToggleCard = (cardId: string) => {
+    setExpandedCards(prev => ({
+      ...prev,
+      [cardId]: !prev[cardId]
+    }))
+    onToggleCard?.(cardId)
+  }
+
+  const handleLocalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setIsUploading(true)
+    setUploadError(null)
+    try {
+      const fileList = Array.from(files)
+      const uploaded = await uploadClientFiles(fileList, activeSessionId || 'default')
+      if (uploaded && uploaded.length > 0) {
+        setPendingAttachments(prev => [...prev, ...uploaded])
+        setDocPickerOpen(false)
+      }
+    } catch (err: any) {
+      console.error('[AssistantPage] Dosya yükleme hatası:', err)
+      setUploadError(err.message || 'Dosya yüklenemedi.')
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleRemoveAttachment = (indexToRemove: number) => {
+    setPendingAttachments(prev => prev.filter((_, idx) => idx !== indexToRemove))
+  }
 
   const toggleToolOutput = (id: string) => {
     setExpandedToolOutputs(prev => ({ ...prev, [id]: !prev[id] }))
@@ -147,9 +449,50 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
     })
   }, [workspaceFiles, fileSearch, selectedFolder])
 
+  const handleFeedScroll = () => {
+    if (!feedRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = feedRef.current
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight)
+    // Eğer kullanıcı en alttan 80px'den daha yukarı kaydırmışsa otomatik aşağı kaydırmayı durdur
+    const atBottom = distanceFromBottom <= 80
+    isAutoScrollEnabledRef.current = atBottom
+    setShowScrollBottomBtn(!atBottom)
+  }
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (feedRef.current) {
+      feedRef.current.scrollTo({
+        top: feedRef.current.scrollHeight,
+        behavior
+      })
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior })
+    }
+    isAutoScrollEnabledRef.current = true
+    setShowScrollBottomBtn(false)
+  }
+
+  // Yeni oturuma geçildiğinde en alta kaydır
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingText, streamingThought, actionCards])
+    isAutoScrollEnabledRef.current = true
+    setShowScrollBottomBtn(false)
+    const timer = setTimeout(() => scrollToBottom('auto'), 50)
+    return () => clearTimeout(timer)
+  }, [activeSessionId])
+
+  // Mesaj veya akış güncellendiğinde: Kullanıcı yukarı scroll yapmışsa KESİNLİKLE aşağı çekme!
+  useEffect(() => {
+    if (!isAutoScrollEnabledRef.current) return
+
+    if (feedRef.current) {
+      feedRef.current.scrollTo({
+        top: feedRef.current.scrollHeight,
+        behavior: isExecuting ? 'auto' : 'smooth'
+      })
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: isExecuting ? 'auto' : 'smooth' })
+    }
+  }, [messages, streamingText, streamingThought, actionCards, isExecuting])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -191,7 +534,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       return
     }
 
-    if (!inputText.trim()) return
+    const trimmedInput = inputText.trim()
+    if (!trimmedInput && pendingAttachments.length === 0) return
 
     const targetedIds: string[] = []
     positions.forEach(p => {
@@ -199,7 +543,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         inputText.includes(`@${p.title}`) ||
         inputText.includes(`@${p.id}`) ||
         (p.id === 'ceo' && inputText.toLowerCase().includes('@ceo')) ||
-        (p.id === 'novatrend-cfo' && inputText.toLowerCase().includes('@cfo')) ||
+        (p.id === 'novatrend-cfo' && (inputText.toLowerCase().includes('@cfo') || inputText.toLowerCase().includes('@fatura'))) ||
         (p.id === 'novatrend-kalite' && inputText.toLowerCase().includes('@kalite')) ||
         (p.id === 'novatrend-tedarik' && inputText.toLowerCase().includes('@tedarik'))
       ) {
@@ -207,16 +551,39 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       }
     })
 
-    // If no mention, check Laya suggestion or fallback to CEO
-    const finalTargets: string[] = targetedIds.length > 0
-      ? targetedIds
-      : (layaRoute?.target_position_id ? [layaRoute.target_position_id] : [positions.find(p => p.id === 'ceo' || p.level === 1)?.id || positions[0]?.id || 'ceo'])
+    // If user explicitly @mentioned positions, use them
+    let finalTargets: string[] = targetedIds
 
-    onSendMessage(inputText.trim(), finalTargets)
+    // Only if NO @mention was typed and we are starting a FRESH conversation (no activeSessionId):
+    // Fallback to CEO or suggested position. If activeSessionId exists, leaving finalTargets empty
+    // ensures the ongoing thread stays with its current position (e.g. Invoice Agent).
+    if (finalTargets.length === 0 && !activeSessionId) {
+      let defaultTarget = positions.find(p => p.id === 'ceo' || p.level === 1)?.id || positions[0]?.id || 'ceo'
+      if (
+        pendingAttachments.some(a => 
+          a.fileName.toLowerCase().includes('fatura') || 
+          a.fileName.toLowerCase().includes('invoice') || 
+          a.fileName.toLowerCase().includes('inv')
+        ) && positions.some(p => p.id === 'novatrend-cfo')
+      ) {
+        defaultTarget = 'novatrend-cfo'
+      }
+      finalTargets = layaRoute?.target_position_id ? [layaRoute.target_position_id] : [defaultTarget]
+    }
+
+    const messageText = trimmedInput || `Lütfen ekteki ${pendingAttachments.map(a => a.fileName).join(', ')} dokümanını incele ve detaylı analiz et.`
+
+    onSendMessage(messageText, finalTargets, pendingAttachments.length > 0 ? pendingAttachments : undefined)
     setInputText('')
+    setPendingAttachments([])
     setMentionMenuOpen(false)
     setDocPickerOpen(false)
     setLayaRoute(null)
+
+    // Mesaj gönderildiğinde odağı en alta çek
+    isAutoScrollEnabledRef.current = true
+    setShowScrollBottomBtn(false)
+    setTimeout(() => scrollToBottom('smooth'), 50)
   }
 
   const toggleThinking = (msgId: string) => {
@@ -255,8 +622,9 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
     return { title: presetOrId, icon: '▲' }
   }
 
-  const renderFormattedText = (text: string, keyPrefix: string) => {
-    const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|raporlar\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g)
+  const renderFormattedText = (text: any, keyPrefix: string) => {
+    const safeText = typeof text === 'string' ? text : (typeof text === 'object' ? JSON.stringify(text) : String(text || ''))
+    const parts = safeText.split(/(\*\*[^*]+\*\*|`[^`]+`|raporlar\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g)
     return parts.map((part, idx) => {
       const key = `${keyPrefix}_${idx}`
       if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
@@ -307,8 +675,9 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
     })
   }
 
-  const renderMarkdownContent = (content: string) => {
-    const lines = content.split('\n')
+  const renderMarkdownContent = (content: any) => {
+    const safeContent = typeof content === 'string' ? content : (typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content || ''))
+    const lines = safeContent.split('\n')
     let inCodeBlock = false
     let codeLines: string[] = []
     const elements: React.ReactNode[] = []
@@ -481,43 +850,51 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       )}
 
       {/* Messages Feed */}
-      <div className="chat-conversation-feed">
-        {messages.map((msg, idx) => {
-          if (msg.role === 'user') {
-            return (
-              <div key={msg.id || `user_${idx}`} className="chat-message-row user-row">
-                <div className="user-message-bubble">
-                  <div className="message-header-line">
-                    <div className="msg-author-info">
-                      <span className="author-avatar user-av">H</span>
-                      <span className="author-name">Hüseyin</span>
-                      <span className="author-badge">Yönetici / Executive</span>
+      <div className="chat-conversation-feed" ref={feedRef} onScroll={handleFeedScroll}>
+        {(() => {
+          const displayMessages = groupMessagesByRound(messages, positions)
+          const lastAssistantIndex = displayMessages.map(m => m.role).lastIndexOf('assistant')
+          return displayMessages.map((msg, idx) => {
+            if (msg.role === 'user') {
+              return (
+                <div key={msg.id || `user_${idx}`} className="chat-message-row user-row">
+                  <div className="user-message-bubble">
+                    <div className="message-header-line">
+                      <div className="msg-author-info">
+                        <span className="author-avatar user-av">H</span>
+                        <span className="author-name">Hüseyin</span>
+                        <span className="author-badge">Yönetici / Executive</span>
+                      </div>
+                      {msg.timestamp && (
+                        <span className="msg-time-stamp">
+                          {new Date(msg.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                     </div>
-                    {msg.timestamp && (
-                      <span className="msg-time-stamp">
-                        {new Date(msg.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
+                    <div className="message-content-text">{typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}</div>
                   </div>
-                  <div className="message-content-text">{msg.content}</div>
                 </div>
-              </div>
-            )
-          }
-
-          if (msg.role === 'assistant') {
-            const agentInfo = findPositionInfo(msg.presetName)
-            const isThinkingOpen = expandedThinking[msg.id]
-            const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
-            const hasContent = Boolean(msg.content && msg.content.trim())
-            const hasThinking = Boolean(msg.reasoning_content && msg.reasoning_content.trim())
-
-            // Render even if content is empty when tool calls exist
-            if (!hasContent && !hasThinking && !hasToolCalls) {
-              return null
+              )
             }
 
-            return (
+            if (msg.role === 'assistant') {
+              const agentInfo = findPositionInfo(msg.presetName)
+              const isThinkingOpen = expandedThinking[msg.id]
+              const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
+              const hasContent = Boolean(msg.content && msg.content.trim())
+              const hasThinking = Boolean(msg.reasoning_content && msg.reasoning_content.trim())
+
+              const isLastAssistantMessage = idx === lastAssistantIndex
+              const messageActionCards = (msg.actionCards && msg.actionCards.length > 0)
+                ? msg.actionCards
+                : (isLastAssistantMessage && !isExecuting && actionCards.length > 0 ? actionCards : null)
+
+              // Render even if content is empty when tool calls or action cards exist
+              if (!hasContent && !hasThinking && !hasToolCalls && (!messageActionCards || messageActionCards.length === 0)) {
+                return null
+              }
+
+              return (
               <div key={msg.id || `assistant_${idx}`} className="chat-message-row assistant-row">
                 <div className="assistant-message-card">
                   <div className="message-header-line">
@@ -550,54 +927,104 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                   )}
 
                   {/* Tool Calls Chips (In-progress & Completed Steps) */}
-                  {hasToolCalls && (
-                    <div style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '6px',
-                      margin: '6px 0 10px 0'
-                    }}>
-                      {msg.tool_calls?.map((tc: any, tIdx: number) => {
-                        const toolName = tc.function?.name || tc.name || 'Araç Çağrısı'
-                        let callDetail = ''
-                        try {
-                          const args = typeof tc.function?.arguments === 'string'
-                            ? JSON.parse(tc.function.arguments)
-                            : tc.function?.arguments || tc.args || {}
-                          callDetail = args.taskName || args.taskDescription || args.task || args.prompt || args.path || args.query || args.command || ''
-                          if (typeof callDetail !== 'string') callDetail = JSON.stringify(callDetail)
-                        } catch {
-                          callDetail = ''
-                        }
-
+                  {/* Tool Actions Block (Live & Completed Actions for this message) */}
+                  {messageActionCards && messageActionCards.length > 0 ? (
+                    <div className="live-actions-stream-block" style={{ margin: '8px 0 12px 0' }}>
+                      <div className="live-actions-stream-label">
+                        <span className="pulse-dot-emerald" />
+                        <span>Canlı Araç ve Departman Aksiyonları</span>
+                      </div>
+                      {messageActionCards.map(card => {
+                        const isCardOpen = Boolean(expandedCards[card.id] ?? false)
                         return (
-                          <div
-                            key={tIdx}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              background: 'rgba(56, 189, 248, 0.08)',
-                              border: '1px solid rgba(56, 189, 248, 0.25)',
-                              borderRadius: '6px',
-                              padding: '4px 8px',
-                              fontSize: '11px',
-                              fontFamily: 'monospace',
-                              color: '#38bdf8'
-                            }}
-                          >
-                            <span>⚙️</span>
-                            <span style={{ fontWeight: 600 }}>{toolName}</span>
-                            {callDetail && (
-                              <span style={{ color: '#94a3b8', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {callDetail}
-                              </span>
+                          <div key={card.id} className="atlantic-action-card">
+                            <div className="card-header-bar" onClick={() => handleToggleCard(card.id)}>
+                              <div className="card-header-left">
+                                <span className="integration-logo-badge">{card.icon}</span>
+                                <span className="card-title-text">{card.name}</span>
+                                <span className="card-completed-count">{card.badgeText}</span>
+                              </div>
+                              <div className="card-header-right">
+                                <span className={`accordion-chevron ${isCardOpen ? 'open' : ''}`}>▾</span>
+                              </div>
+                            </div>
+                            {isCardOpen && (
+                              <div className="card-items-body">
+                                {card.items.map((item, iIdx) => (
+                                  <ActionItemViewer
+                                    key={item.id || `card_item_${iIdx}`}
+                                    item={item}
+                                    index={iIdx}
+                                    allMessages={messages}
+                                  />
+                                ))}
+                              </div>
                             )}
                           </div>
                         )
                       })}
                     </div>
-                  )}
+                  ) : hasToolCalls && msg.tool_calls && msg.tool_calls.length > 0 ? (
+                    <div className="live-actions-stream-block" style={{ margin: '8px 0 12px 0' }}>
+                      <div className="live-actions-stream-label">
+                        <span className="pulse-dot-emerald" />
+                        <span>Yürütülen Araçlar & Aksiyonlar</span>
+                      </div>
+                      <div className="atlantic-action-card">
+                        <div className="card-header-bar" onClick={() => toggleThinking(`tc_card_${idx}`)}>
+                          <div className="card-header-left">
+                            <span className="integration-logo-badge">⚙️</span>
+                            <span className="card-title-text">Araç Yürütme Akışı</span>
+                            <span className="card-completed-count">{msg.tool_calls.length} eylem</span>
+                          </div>
+                          <div className="card-header-right">
+                            <span className={`accordion-chevron ${expandedThinking[`tc_card_${idx}`] ? 'open' : ''}`}>▾</span>
+                          </div>
+                        </div>
+                        {expandedThinking[`tc_card_${idx}`] && (
+                          <div className="card-items-body">
+                            {msg.tool_calls.map((tc: any, tIdx: number) => {
+                              const toolName = tc.function?.name || tc.name || 'tool'
+                              let parsedArgs: any = {}
+                              try {
+                                parsedArgs = typeof tc.function?.arguments === 'string'
+                                  ? JSON.parse(tc.function.arguments)
+                                  : (tc.function?.arguments || tc.args || {})
+                              } catch {
+                                parsedArgs = { raw: tc.function?.arguments }
+                              }
+                              const detail = parsedArgs.command || parsedArgs.path || parsedArgs.query || parsedArgs.taskName || (typeof parsedArgs === 'object' ? JSON.stringify(parsedArgs).slice(0, 70) : String(parsedArgs))
+
+                              const matchingToolMsg = messages.find(m =>
+                                m.role === 'tool' && (
+                                  (tc.id && m.tool_call_id === tc.id) ||
+                                  (!tc.id && m.name === toolName)
+                                )
+                              )
+
+                              const synthItem: ExecutionActionItem = {
+                                id: tc.id || `tc_${tIdx}`,
+                                label: toolName,
+                                status: 'completed',
+                                detail: String(detail || ''),
+                                input: parsedArgs,
+                                output: matchingToolMsg?.content
+                              }
+
+                              return (
+                                <ActionItemViewer
+                                  key={synthItem.id}
+                                  item={synthItem}
+                                  index={tIdx}
+                                  allMessages={messages}
+                                />
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {/* Content */}
                   {hasContent && (
@@ -625,8 +1052,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
             if (isSubagentOutcome) {
               const agentInfo = findPositionInfo(parsed.preset || msg.presetName)
-              const resultText = parsed.result || ''
-              const taskTitle = parsed.taskName || 'Görev Çıktısı'
+              const resultText = typeof parsed.result === 'string' ? parsed.result : (parsed.result ? JSON.stringify(parsed.result, null, 2) : '')
+              const taskTitle = typeof parsed.taskName === 'string' ? parsed.taskName : 'Görev Çıktısı'
 
               return (
                 <div key={msg.id || `tool_${idx}`} className="chat-message-row assistant-row">
@@ -689,9 +1116,15 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
             if (Array.isArray(parsed)) {
               previewText = `${parsed.length} öğe listelendi`
             } else if (typeof parsed === 'object' && parsed !== null) {
-              previewText = parsed.summary || parsed.status || `${Object.keys(parsed).length} alan`
+              const summaryText = typeof parsed.summary === 'string' ? parsed.summary : null
+              const statusText = typeof parsed.status === 'string' ? parsed.status : null
+              const messageText = typeof parsed.message === 'string' ? parsed.message : null
+              previewText = summaryText || statusText || messageText || `${Object.keys(parsed).length} alan`
             } else {
-              previewText = (msg.content || '').slice(0, 60).replace(/\n/g, ' ')
+              previewText = String(msg.content || '').slice(0, 60).replace(/\n/g, ' ')
+            }
+            if (typeof previewText !== 'string') {
+              previewText = typeof previewText === 'object' ? JSON.stringify(previewText) : String(previewText || '')
             }
 
             return (
@@ -739,10 +1172,10 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       overflowY: 'auto',
                       color: '#a7f3d0',
                       whiteSpace: 'pre-wrap',
-                      fontSize: '11px',
+                                            fontSize: '11px',
                       lineHeight: '1.5'
                     }}>
-                      {typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : msg.content}
+                      {parsed !== null && typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : (msg.content || '')}
                     </div>
                   )}
                 </div>
@@ -751,83 +1184,81 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           }
 
           return null
-        })}
+        })
+      })()}
 
-        {/* Live Actions Stream Block */}
-        {actionCards.length > 0 && (
-          <div className="live-actions-stream-block">
-            <div className="live-actions-stream-label">
-              <span className="pulse-dot-emerald" />
-              <span>Canlı Araç ve Departman Aksiyonları</span>
+      {/* Streaming Card */}
+      {isExecuting && (streamingText || streamingThought || actionCards.length > 0) && (
+        <div className="chat-message-row assistant-row">
+          <div className="assistant-message-card streaming-card">
+            <div className="message-header-line">
+              <div className="msg-author-info">
+                <span className="author-avatar agent-av">▲</span>
+                <span className="author-name">Ajan Yanıtlıyor...</span>
+                <span className="author-badge-agent">Canlı Akış</span>
+              </div>
             </div>
-            {actionCards.map(card => (
-              <div key={card.id} className="atlantic-action-card">
-                <div className="card-header-bar" onClick={() => onToggleCard(card.id)}>
-                  <div className="card-header-left">
-                    <span className="integration-logo-badge">{card.icon}</span>
-                    <span className="card-title-text">{card.name}</span>
-                    <span className="card-completed-count">{card.badgeText}</span>
-                  </div>
-                  <div className="card-header-right">
-                    <span className={`accordion-chevron ${card.isExpanded ? 'open' : ''}`}>▾</span>
-                  </div>
+
+            {streamingThought && (
+              <div className="thinking-container streaming-thinking">
+                <div className="thinking-toggle-bar">
+                  <span className="spinner-amber">◌</span>
+                  <span>Düşünce Süreci...</span>
                 </div>
-                {card.isExpanded && (
-                  <div className="card-items-body">
-                    {card.items.map((item, iIdx) => (
-                      <div key={iIdx} className="card-action-item">
-                        <div className="action-status-icon">
-                          {item.status === 'completed' && <span className="check-emerald">✓</span>}
-                          {item.status === 'running' && <span className="spinner-amber">◌</span>}
-                          {item.status === 'pending' && <span className="pending-dot">•</span>}
-                          {item.status === 'error' && <span className="error-cross">✕</span>}
+                <div className="thinking-body-content mono">
+                  {streamingThought}
+                </div>
+              </div>
+            )}
+
+            {/* Live Actions Stream Block (DURING active turn, before streaming text) */}
+            {actionCards.length > 0 && (
+              <div className="live-actions-stream-block" style={{ margin: '8px 0 12px 0' }}>
+                <div className="live-actions-stream-label">
+                  <span className="pulse-dot-emerald" />
+                  <span>Canlı Araç ve Departman Aksiyonları</span>
+                </div>
+                {actionCards.map(card => {
+                  const isCardOpen = Boolean(expandedCards[card.id] ?? false)
+                  return (
+                    <div key={card.id} className="atlantic-action-card">
+                      <div className="card-header-bar" onClick={() => handleToggleCard(card.id)}>
+                        <div className="card-header-left">
+                          <span className="integration-logo-badge">{card.icon}</span>
+                          <span className="card-title-text">{card.name}</span>
+                          <span className="card-completed-count">{card.badgeText}</span>
                         </div>
-                        <div className="action-text-content">
-                          <span className="action-label">{item.label}</span>
-                          {item.detail && <span className="action-detail-mono">{item.detail}</span>}
+                        <div className="card-header-right">
+                          <span className={`accordion-chevron ${isCardOpen ? 'open' : ''}`}>▾</span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {isCardOpen && (
+                        <div className="card-items-body">
+                          {card.items.map((item, iIdx) => (
+                            <ActionItemViewer
+                              key={item.id || `stream_item_${iIdx}`}
+                              item={item}
+                              index={iIdx}
+                              allMessages={messages}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/* Streaming Card */}
-        {isExecuting && (streamingText || streamingThought) && (
-          <div className="chat-message-row assistant-row">
-            <div className="assistant-message-card streaming-card">
-              <div className="message-header-line">
-                <div className="msg-author-info">
-                  <span className="author-avatar agent-av">▲</span>
-                  <span className="author-name">Ajan Yanıtlıyor...</span>
-                  <span className="author-badge-agent">Canlı Akış</span>
-                </div>
+            {streamingText && (
+              <div className="message-content-text">
+                {renderMarkdownContent(streamingText)}
+                <span className="streaming-cursor" />
               </div>
-
-              {streamingThought && (
-                <div className="thinking-container streaming-thinking">
-                  <div className="thinking-toggle-bar">
-                    <span className="spinner-amber">◌</span>
-                    <span>Düşünce Süreci...</span>
-                  </div>
-                  <div className="thinking-body-content mono">
-                    {streamingThought}
-                  </div>
-                </div>
-              )}
-
-              {streamingText && (
-                <div className="message-content-text">
-                  {renderMarkdownContent(streamingText)}
-                  <span className="streaming-cursor" />
-                </div>
-              )}
-            </div>
+            )}
           </div>
-        )}
+        </div>
+      )}
 
         {/* Empty State */}
         {messages.length === 0 && !isExecuting && (
@@ -899,8 +1330,61 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       {docPickerOpen && (
         <div
           className="mention-dropdown-menu"
-          style={{ maxHeight: '380px', width: '460px', maxWidth: '92vw' }}
+          style={{ maxHeight: '420px', width: '480px', maxWidth: '92vw' }}
         >
+          {/* 💻 Direct Local File Upload from PC */}
+          <div style={{
+            padding: '10px 12px',
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(56, 189, 248, 0.12) 100%)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                border: '1px solid rgba(52, 211, 153, 0.5)',
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                cursor: isUploading ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                transition: 'all 0.2s'
+              }}
+            >
+              {isUploading ? (
+                <>
+                  <span className="spin-anim">⏳</span>
+                  <span>Dosya Yükleniyor & OCR/Metin Ayrıştırılıyor...</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '15px' }}>💻</span>
+                  <span>Bilgisayarımdan Dosya Yükle (PDF / Fatura / Excel)</span>
+                </>
+              )}
+            </button>
+            <div style={{ fontSize: '10.5px', color: '#94a3b8', textAlign: 'center', lineHeight: 1.3 }}>
+              Bilgisayarınızdaki fatura PDF'leri, sözleşmeler ve tablolar taranarak ajanın önüne konur.
+            </div>
+            {uploadError && (
+              <div style={{ fontSize: '11px', color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 8px', borderRadius: '4px', textAlign: 'center' }}>
+                ⚠️ {uploadError}
+              </div>
+            )}
+          </div>
+
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -909,8 +1393,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
             borderBottom: '1px solid rgba(16, 185, 129, 0.2)'
           }}>
             <div className="mention-menu-header" style={{ padding: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>📎</span>
-              <span>Çalışma Alanı Dokümanı Ekle ({workspaceFiles.length} Dosya)</span>
+              <span>📁</span>
+              <span>Çalışma Alanı Dokümanları ({workspaceFiles.length} Dosya)</span>
             </div>
             <button
               type="button"
@@ -1050,6 +1534,35 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
       {/* Floating Bottom Chat Bar */}
       <div className="floating-chat-bar-container">
+        {/* Floating Scroll to Bottom Jump Button */}
+        {showScrollBottomBtn && (
+          <button
+            type="button"
+            className="btn-scroll-bottom-floating"
+            onClick={() => scrollToBottom('smooth')}
+            style={{
+              pointerEvents: 'auto',
+              background: 'rgba(15, 23, 42, 0.92)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(16, 185, 129, 0.5)',
+              color: '#34d399',
+              borderRadius: '20px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.6), 0 0 10px rgba(16, 185, 129, 0.25)',
+              transition: 'all 0.2s',
+              marginBottom: '2px'
+            }}
+          >
+            <span>En alta in</span>
+            <span style={{ fontSize: '13px' }}>▾</span>
+          </button>
+        )}
         {/* 👥 Multi-Department Meeting Badge */}
         {currentMentionedPositions.length > 1 && (
           <div className="laya-routing-badge" style={{ borderColor: 'rgba(99, 102, 241, 0.45)', background: 'rgba(99, 102, 241, 0.12)' }}>
@@ -1108,11 +1621,89 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           </div>
         )}
 
+        {/* Uploaded Pending Attachments Chips Bar */}
+        {pendingAttachments.length > 0 && (
+          <div style={{
+            pointerEvents: 'auto',
+            width: '100%',
+            maxWidth: '820px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '6px 12px',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            borderRadius: '12px',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#34d399', fontWeight: 600 }}>
+              <span>📎</span>
+              <span>Yüklü Ekler ({pendingAttachments.length}):</span>
+            </div>
+            {pendingAttachments.map((att, idx) => (
+              <div
+                key={att.id || idx}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '11px',
+                  color: '#e2e8f0'
+                }}
+              >
+                <span>{getFileIcon(att.mimeType || '', att.fileName)}</span>
+                <span style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                  {att.fileName}
+                </span>
+                <span style={{ fontSize: '10px', color: '#94a3b8' }}>
+                  ({(att.fileSize / 1024).toFixed(0)} KB)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveAttachment(idx)}
+                  title="Eki kaldır"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#f87171',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    marginLeft: '4px',
+                    padding: '0 2px'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <form className="floating-chat-form" onSubmit={handleSubmit}>
+          {/* PC Local File Upload Quick Button */}
+          <button
+            type="button"
+            className="chat-action-btn upload-pc-btn"
+            title="Bilgisayarımdan Dosya/Fatura Yükle (PDF, Resim, Excel)"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            style={{
+              color: isUploading ? '#34d399' : '#38bdf8'
+            }}
+          >
+            {isUploading ? <span className="spin-anim">⏳</span> : '📤'}
+          </button>
+
           <button
             type="button"
             className="chat-action-btn attach-btn"
-            title="Referans Ekle"
+            title="Referans Ekle / Çalışma Alanı Dokümanları"
             onClick={() => {
               setDocPickerOpen(prev => !prev)
               setMentionMenuOpen(false)
@@ -1120,13 +1711,23 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           >
             📎
           </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.txt,.docx"
+            onChange={handleLocalFileUpload}
+            style={{ display: 'none' }}
+          />
+
           <input
             ref={inputRef}
             type="text"
             className="floating-chat-input"
             value={inputText}
             onChange={handleInputChange}
-            placeholder="Ask Atlantic anything... (@ to mention a position, 📎 to attach doc)"
+            placeholder={pendingAttachments.length > 0 ? "Eklenen dosyalarla ilgili talimat yazın (boş bırakıp doğrudan Gönder'e de basabilirsiniz)..." : "Ask Atlantic anything... (@ to mention a position, 📤 to upload from PC, 📎 to attach doc)"}
             disabled={isExecuting}
           />
           <div className="chat-actions-right">

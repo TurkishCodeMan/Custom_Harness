@@ -17,7 +17,12 @@ export interface SessionGuardHistory {
 }
 
 const MAX_WINDOW_SIZE = 12
-const EXEMPT_TOOLS = new Set(['check_subagent', 'manage_task', 'sleep'])
+// Read-only and search tools are inherently repetitive (scanning, exploring)
+// and must never be blocked by the loop guard.
+const EXEMPT_TOOLS = new Set([
+  'check_subagent', 'manage_task', 'sleep',
+  'bash', 'grep_search', 'read_file', 'list_dir', 'search_files', 'search_web'
+])
 
 function canonicalize(val: any): string {
   if (val === null || val === undefined) return ''
@@ -89,12 +94,14 @@ export class RepeatToolGuardService extends Service {
     }
 
     // Check consecutive threshold
-    if (history.consecutiveCount === 3) {
+    // Warning at 4th call, hard block at 6th — gives the model room to explore
+    // without locking up on legitimate multi-step read/write sequences.
+    if (history.consecutiveCount === 4) {
       return {
         isLooping: true,
-        reminder: `[DÖNGÜ UYARISI / LOOP ADVISORY]: You are repeating the exact same tool call ('${toolName}') with identical arguments for the 3rd consecutive time. Please analyze previous results and use a different tool or different arguments.`
+        reminder: `[DÖNGÜ UYARISI / LOOP ADVISORY]: You are repeating the exact same tool call ('${toolName}') with identical arguments for the 4th consecutive time. Please analyze previous results and use a different tool or different arguments.`
       }
-    } else if (history.consecutiveCount >= 4) {
+    } else if (history.consecutiveCount >= 6) {
       return {
         isLooping: true,
         shouldBlock: true,
@@ -132,7 +139,7 @@ export class RepeatToolGuardService extends Service {
     // 3. Sliding Window Frequency (Same tool call appearing >= 4 times in window of 8)
     const recentWindow = win.slice(-8)
     const occurrences = recentWindow.filter(e => e.hash === callHash).length
-    if (occurrences >= 4) {
+    if (occurrences >= 6) {
       return {
         isLooping: true,
         shouldBlock: true,

@@ -78,12 +78,17 @@ export class SessionService extends Service {
     return dir
   }
 
-  public getSession(id: string, userId?: string): SessionData | undefined {
+  public getSession(id: string, userId?: string, isAdmin?: boolean): SessionData | undefined {
+    // 1. Check in-memory session cache with strict tenant isolation
     if (this.sessions.has(id)) {
-      return this.sessions.get(id)
+      const session = this.sessions.get(id)!
+      if (userId && !isAdmin && session.userId && session.userId !== userId) {
+        return undefined
+      }
+      return session
     }
 
-    // 1. Check tenant specific path if userId is provided
+    // 2. Check tenant-specific directory if userId is provided
     if (userId) {
       const tenantFile = path.join(this.getTenantSessionsDir(userId), `${id}.json`)
       if (fs.existsSync(tenantFile)) {
@@ -94,37 +99,43 @@ export class SessionService extends Service {
           return data
         } catch (e) {}
       }
+      // Non-admin user is restricted strictly to their own tenant directory
+      if (!isAdmin) {
+        return undefined
+      }
     }
 
-    // 2. Scan all tenant dirs if not found
-    const tenantsBase = getTenantsDir()
-    if (fs.existsSync(tenantsBase)) {
-      try {
-        const tenantFolders = fs.readdirSync(tenantsBase, { withFileTypes: true })
-        for (const tf of tenantFolders) {
-          if (tf.isDirectory()) {
-            const candidate = path.join(tenantsBase, tf.name, 'sessions', `${id}.json`)
-            if (fs.existsSync(candidate)) {
-              const raw = fs.readFileSync(candidate, 'utf8')
-              const data = JSON.parse(raw) as SessionData
-              this.sessions.set(id, data)
-              return data
+    // 3. Admin / system fallback: scan tenant directories
+    if (isAdmin || !userId) {
+      const tenantsBase = getTenantsDir()
+      if (fs.existsSync(tenantsBase)) {
+        try {
+          const tenantFolders = fs.readdirSync(tenantsBase, { withFileTypes: true })
+          for (const tf of tenantFolders) {
+            if (tf.isDirectory()) {
+              const candidate = path.join(tenantsBase, tf.name, 'sessions', `${id}.json`)
+              if (fs.existsSync(candidate)) {
+                const raw = fs.readFileSync(candidate, 'utf8')
+                const data = JSON.parse(raw) as SessionData
+                this.sessions.set(id, data)
+                return data
+              }
             }
           }
-        }
-      } catch (e) {}
-    }
+        } catch (e) {}
+      }
 
-    // 3. Check legacy SESSIONS_DIR
-    const filePath = path.join(getSessionsDir(), `${id}.json`)
-    if (fs.existsSync(filePath)) {
-      try {
-        const raw = fs.readFileSync(filePath, 'utf8')
-        const data = JSON.parse(raw) as SessionData
-        this.sessions.set(id, data)
-        return data
-      } catch (e) {
-        console.error(`[Session] Failed to load session ${id}:`, e)
+      // 4. Check legacy SESSIONS_DIR
+      const filePath = path.join(getSessionsDir(), `${id}.json`)
+      if (fs.existsSync(filePath)) {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf8')
+          const data = JSON.parse(raw) as SessionData
+          this.sessions.set(id, data)
+          return data
+        } catch (e) {
+          console.error(`[Session] Failed to load session ${id}:`, e)
+        }
       }
     }
 
@@ -135,8 +146,8 @@ export class SessionService extends Service {
     userId?: string,
     isAdmin?: boolean,
     clientType: string = 'web'
-  ): { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string }[] {
-    const list: { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string }[] = []
+  ): { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string; presetId?: string }[] {
+    const list: { id: string; title: string; updatedAt: number; workspace?: string; userId?: string; clientType?: string; presetId?: string }[] = []
     const seen = new Set<string>()
 
     const addSessionFromPath = (filePath: string) => {
@@ -172,7 +183,8 @@ export class SessionService extends Service {
               updatedAt: session.updatedAt,
               workspace: session.workspace,
               userId: session.userId || 'user_admin',
-              clientType: sessionClientType
+              clientType: sessionClientType,
+              presetId: session.presetId
             })
           }
         }
@@ -271,14 +283,57 @@ export class SessionService extends Service {
   }
 
   public deleteSession(id: string, userId?: string, isAdmin?: boolean) {
-    const session = this.getSession(id, userId)
-    if (session && !isAdmin && userId && session.userId && session.userId !== userId) {
+    // Check ownership across master memory and tenant store
+    const existing = this.sessions.get(id) || this.getSession(id)
+    if (existing && !isAdmin && userId && existing.userId && existing.userId !== userId) {
       throw new Error('Bu oturumu silme yetkiniz bulunmuyor.')
     }
+
+    const session = this.getSession(id, userId, isAdmin)
+    if (!session && userId && !isAdmin) {
+      return
+    }
+
+    const uid = session?.userId || userId
+
+    // 1. Cascading deletion of child sessions (subagent traces, delegation chains)
+    const childIds = new Set<string>()
+    for (const [sId, sData] of this.sessions.entries()) {
+      if ((sData as any).parentSessionId === id || (sData as any).subagentTaskId === id) {
+        childIds.add(sId)
+      }
+    }
+
+    if (uid) {
+      const tenantDir = this.getTenantSessionsDir(uid)
+      if (fs.existsSync(tenantDir)) {
+        try {
+          const files = fs.readdirSync(tenantDir).filter(f => f.endsWith('.json'))
+          for (const f of files) {
+            const candidateId = f.replace('.json', '')
+            if (candidateId !== id && !childIds.has(candidateId)) {
+              try {
+                const raw = fs.readFileSync(path.join(tenantDir, f), 'utf8')
+                const parsed = JSON.parse(raw)
+                if (parsed.parentSessionId === id || parsed.subagentTaskId === id) {
+                  childIds.add(candidateId)
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+      }
+    }
+
+    for (const childId of childIds) {
+      try {
+        this.deleteSession(childId, uid, true)
+      } catch {}
+    }
+
     this.sessions.delete(id)
     
     // Delete from tenant sessions dir
-    const uid = session?.userId || userId
     if (uid) {
       const tenantFile = path.join(this.getTenantSessionsDir(uid), `${id}.json`)
       if (fs.existsSync(tenantFile)) {
@@ -329,7 +384,14 @@ export class SessionService extends Service {
 
   public clearAllSessions(userId?: string, isAdmin?: boolean) {
     this.ensureDir()
-    // 1. Clear tenant sessions
+    // 1. Purge tenant reflections on full session reset
+    if (userId && (this.ctx as any).reflexion?.clearReflections) {
+      try {
+        (this.ctx as any).reflexion.clearReflections(userId)
+      } catch {}
+    }
+
+    // 2. Clear tenant sessions
     if (userId) {
       const tenantDir = this.getTenantSessionsDir(userId)
       if (fs.existsSync(tenantDir)) {

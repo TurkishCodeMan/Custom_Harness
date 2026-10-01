@@ -1,75 +1,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ChatMessage } from '@custom-harness/core-types'
-import { pruneToolMessages, ensureUserMessage, PRUNE_NOTICE } from '../src/message-pruner.js'
+import { ensureUserMessage, stripReasoningFromHistory, applyToolOutputSlidingWindow } from '../src/message-pruner.js'
 
-describe('pruneToolMessages', () => {
-  test('returns empty array when given empty or falsy messages', () => {
-    assert.deepEqual(pruneToolMessages([]), [])
-  })
-
-  test('does not prune messages within the recent threshold (last 4 messages)', () => {
-    const longText = 'X'.repeat(500)
-    const messages: ChatMessage[] = [
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'calling tool' },
-      { role: 'tool', content: longText, tool_call_id: 'call_1' },
-      { role: 'assistant', content: 'done' }
-    ]
-
-    const pruned = pruneToolMessages(messages, 4)
-    assert.equal(pruned.length, 4)
-    assert.equal(pruned[2].content, longText, 'Recent tool output should not be pruned')
-  })
-
-  test('prunes older tool result messages exceeding maxAllowedLength', () => {
-    const longText = 'A'.repeat(200) + 'B'.repeat(200) // 400 chars > 300
-    const messages: ChatMessage[] = [
-      { role: 'user', content: 'Step 1' },
-      { role: 'tool', content: longText, tool_call_id: 'call_old' },
-      { role: 'assistant', content: 'Step 2' },
-      { role: 'user', content: 'Step 3' },
-      { role: 'tool', content: 'recent tool output', tool_call_id: 'call_recent' },
-      { role: 'assistant', content: 'Step 4' }
-    ]
-
-    const pruned = pruneToolMessages(messages, 4, 300, 200)
-    const oldToolMsg = pruned[1]
-
-    assert.equal(oldToolMsg.content?.startsWith('A'.repeat(200)), true)
-    assert.equal(oldToolMsg.content?.includes(PRUNE_NOTICE), true)
-    assert.equal(oldToolMsg.content?.includes('B'), false, 'Content after 200 chars should be truncated')
-  })
-
-  test('does not prune older tool messages if length is under maxAllowedLength', () => {
-    const shortText = 'Small output 123'
-    const messages: ChatMessage[] = [
-      { role: 'user', content: 'query' },
-      { role: 'tool', content: shortText, tool_call_id: 'call_short' },
-      { role: 'assistant', content: 'a1' },
-      { role: 'user', content: 'u2' },
-      { role: 'assistant', content: 'a2' },
-      { role: 'assistant', content: 'a3' }
-    ]
-
-    const pruned = pruneToolMessages(messages, 4, 300)
-    assert.equal(pruned[1].content, shortText)
-  })
-
-  test('does not prune non-tool messages even if they are long and old', () => {
-    const longUserMsg = 'U'.repeat(1000)
-    const messages: ChatMessage[] = [
-      { role: 'user', content: longUserMsg },
-      { role: 'assistant', content: 'a1' },
-      { role: 'user', content: 'u2' },
-      { role: 'assistant', content: 'a2' },
-      { role: 'assistant', content: 'a3' }
-    ]
-
-    const pruned = pruneToolMessages(messages, 4)
-    assert.equal(pruned[0].content, longUserMsg, 'User messages must never be pruned by tool pruner')
-  })
-})
 
 describe('ensureUserMessage', () => {
   test('appends user message when no user message exists', () => {
@@ -90,3 +23,105 @@ describe('ensureUserMessage', () => {
     assert.equal(result[1].content, 'Existing user message')
   })
 })
+
+describe('stripReasoningFromHistory', () => {
+  test('removes reasoning_content from assistant messages', () => {
+    const messages: any[] = [
+      { role: 'user', content: 'merhaba' },
+      { role: 'assistant', content: 'Cevap', reasoning_content: '<think>uzun düşünce</think>' },
+      { role: 'user', content: 'devam' }
+    ]
+    const result = stripReasoningFromHistory(messages)
+    assert.equal((result[1] as any).reasoning_content, undefined)
+    assert.equal(result[1].content, 'Cevap')
+  })
+
+  test('does not mutate original messages array', () => {
+    const original: any[] = [
+      { role: 'assistant', content: 'Sonuç', reasoning_content: '<think>...' }
+    ]
+    const result = stripReasoningFromHistory(original)
+    assert.ok((original[0] as any).reasoning_content, 'original must not be mutated')
+    assert.equal((result[0] as any).reasoning_content, undefined)
+  })
+
+  test('passes through messages without reasoning_content unchanged', () => {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'soru' },
+      { role: 'assistant', content: 'cevap' }
+    ]
+    const result = stripReasoningFromHistory(messages)
+    assert.deepEqual(result, messages)
+  })
+})
+
+describe('applyToolOutputSlidingWindow', () => {
+  const buildHistory = (...turns: Array<{ toolContent: string }[]>): ChatMessage[] => {
+    const msgs: ChatMessage[] = []
+    for (const toolCalls of turns) {
+      msgs.push({ role: 'assistant', content: 'assistant turn' } as ChatMessage)
+      for (const tc of toolCalls) {
+        msgs.push({ role: 'tool', content: tc.toolContent } as ChatMessage)
+      }
+    }
+    return msgs
+  }
+
+  test('compresses tool outputs older than windowSize turns', () => {
+    const longOutput = 'X'.repeat(5000)
+    // 3 turns: turn1 (old), turn2, turn3 (latest) — window=2
+    const msgs = buildHistory([{ toolContent: longOutput }], [{ toolContent: 'short' }], [{ toolContent: 'recent' }])
+    const result = applyToolOutputSlidingWindow(msgs, 2)
+
+    // The first turn's tool output (long) should be compressed
+    const firstTool = result.find((m, i) => m.role === 'tool' && i === 1)
+    assert.ok(firstTool!.content!.toString().includes('gizlendi'), 'old tool output should be compressed')
+
+    // Recent turn's tool outputs should remain
+    const lastTool = result[result.length - 1]
+    assert.equal(lastTool.content, 'recent')
+  })
+
+  test('caps in-window tool outputs at maxToolChars', () => {
+    const hugeOutput = 'Z'.repeat(10000)
+    const msgs = buildHistory([{ toolContent: hugeOutput }])
+    const result = applyToolOutputSlidingWindow(msgs, 2, 3000)
+
+    const toolMsg = result.find(m => m.role === 'tool')!
+    assert.ok(toolMsg.content!.toString().length < 10000, 'in-window tool output should be capped')
+    assert.ok(toolMsg.content!.toString().includes('kısaltıldı'))
+  })
+
+  test('does not mutate original messages', () => {
+    const original: ChatMessage[] = [
+      { role: 'assistant', content: 'a' } as ChatMessage,
+      { role: 'tool', content: 'Y'.repeat(5000) } as ChatMessage
+    ]
+    const copy = JSON.stringify(original)
+    applyToolOutputSlidingWindow(original, 0)
+    assert.equal(JSON.stringify(original), copy, 'original must not be mutated')
+  })
+
+  test('short tool outputs are never compressed even when old', () => {
+    const msgs = buildHistory([{ toolContent: 'kısa' }], [{ toolContent: 'recent' }], [{ toolContent: 'now' }])
+    const result = applyToolOutputSlidingWindow(msgs, 2)
+    const firstTool = result.find(m => m.role === 'tool')!
+    assert.equal(firstTool.content, 'kısa', 'short old outputs should pass through unchanged')
+  })
+
+  test('skill tool outputs are never compressed even when older than windowSize', () => {
+    const longSkillOutput = '### AKTİF BECERİ TALİMATLARI: (invoice-review-skill)\n' + 'S'.repeat(5000)
+    const msgs: ChatMessage[] = [
+      { role: 'assistant', content: 'turn 1' },
+      { role: 'tool', name: 'skill', content: longSkillOutput },
+      { role: 'assistant', content: 'turn 2' },
+      { role: 'tool', name: 'read_file', content: 'file content' },
+      { role: 'assistant', content: 'turn 3' },
+      { role: 'tool', name: 'bash', content: 'bash content' }
+    ]
+    const result = applyToolOutputSlidingWindow(msgs, 1)
+    const skillMsg = result.find(m => m.role === 'tool' && m.name === 'skill')
+    assert.equal(skillMsg?.content, longSkillOutput, 'skill output should never be compressed')
+  })
+})
+

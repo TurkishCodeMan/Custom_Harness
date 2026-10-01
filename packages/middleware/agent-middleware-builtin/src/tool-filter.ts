@@ -14,8 +14,9 @@ export const toolFilterMiddleware = defineMiddleware({
   name: 'tool-filter',
   order: -90, // Runs after tool-guard (-100) but before any chat-level middleware
   beforeChat: async (ctx, next) => {
-    const enabledTools = ctx.preset?.enabledTools
+    const enabledTools = ctx.preset?.enabledTools ?? (ctx.preset as any)?.allowed_tools
     if (!enabledTools || !Array.isArray(enabledTools) || enabledTools.length === 0) {
+      ctx.tools = []
       await next()
       return
     }

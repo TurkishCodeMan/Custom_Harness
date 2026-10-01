@@ -322,10 +322,19 @@ export function ProvidersTab({ settings, onChange }: { settings: any; onChange: 
       return
     }
     const filtered = currentModels.filter((m: any) => m.id !== modelId)
-    handleProviderChange('models', filtered)
-    if (settings.defaultModel === modelId) {
-      onChange({ ...settings, defaultModel: filtered[0]?.id })
+    const nextProviders = {
+      ...providers,
+      [activeProviderKey]: {
+        ...activeProvider,
+        models: filtered
+      }
     }
+    const nextDefaultModel = settings.defaultModel === modelId ? filtered[0]?.id : settings.defaultModel
+    onChange({
+      ...settings,
+      providers: nextProviders,
+      defaultModel: nextDefaultModel
+    })
   }
 
   return (

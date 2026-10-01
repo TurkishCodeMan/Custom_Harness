@@ -69,6 +69,20 @@ describe('resolveProviderAndModel (Fail-Fast)', () => {
     )
   })
 
+  test('resolves provider and model from activePreset when not explicitly specified in options', () => {
+    const activePreset = { id: 'cfo', modelId: 'gpt-4o', providerId: 'openai' }
+    const { provider, model } = resolveProviderAndModel({ sessionId: 's1', prompt: 'hi' }, mockSettings, activePreset)
+    assert.equal(provider.id, 'openai')
+    assert.equal(model.id, 'gpt-4o')
+  })
+
+  test('options providerId and modelId take precedence over activePreset', () => {
+    const activePreset = { id: 'cfo', modelId: 'gpt-4o', providerId: 'openai' }
+    const { provider, model } = resolveProviderAndModel({ sessionId: 's1', prompt: 'hi', modelId: 'deepseek-v3' }, mockSettings, activePreset)
+    assert.equal(provider.id, 'vllm')
+    assert.equal(model.id, 'deepseek-v3')
+  })
+
   test('throws fail-fast error when settings service is missing', () => {
     assert.throws(
       () => resolveProviderAndModel({ sessionId: 's1', prompt: 'hi' }, null),

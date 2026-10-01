@@ -7,7 +7,8 @@ import type { AgentRunOptions, ProviderModelResolution } from './types.js'
  */
 export function resolveProviderAndModel(
   options: AgentRunOptions,
-  settingsService: any
+  settingsService: any,
+  activePreset?: any
 ): ProviderModelResolution {
   if (!settingsService) {
     throw new Error("[AgentService] 'settings' servisi Context üzerinde bulunamadı.")
@@ -19,11 +20,15 @@ export function resolveProviderAndModel(
   let provider: any = undefined
   let model: any = undefined
 
-  // 1. If explicit modelId requested, scan across all configured providers
-  if (options.modelId) {
-    const requested = options.modelId.trim()
-    for (const [, pConfig] of Object.entries<any>(providers)) {
-      const found = pConfig.models?.find((m: any) =>
+  const requestedProviderId = options.providerId || activePreset?.providerId
+  const requestedModelId = options.modelId || activePreset?.modelId
+
+  // 1. If explicit providerId requested and exists in configuration
+  if (requestedProviderId && providers[requestedProviderId]) {
+    const targetProvider = providers[requestedProviderId]
+    if (requestedModelId) {
+      const requested = requestedModelId.trim()
+      const found = targetProvider.models?.find((m: any) =>
         m.id === requested ||
         m.name === requested ||
         m.id?.toLowerCase() === requested.toLowerCase() ||
@@ -32,22 +37,65 @@ export function resolveProviderAndModel(
         m.name?.toLowerCase()?.includes(requested.toLowerCase())
       )
       if (found) {
-        provider = pConfig
+        provider = targetProvider
         model = found
-        break
+      }
+    } else {
+      provider = targetProvider
+      model = targetProvider.models?.[0]
+    }
+  }
+
+  // 2. If provider not resolved yet and explicit modelId requested
+  if (!provider && requestedModelId) {
+    const requested = requestedModelId.trim()
+    const activeProvider = settingsService.getActiveProvider
+      ? settingsService.getActiveProvider()
+      : (settings.defaultProvider ? providers[settings.defaultProvider] : undefined)
+
+    if (activeProvider) {
+      const found = activeProvider.models?.find((m: any) =>
+        m.id === requested ||
+        m.name === requested ||
+        m.id?.toLowerCase() === requested.toLowerCase() ||
+        m.name?.toLowerCase() === requested.toLowerCase() ||
+        m.id?.toLowerCase()?.includes(requested.toLowerCase()) ||
+        m.name?.toLowerCase()?.includes(requested.toLowerCase())
+      )
+      if (found) {
+        provider = activeProvider
+        model = found
+      }
+    }
+
+    if (!provider) {
+      for (const [, pConfig] of Object.entries<any>(providers)) {
+        const found = pConfig.models?.find((m: any) =>
+          m.id === requested ||
+          m.name === requested ||
+          m.id?.toLowerCase() === requested.toLowerCase() ||
+          m.name?.toLowerCase() === requested.toLowerCase() ||
+          m.id?.toLowerCase()?.includes(requested.toLowerCase()) ||
+          m.name?.toLowerCase()?.includes(requested.toLowerCase())
+        )
+        if (found) {
+          provider = pConfig
+          model = found
+          break
+        }
       }
     }
 
     if (!model) {
-      throw new Error(`[AgentService] İstenen model ('${options.modelId}') konfigüre edilmiş hiçbir sağlayıcıda (provider) bulunamadı.`)
+      throw new Error(`[AgentService] İstenen model ('${requestedModelId}') konfigüre edilmiş hiçbir sağlayıcıda (provider) bulunamadı.`)
     }
   }
 
-  // 2. If providerId specified but not resolved yet
-  if (!provider && options.providerId) {
-    provider = providers[options.providerId]
+  // 3. If providerId specified but not resolved yet
+  if (!provider && requestedProviderId) {
+    provider = providers[requestedProviderId]
     if (!provider) {
-      throw new Error(`[AgentService] İstenen sağlayıcı ('${options.providerId}') konfigürasyonda bulunamadı.`)
+      throw new Error(`[AgentService] İstenen sağlayıcı ('${requestedProviderId}') konfigürasyonda bulunamadı.`)
     }
   }
 

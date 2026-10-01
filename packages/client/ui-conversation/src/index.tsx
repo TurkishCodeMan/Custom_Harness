@@ -90,10 +90,27 @@ export function ConversationTimeline({
   onDropFiles
 }: ConversationTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isAutoScrollEnabledRef = useRef<boolean>(true)
   const [isDragOver, setIsDragOver] = useState(false)
 
+  const handleContainerScroll = () => {
+    if (!containerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight)
+    isAutoScrollEnabledRef.current = distanceFromBottom <= 80
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!isAutoScrollEnabledRef.current) return
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: isStreaming ? 'auto' : 'smooth'
+      })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' })
+    }
   }, [messages, isStreaming, pendingApproval])
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -250,6 +267,8 @@ export function ConversationTimeline({
 
   return (
     <div
+      ref={containerRef}
+      onScroll={handleContainerScroll}
       className={`chat-messages-container ${isDragOver ? 'drag-over-active' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -737,7 +756,7 @@ export function UnifiedToolCard({ tool }: { tool: UnifiedToolItem }) {
         <div className="unified-tool-body">
           {formattedArgs && !isSubagent && (
             <div className="unified-tool-section">
-              <div className="unified-tool-section-label">Parametreler (Girdi)</div>
+              <div className="unified-tool-section-label">📥 Ne Giriyor (Girdi & Parametreler)</div>
               <pre className="unified-tool-pre"><code>{formattedArgs}</code></pre>
             </div>
           )}
@@ -745,7 +764,7 @@ export function UnifiedToolCard({ tool }: { tool: UnifiedToolItem }) {
           {isSubagent && subagentResult ? (
             <div className="unified-tool-section subagent-result-section">
               <div className="unified-tool-section-label" style={{ display: 'flex', justifyContent: 'space-between', color: '#a5b4fc', marginBottom: '6px' }}>
-                <span>Alt Ajan Bulguları ve Raporu</span>
+                <span>📤 Ne Geliyor (Alt Ajan Bulguları & Raporu)</span>
                 {subagentDuration && <span style={{ opacity: 0.75 }}>Süre: {subagentDuration}</span>}
               </div>
               <div
@@ -766,8 +785,8 @@ export function UnifiedToolCard({ tool }: { tool: UnifiedToolItem }) {
             </div>
           ) : hasOutput ? (
             <div className="unified-tool-section">
-              <div className="unified-tool-section-label">Sonuç (Çıktı)</div>
-              <pre className="unified-tool-pre"><code>{formattedOutput || '(Boş çıktı / Başarılı)'}</code></pre>
+              <div className="unified-tool-section-label">📤 Ne Geliyor (Çıktı & Yanıt)</div>
+              <pre className="unified-tool-pre"><code>{formattedOutput || '(Boş çıktı / Başarıyla tamamlandı)'}</code></pre>
             </div>
           ) : isRunning ? (
             <div className="unified-tool-section running-notice">

@@ -114,10 +114,13 @@ YOUR INSTRUCTIONS:
     ctx.systemPrompt.section({
       name: 'ralph-guidance',
       order: 86,
-      text: () => `\n## RALPH FRESH-AGENT LOOP (Active)
+      text: () => {
+        const allowed = ctx.systemPrompt?.currentSessionAllowedTools
+        if (!allowed || !allowed.includes('ralph')) return ''
+        return `\n## RALPH FRESH-AGENT LOOP (Active)
 - Use 'ralph' when executing deep, multi-round autonomous workflows without conversational fatigue or context window limits.
-- Each round starts a fresh child agent using the shared workspace as durable memory.
-`
+- Each round starts a fresh child agent using the shared workspace as durable memory.\n`
+      }
     })
   }
 }

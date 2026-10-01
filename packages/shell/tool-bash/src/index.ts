@@ -46,17 +46,27 @@ export function apply(ctx: Context) {
           return `[Güvenlik Engeli]: Kök dizin veya çalışma alanı dışı silme komutları engellenmiştir.`
         }
 
+        const TIMEOUT_MS = 120_000 // 120 saniye sınır
+
         if (ctx.subprocess) {
-          const res = await ctx.subprocess.exec(command, { cwd, signal: context?.signal as any })
+          const res = await ctx.subprocess.exec(command, {
+            cwd,
+            signal: context?.signal as any,
+            timeoutMs: TIMEOUT_MS
+          })
+          if (res.timedOut) {
+            return `[Zaman Aşımı / Timeout]: Komut 120 saniye sınırını aştı ve otomatik durduruldu.\n${res.stdout || res.stderr || ''}`
+          }
           if (res.exitCode !== 0) {
             return `Komut Hata ile Çıktı (Kod ${res.exitCode}):\n${res.stdout || res.stderr}`
           }
           return res.stdout || res.stderr || 'Komut başarıyla tamamlandı (Çıktı yok).'
         }
+
         return new Promise((resolve) => {
           const child = exec(command, {
             cwd,
-            timeout: 60000,
+            timeout: TIMEOUT_MS,
             maxBuffer: 1024 * 1024 * 10,
             signal: context?.signal,
             env: {
@@ -70,6 +80,9 @@ export function apply(ctx: Context) {
             if (err) {
               if (context?.signal?.aborted) {
                 return resolve('[Komut kullanıcı tarafından durduruldu]')
+              }
+              if ((err as any).killed && (err as any).signal === 'SIGTERM') {
+                return resolve(`[Zaman Aşımı / Timeout]: Komut 120 saniye sınırını aştı ve otomatik durduruldu.`)
               }
               const output = (stdout ? stdout + '\n' : '') + (stderr ? stderr + '\n' : '')
               return resolve(`Komut Hata ile Çıktı (Kod ${err.code || 1}):\n${output || err.message}`)

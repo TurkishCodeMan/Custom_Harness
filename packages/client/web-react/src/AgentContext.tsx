@@ -1262,8 +1262,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }
 
   const selectModel = async (modelId: string) => {
-    let targetProviderId = settings.defaultProvider || 'gemma-local'
-    if (settings.providers) {
+    let targetProviderId = settings.defaultProvider || 'qwen-bsc'
+    const currentProvider = settings.providers?.[targetProviderId]
+    const hasInCurrent = currentProvider?.models?.some((m: any) =>
+      m.id === modelId || m.name === modelId || m.id?.toLowerCase() === modelId.toLowerCase()
+    )
+    if (!hasInCurrent && settings.providers) {
       for (const [pId, pConfig] of Object.entries<any>(settings.providers)) {
         if (
           pConfig.models?.some((m: any) =>

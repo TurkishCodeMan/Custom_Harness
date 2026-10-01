@@ -1,4 +1,4 @@
-import type { ChatMessage, TokenUsage } from '@custom-harness/core-types'
+import type { ChatMessage, TokenUsage, ResponseFormat } from '@custom-harness/core-types'
 
 export interface AgentRunOptions {
   sessionId: string
@@ -8,11 +8,17 @@ export interface AgentRunOptions {
   modelId?: string
   presetId?: string
   preset?: any
+  workspace?: string
   userId?: string
   signal?: AbortSignal
   autonomous?: boolean
+  /** Max ReAct turns before the loop is forcefully terminated. Default: 60 */
+  maxTurns?: number
   enableThinking?: boolean
   thinkingBudgetTokens?: number
+  responseFormat?: ResponseFormat
+  temperature?: number
+  systemPrompt?: string
   onThought?: (text: string) => void
   onChunk?: (text: string) => void
   onToolStart?: (call: { id: string; name: string; args: any; runId?: string }) => void

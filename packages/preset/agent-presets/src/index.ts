@@ -26,56 +26,33 @@ export class AgentPresetsService extends Service {
   }
 
   /**
-   * Discovers all presets dynamically:
-   * 1. Shipped built-in presets (packages/preset/agent-presets/presets)
+   * Discovers all presets dynamically.
+   * Kaynak önceliği (yüksekten düşüğe):
+   * 1. Kullanıcının kendi tenant presets (~/.dsh/tenants/<userId>/presets)
    * 2. Global presets (~/.dsh/agent-presets)
-   * 3. Tenant-isolated presets (~/.dsh/tenants/<userId>/presets)
+   *
+   * NOT: Shipped built-in presets ve settings DEFAULT_PRESETS artık otomatik
+   * inject edilmez. Sadece ilk boot'ta SEED olarak kullanılır. Bu sayede
+   * kullanıcının sildiği presetler bir daha geri gelmez.
    */
   public discover(userId?: string, isAdmin = false): AgentPreset[] {
     const list: Map<string, AgentPreset> = new Map()
 
-    // 1. Shipped Built-in Presets
-    const possibleShippedDirs = [
-      path.resolve(CURRENT_DIR, '../presets'),
-      path.resolve(CURRENT_DIR, '../../presets'),
-      path.resolve(process.cwd(), 'packages/preset/agent-presets/presets'),
-      path.resolve(process.cwd(), '../../packages/preset/agent-presets/presets'),
-      '/home/huseyina/code_mode/custom-harness/packages/preset/agent-presets/presets'
-    ]
-
-    const shippedDir = possibleShippedDirs.find(d => fs.existsSync(d))
-    if (shippedDir) {
-      try {
-        const files = fs.readdirSync(shippedDir)
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            const filePath = path.join(shippedDir, file)
-            const content = JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPreset
-            if (content && content.id) {
-              list.set(content.id, { ...content, isGlobal: true })
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[AgentPresets] Error scanning shipped presets:', err)
-      }
-    }
-
-    // 2. Global Presets in ~/.dsh/agent-presets
+    // 1. Global Presets in ~/.dsh/agent-presets
     if (!fs.existsSync(GLOBAL_PRESETS_DIR)) {
-      try {
-        fs.mkdirSync(GLOBAL_PRESETS_DIR, { recursive: true })
-      } catch {}
+      try { fs.mkdirSync(GLOBAL_PRESETS_DIR, { recursive: true }) } catch {}
     } else {
       try {
         const globalFiles = fs.readdirSync(GLOBAL_PRESETS_DIR)
         for (const file of globalFiles) {
           if (file.endsWith('.json')) {
-            const filePath = path.join(GLOBAL_PRESETS_DIR, file)
-            const content = JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPreset
-            if (content && content.id) {
-              list.set(content.id, { ...content, isGlobal: true })
-            }
+            try {
+              const filePath = path.join(GLOBAL_PRESETS_DIR, file)
+              const content = JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPreset
+              if (content && content.id) {
+                list.set(content.id, { ...content, isGlobal: true })
+              }
+            } catch {}
           }
         }
       } catch (err) {
@@ -83,33 +60,7 @@ export class AgentPresetsService extends Service {
       }
     }
 
-    // 3. Scan all tenant presets across ~/.dsh/tenants/*/presets
-    const tenantsRoot = path.join(os.homedir(), '.dsh', 'tenants')
-    if (fs.existsSync(tenantsRoot)) {
-      try {
-        const tenantFolders = fs.readdirSync(tenantsRoot)
-        for (const t of tenantFolders) {
-          if (userId && t === userId) continue
-          const tDir = path.join(tenantsRoot, t, 'presets')
-          if (fs.existsSync(tDir)) {
-            const files = fs.readdirSync(tDir)
-            for (const file of files) {
-              if (file.endsWith('.json')) {
-                try {
-                  const filePath = path.join(tDir, file)
-                  const content = JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPreset
-                  if (content && content.id && !list.has(content.id)) {
-                    list.set(content.id, { ...content, ownerId: t, isGlobal: false })
-                  }
-                } catch {}
-              }
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // 4. Load specific tenant's presets with highest precedence
+    // 2. Load specific tenant's presets (highest precedence — overrides global)
     if (userId) {
       const tenantDir = this.getTenantPresetsDir(userId)
       if (fs.existsSync(tenantDir)) {
@@ -130,11 +81,37 @@ export class AgentPresetsService extends Service {
           console.warn(`[AgentPresets] Error scanning tenant presets for ${userId}:`, err)
         }
       }
+    } else {
+      // userId yoksa tüm tenant klasörlerini tara (admin / CLI modu)
+      const tenantsRoot = path.join(os.homedir(), '.dsh', 'tenants')
+      if (fs.existsSync(tenantsRoot)) {
+        try {
+          const tenantFolders = fs.readdirSync(tenantsRoot)
+          for (const t of tenantFolders) {
+            const tDir = path.join(tenantsRoot, t, 'presets')
+            if (fs.existsSync(tDir)) {
+              const files = fs.readdirSync(tDir)
+              for (const file of files) {
+                if (file.endsWith('.json')) {
+                  try {
+                    const filePath = path.join(tDir, file)
+                    const content = JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPreset
+                    if (content && content.id && !list.has(content.id)) {
+                      list.set(content.id, { ...content, ownerId: t, isGlobal: false })
+                    }
+                  } catch {}
+                }
+              }
+            }
+          }
+        } catch {}
+      }
     }
 
     this.presetsCache = list
     return Array.from(list.values())
   }
+
 
   public list(userId?: string, isAdmin = false): AgentPreset[] {
     return this.discover(userId, isAdmin)
@@ -203,28 +180,27 @@ export class AgentPresetsService extends Service {
   public delete(id: string, userId?: string, isAdmin = false): { success: boolean; reset?: boolean } {
     let deleted = false
 
-    // Check user tenant dir
+    // 1. Check user tenant dir
     if (userId) {
       const userFile = path.join(this.getTenantPresetsDir(userId), `${id}.json`)
       if (fs.existsSync(userFile)) {
-        fs.unlinkSync(userFile)
-        deleted = true
+        try { fs.unlinkSync(userFile); deleted = true } catch {}
       }
     }
 
-    // If admin or not found in tenant dir, check global dir
-    if (isAdmin || !deleted) {
-      const globalFile = path.join(GLOBAL_PRESETS_DIR, `${id}.json`)
-      if (fs.existsSync(globalFile)) {
-        if (isAdmin) {
-          fs.unlinkSync(globalFile)
-          deleted = true
-        } else {
-          throw new Error('Sistem genelindeki hazır profilleri yalnızca yönetici silebilir.')
-        }
-      }
+    // 2. Check global dir
+    const globalFile = path.join(GLOBAL_PRESETS_DIR, `${id}.json`)
+    if (fs.existsSync(globalFile)) {
+      try { fs.unlinkSync(globalFile); deleted = true } catch {}
     }
 
+    // 3. Delete from settings service if present
+    if (this.ctx.settings?.deletePreset) {
+      const res = this.ctx.settings.deletePreset(id)
+      if (res?.success) deleted = true
+    }
+
+    this.presetsCache.delete(id)
     this.discover(userId, isAdmin)
     const remaining = this.get(id, userId, isAdmin)
     return {

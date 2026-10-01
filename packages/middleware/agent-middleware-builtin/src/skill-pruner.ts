@@ -12,18 +12,77 @@ export const skillPrunerMiddleware = defineMiddleware({
   name: 'skill-pruner',
   order: -100,
   beforeChat: async (ctx, next) => {
-    ctx.messages = ctx.messages.map((msg: ChatMessage) => {
+    // Mevcut konuşma bağlamındaki son kullanıcı mesajının indeksini bul
+    let lastUserIndex = -1
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      if (ctx.messages[i]?.role === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+
+    // Tüm geçmişteki en son skill çağrısının indeksini bul
+    let lastSkillIndex = -1
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const m = ctx.messages[i]
+      if (m?.role === 'tool' && (m.name === 'skill' || (m as any).toolName === 'skill')) {
+        lastSkillIndex = i
+        break
+      }
+    }
+
+    ctx.messages = ctx.messages.map((msg: ChatMessage, idx: number) => {
       if (msg.role !== 'tool' || msg.name !== 'skill' || typeof msg.content !== 'string') {
         return msg
       }
 
-      // Extract skill label from common heading patterns
-      const nameMatch =
-        msg.content.match(/###\s*(?:⚡\s*)?(?:AKTİF BECERİ TALİMATLARI.*?\(|Beceri Talimatları \()([^)]+)\)/) ||
-        msg.content.match(/Far Trans Demo DB SQL|pandas-plotly-sklearn-ml-models-skill/) ||
-        msg.content.match(/\(([^)]+)\)/)
+      // 1. KURAL: Son turda / mevcut kullanıcı isteği bağlamında çağrılan veya en son aktif olan skill'i ASLA budama
+      const isCurrentContext = lastUserIndex !== -1 && idx > lastUserIndex
+      const isLatestSkillCall = idx === lastSkillIndex
+      if (isCurrentContext || isLatestSkillCall) {
+        return msg
+      }
 
-      const skillLabel = nameMatch ? (nameMatch[1] ?? nameMatch[0]) : 'skill'
+      // Zaten budanmış bir mesajsa tekrar işleme sokma
+      if (msg.content.startsWith('[Skill ')) {
+        return msg
+      }
+
+      // Extract skill label:
+      // A) Öncelikle assistant'ın tool_calls argümanlarından skill adını al
+      let skillLabel = ''
+      if (msg.tool_call_id) {
+        for (const m of ctx.messages) {
+          if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+            const tc = m.tool_calls.find((c: any) => c.id === msg.tool_call_id)
+            if (tc?.function?.arguments) {
+              try {
+                const args = typeof tc.function.arguments === 'string'
+                  ? JSON.parse(tc.function.arguments)
+                  : tc.function.arguments
+                skillLabel = args.skillName || args.skillId || args.name || ''
+              } catch {
+                // ignore json parse error
+              }
+            }
+          }
+        }
+      }
+
+      // B) Heading pattern'den beceri adını çıkart (Örn: "### ⚡ AKTİF BECERİ TALİMATLARI: (invoice-review-skill)")
+      if (!skillLabel) {
+        const nameMatch = msg.content.match(
+          /###\s*(?:⚡\s*)?(?:AKTİF BECERİ TALİMATLARI.*?\(|Beceri Talimatları \()([^)]+)\)/i
+        )
+        if (nameMatch && nameMatch[1]) {
+          skillLabel = nameMatch[1].trim()
+        }
+      }
+
+      // NOT: /\(([^)]+)\)/ fallback'i kaldırıldı (karakter sayısı veya boyut bilgisini beceri adı sanmasın)
+      if (!skillLabel || skillLabel.toLowerCase().includes('karakter')) {
+        skillLabel = 'skill'
+      }
 
       return {
         ...msg,

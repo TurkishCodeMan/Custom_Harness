@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { Position, PositionLevel } from '../types.js'
-import { fetchTools, fetchSkills, fetchPresets, savePreset } from '../api.js'
+import { fetchTools, fetchSkills, fetchPresets } from '../api.js'
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
 
 interface NewPositionModalProps {
@@ -22,7 +22,7 @@ export const PRESET_TEMPLATES: Record<string, any> = {
     name: 'NovaTrend Kalite Güvence & İade Müdürü',
     icon: '🛡️',
     description: 'Ürün iade oranlarını, kusurlu serileri ve sözleşme cezalarını denetler; kritik stoklarla çapraz kontrol yapar.',
-    systemPrompt: `You are the Quality Assurance & Returns Operations Director for NovaTrend Global E-Ticaret A.Ş. Your mission is to monitor customer return rates, identify defect patterns, and enforce supplier contract penalty clauses (e.g. fee deductions or batch rejection). Cross-check return spikes with critical inventory levels to prevent re-ordering defective batches. Use the kalite-ve-iade-kontrol skill whenever auditing quality.\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`,
+    systemPrompt: `You are the Quality Assurance & Returns Operations Director for NovaTrend Global E-Ticaret A.Ş. Your mission is to monitor customer return rates, identify defect patterns, and enforce supplier contract penalty clauses (e.g. fee deductions or batch rejection). Cross-check return spikes with critical inventory levels to prevent re-ordering defective batches. Use the kalite-ve-iade-kontrol skill whenever auditing quality.`,
     tools: ['read_file', 'write_file', 'list_dir', 'grep_search', 'skill', 'schedule_create', 'schedule_list', 'schedule_delete'],
     skills: ['kalite-ve-iade-kontrol'],
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/operasyon_ve_iadeler',
@@ -33,7 +33,7 @@ export const PRESET_TEMPLATES: Record<string, any> = {
     name: 'Kıdemli CFO & Finans Denetçisi',
     icon: '📊',
     description: 'Bütçe aşımları, harcama sapmaları, maliyet analizleri ve finansal denetim.',
-    systemPrompt: `You are the Chief Financial Officer (CFO) and Chief Auditor for COMPANY_ABC. Analyze budget variance, identify cost overruns, and verify supplier price competitiveness.\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`,
+    systemPrompt: `You are the Chief Financial Officer (CFO) and Chief Auditor for COMPANY_ABC. Analyze budget variance, identify cost overruns, and verify supplier price competitiveness.`,
     tools: ['read_file', 'write_file', 'list_dir', 'grep_search', 'skill', 'schedule_create', 'schedule_list', 'schedule_delete'],
     skills: ['butce-denetim'],
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/finans',
@@ -44,7 +44,7 @@ export const PRESET_TEMPLATES: Record<string, any> = {
     name: 'Tedarik Zinciri & Satın Alma Müdürü',
     icon: '📦',
     description: 'Kritik stok seviyeleri, tükenme riski, satın alma sipariş taslakları.',
-    systemPrompt: `You are the Supply Chain & Procurement Director for COMPANY_ABC. Monitor inventory, reorder levels, and critical stockouts.\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`,
+    systemPrompt: `You are the Supply Chain & Procurement Director for COMPANY_ABC. Monitor inventory, reorder levels, and critical stockouts.`,
     tools: ['read_file', 'write_file', 'list_dir', 'grep_search', 'skill', 'schedule_create', 'schedule_list', 'schedule_delete'],
     skills: ['tedarikci-denetim'],
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/tedarik_ve_stok',
@@ -55,7 +55,7 @@ export const PRESET_TEMPLATES: Record<string, any> = {
     name: 'Genel Müdür & İcra Kurulu Başkanı (CEO)',
     icon: '👑',
     description: 'Şirket stratejisini belirler, kurumsal direktifler yayınlar, departmanlar arası koordinasyonu ve denetimi sağlar.',
-    systemPrompt: `You are the Chief Executive Officer (CEO) and Executive Chairman for COMPANY_ABC. Synthesize strategic decisions, coordinate with departments, and verify real data.\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`,
+    systemPrompt: `You are the Chief Executive Officer (CEO) and Executive Chairman for COMPANY_ABC. Synthesize strategic decisions, coordinate with departments, and verify real data.`,
     tools: ['read_file', 'write_file', 'list_dir', 'grep_search', 'skill', 'schedule_create', 'schedule_list', 'schedule_delete', 'invoke_subagent', 'check_subagent'],
     skills: ['butce-denetim', 'kalite-ve-iade-kontrol', 'tedarikci-denetim'],
     workspace: '/home/huseyina/code_mode/COMPANY_ABC',
@@ -66,7 +66,7 @@ export const PRESET_TEMPLATES: Record<string, any> = {
     name: 'Custom Test Preset',
     icon: '🧪',
     description: 'Testing presets endpoints & automated verification',
-    systemPrompt: `You are a test assistant for automated harness verification.\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`,
+    systemPrompt: `You are a test assistant for automated harness verification.`,
     tools: ['bash', 'skill', 'read_file', 'write_file'],
     skills: [],
     workspace: '/home/huseyina/code_mode/COMPANY_ABC',
@@ -93,9 +93,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [customSkillInput, setCustomSkillInput] = useState('')
   const [showJsonPreview, setShowJsonPreview] = useState(false)
-  const [systemPrompt, setSystemPrompt] = useState(
-    `[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`
-  )
+  const [systemPrompt, setSystemPrompt] = useState('')
   const [isPromptEdited, setIsPromptEdited] = useState(false)
 
   const [workspace, setWorkspace] = useState('/home/huseyina/code_mode/COMPANY_ABC')
@@ -143,7 +141,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
     setTitle(val)
     if (!isPromptEdited) {
       setSystemPrompt(
-        `Sen ${val.trim() || 'Yeni Koltuk'} rolündesin. ${role.trim() || ''}\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`
+        `Sen ${val.trim() || 'Yeni Koltuk'} rolündesin. ${role.trim() || ''}`
       )
     }
     if (isCustomPreset && !customPresetId) {
@@ -160,7 +158,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
     setRole(val)
     if (!isPromptEdited) {
       setSystemPrompt(
-        `Sen ${title.trim() || 'Yeni Koltuk'} rolündesin. ${val.trim() || ''}\n\n[Kurumsal Raporlama Standardı]:\n- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.\n- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).\n- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.`
+        `Sen ${title.trim() || 'Yeni Koltuk'} rolündesin. ${val.trim() || ''}`
       )
     }
   }
@@ -283,14 +281,36 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
     (s.description && s.description.toLowerCase().includes(skillSearchTerm.toLowerCase()))
   )
 
+  const handleSelectPreset = (selectedId: string) => {
+    if (selectedId === '__new_custom__') {
+      setIsCustomPreset(true)
+      return
+    }
+    setPresetId(selectedId)
+    const existing = availablePresets.find(p => p.id === selectedId) || PRESET_TEMPLATES[selectedId]
+    if (existing) {
+      if (!title || title === 'Yeni Koltuk') setTitle(existing.name || existing.id)
+      if (!role) setRole(existing.description || '')
+      if (existing.icon) setIcon(existing.icon)
+      if (existing.workspace) setWorkspace(existing.workspace)
+      if (existing.systemPrompt) setSystemPrompt(existing.systemPrompt)
+      if (existing.specialization) setSpecialization(existing.specialization)
+      if (Array.isArray(existing.enabledTools || existing.tools)) {
+        setSelectedTools(existing.enabledTools || existing.tools)
+      }
+      if (Array.isArray(existing.enabledSkills || existing.skills)) {
+        setSelectedSkills(existing.enabledSkills || existing.skills)
+      }
+    }
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
 
-    const id = `pos-${Date.now().toString(36)}`
     const effectivePresetId = isCustomPreset
       ? (customPresetId.trim() || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `preset-${Date.now().toString(36)}`)
-      : presetId.trim()
+      : (presetId.trim() || 'novatrend-cfo')
 
     const effectivePresetName = (isCustomPreset && customPresetName.trim())
       ? customPresetName.trim()
@@ -300,25 +320,21 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       ? customPresetDesc.trim()
       : (role.trim() || 'Özel tanımlanmış kurumsal ajan')
 
-    // Save custom preset to backend so backend server permanently knows this preset
-    savePreset({
-      id: effectivePresetId,
-      name: effectivePresetName,
-      description: effectivePresetDesc,
-      icon: icon.trim() || '👔',
-      systemPrompt: systemPrompt.trim(),
-      enabledTools: selectedTools,
-      enabledSkills: selectedSkills
-    }).catch(err => console.warn('[NewPositionModal] Preset save error:', err))
+    // Tek Doğruluk Kaynağı: Koltuk ID'si doğrudan Preset ID ile 1:1 eşleşir.
+    // Aynı ID'de mevcut bir koltuk varsa çakışmayı önlemek için sonuna kısa ek verilir.
+    let targetId = effectivePresetId
+    if (positions.some(p => p.id === targetId)) {
+      targetId = `${effectivePresetId}-${Date.now().toString(36).slice(-4)}`
+    }
 
     const newPos: Position = {
-      id,
-      title: title.trim(),
-      role: role.trim() || 'Departman görevi',
+      id: targetId,
+      title: effectivePresetName,
+      role: effectivePresetDesc,
       icon: icon.trim() || '👔',
       level,
       parentId: parentId || undefined,
-      presetId: effectivePresetId,
+      presetId: targetId,
       workspace: workspace.trim() || '/home/huseyina/code_mode/COMPANY_ABC',
       specialization: specialization.trim() || undefined,
       tools: selectedTools,
@@ -328,6 +344,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       systemPrompt: systemPrompt.trim()
     }
 
+    // Tek doğruluk kaynağı: Koltuk usePositions hook'u (handleAddPosition) üzerinden backend'e eksiksiz kaydedilir ve liste tazelenir
     onAddPosition(newPos)
     onClose()
   }
@@ -484,13 +501,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
                 <select
                   className="form-select mono"
                   value={presetId}
-                  onChange={(e) => {
-                    if (e.target.value === '__new_custom__') {
-                      setIsCustomPreset(true)
-                    } else {
-                      setPresetId(e.target.value)
-                    }
-                  }}
+                  onChange={(e) => handleSelectPreset(e.target.value)}
                 >
                   <option value="__new_custom__">✨ + Yeni Özel Preset Tanımla...</option>
                   {availablePresets.map(p => (

@@ -101,12 +101,16 @@ class WebSocketClient {
     prompt: string
     preset?: string
     workspace?: string
+    attachments?: any[]
+    systemPrompt?: string
   }): void {
     this.send('chat', {
       sessionId: params.sessionId,
       prompt: params.prompt,
       presetId: params.preset,
       workspace: params.workspace,
+      attachments: params.attachments,
+      systemPrompt: params.systemPrompt,
       userId: 'user_admin'
     })
   }

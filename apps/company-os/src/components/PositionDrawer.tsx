@@ -221,16 +221,6 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       skills: editSkills
     }
     onUpdatePosition(updated)
-
-    // Also persist to backend preset file
-    savePreset({
-      id: editPresetId.trim() || position.presetId,
-      name: editTitle.trim() || position.title,
-      systemPrompt: editSystemPrompt.trim(),
-      enabledTools: editTools,
-      enabledSkills: editSkills
-    })
-
     setIsEditing(false)
   }
 

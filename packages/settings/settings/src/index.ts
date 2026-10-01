@@ -34,11 +34,26 @@ export const DEFAULT_PRESETS: Record<string, AgentPreset> = {
 }
 
 const DEFAULT_SETTINGS: SettingsDoc = {
-  defaultProvider: 'qwen-local',
-  defaultModel: 'qwen3.8-27b-uncensored',
+  defaultProvider: 'qwen-bsc',
+  defaultModel: 'Qwen3.8-27B',
   defaultPreset: 'full-stack',
   workspace: process.cwd(),
   providers: {
+    'qwen-bsc': {
+      id: 'qwen-bsc',
+      name: 'Bsc:Qwen-3.8-27B',
+      api: 'openai-completions',
+      baseURL: 'http://localhost:8989/v1',
+      models: [
+        {
+          id: 'Qwen3.8-27B',
+          name: 'Qwen3.8-27B',
+          contextWindow: 16384,
+          maxTokens: 8192,
+          reasoningFormat: 'deepseek'
+        }
+      ]
+    },
     'qwen-local': {
       id: 'qwen-local',
       name: 'Local Qwen 3.8 27B (llama.cpp - 8004)',
@@ -56,65 +71,6 @@ const DEFAULT_SETTINGS: SettingsDoc = {
           id: 'Qwen3.8-27B',
           name: 'Qwen 3.8 (27B)',
           contextWindow: 16384,
-          maxTokens: 8192,
-          reasoningFormat: 'deepseek'
-        }
-      ]
-    },
-    'qwen-vllm': {
-      id: 'qwen-vllm',
-      name: 'Local Qwen 3.8 27B (vLLM - 7272)',
-      api: 'openai-completions',
-      baseURL: 'http://localhost:7272/v1',
-      models: [
-        {
-          id: 'Qwen3.8-27B',
-          name: 'Qwen 3.8 (27B)',
-          contextWindow: 32768,
-          maxTokens: 8192,
-          reasoningFormat: 'deepseek'
-        },
-        {
-          id: '/gpfs/scratch/ehpc540/models/Qwen3.8-27B',
-          name: 'Qwen 3.8 (27B) Path',
-          contextWindow: 32768,
-          maxTokens: 8192,
-          reasoningFormat: 'deepseek'
-        }
-      ]
-    },
-    'gemma-local': {
-      id: 'gemma-local',
-      name: 'Local Gemma 4 26B (vLLM / llama.cpp)',
-      api: 'openai-completions',
-      baseURL: 'http://localhost:8888/v1',
-      models: [
-        {
-          id: 'gemma-4-abliterated',
-          name: 'Gemma 4 Abliterated (26B)',
-          contextWindow: 24576,
-          maxTokens: 8192,
-          reasoningFormat: 'deepseek'
-        }
-      ]
-    },
-    'deepseek': {
-      id: 'deepseek',
-      name: 'DeepSeek Official API',
-      api: 'openai-completions',
-      baseURL: 'https://api.deepseek.com/v1',
-      apiKey: process.env.DEEPSEEK_API_KEY || '',
-      models: [
-        {
-          id: 'deepseek-chat',
-          name: 'DeepSeek V3 (Chat)',
-          contextWindow: 64000,
-          maxTokens: 8192
-        },
-        {
-          id: 'deepseek-reasoner',
-          name: 'DeepSeek R1 (Reasoner)',
-          contextWindow: 64000,
           maxTokens: 8192,
           reasoningFormat: 'deepseek'
         }
@@ -327,19 +283,59 @@ export class SettingsService extends Service {
         const raw = fs.readFileSync(settingsFile, 'utf8')
         const parsed = YAML.parse(raw)
         if (parsed && typeof parsed === 'object') {
-          return {
+          // Keep only 8004 and 8989 qwen providers as requested
+          const existingProviders: Record<string, ProviderConfig> = parsed.providers ? { ...parsed.providers } : {}
+          delete existingProviders['qwen-vllm']
+          delete existingProviders['gemma-local']
+
+          // Ensure qwen-bsc (8989 endpoint) exists
+          if (!existingProviders['qwen-bsc'] && !existingProviders['bsc-qwen-3-8-27b']) {
+            existingProviders['qwen-bsc'] = { ...DEFAULT_SETTINGS.providers['qwen-bsc'] }
+          } else {
+            const bscKey = existingProviders['qwen-bsc'] ? 'qwen-bsc' : 'bsc-qwen-3-8-27b'
+            existingProviders[bscKey].baseURL = 'http://localhost:8989/v1'
+            if (!existingProviders[bscKey].models || existingProviders[bscKey].models.length === 0) {
+              existingProviders[bscKey].models = [...DEFAULT_SETTINGS.providers['qwen-bsc'].models]
+            }
+          }
+
+          // Ensure qwen-local (8004 endpoint) exists
+          if (!existingProviders['qwen-local']) {
+            existingProviders['qwen-local'] = { ...DEFAULT_SETTINGS.providers['qwen-local'] }
+          }
+
+          const defaultP = existingProviders[parsed.defaultProvider]
+            ? parsed.defaultProvider
+            : (existingProviders['qwen-bsc'] ? 'qwen-bsc' : Object.keys(existingProviders)[0] || 'qwen-bsc')
+
+          const defaultM = parsed.defaultModel || 'Qwen3.8-27B'
+
+          const cleanDoc: SettingsDoc = {
             ...DEFAULT_SETTINGS,
             ...parsed,
-            providers: { ...DEFAULT_SETTINGS.providers, ...(parsed.providers || {}) },
+            defaultProvider: defaultP,
+            defaultModel: defaultM,
+            providers: existingProviders,
             plugins: { ...(parsed.plugins || {}) },
             presets: { ...DEFAULT_PRESETS, ...(parsed.presets || {}) }
           }
+
+          // Automatically sync clean settings to ~/.dsh/settings.yaml
+          try {
+            fs.writeFileSync(settingsFile, YAML.stringify(cleanDoc), 'utf8')
+          } catch {}
+
+          return cleanDoc
         }
       }
     } catch (e) {
       console.warn('[Settings] Failed to read settings file, using defaults:', e)
     }
-    return JSON.parse(JSON.stringify(DEFAULT_SETTINGS))
+    const fresh = JSON.parse(JSON.stringify(DEFAULT_SETTINGS))
+    try {
+      fs.writeFileSync(getSettingsFile(), YAML.stringify(fresh), 'utf8')
+    } catch {}
+    return fresh
   }
 
   public getSettings(): SettingsDoc {
@@ -471,19 +467,38 @@ export class SettingsService extends Service {
 
   // --- Agent Presets Management ---
   public getPresets(): AgentPreset[] {
+    const fromDoc = this.doc.presets ? Object.values(this.doc.presets) : []
+    if (fromDoc.length > 0) return fromDoc
     return Object.values(DEFAULT_PRESETS)
   }
 
   public getPreset(id: string): AgentPreset | undefined {
-    return DEFAULT_PRESETS[id]
+    return (this.doc.presets && this.doc.presets[id]) || DEFAULT_PRESETS[id]
   }
 
   public savePreset(preset: AgentPreset): AgentPreset {
+    if (!this.doc.presets) {
+      this.doc.presets = { ...DEFAULT_PRESETS }
+    }
+    this.doc.presets[preset.id] = preset
+    this.save()
     return preset
   }
 
   public deletePreset(id: string): { success: boolean; reset?: boolean } {
-    return { success: false }
+    let deleted = false
+    if (this.doc.presets && this.doc.presets[id]) {
+      delete this.doc.presets[id]
+      deleted = true
+    }
+    const globalFile = path.join(getDshDir(), 'agent-presets', `${id}.json`)
+    if (fs.existsSync(globalFile)) {
+      try { fs.unlinkSync(globalFile); deleted = true } catch {}
+    }
+    if (deleted) {
+      this.save()
+    }
+    return { success: deleted }
   }
 
   private getTenantSettingsFile(userId: string): string {
@@ -542,9 +557,14 @@ export class SettingsService extends Service {
     if (!userId) return cleanDoc
     const tenant = this.getTenantSettings(userId)
     const { error: _e2, ...cleanTenant } = tenant as any
+    delete cleanTenant.providers
+    if (cleanTenant.defaultProvider && !cleanDoc.providers?.[cleanTenant.defaultProvider]) {
+      delete cleanTenant.defaultProvider
+    }
     return {
       ...cleanDoc,
       ...cleanTenant,
+      providers: cleanDoc.providers,
       ui: {
         ...(cleanDoc.ui || {}),
         ...(cleanTenant.ui || {})
@@ -553,23 +573,22 @@ export class SettingsService extends Service {
   }
 
   public updateSettingsForUser(userId: string, partial: Partial<SettingsDoc>, isAdmin: boolean): SettingsDoc {
-    if (!isAdmin) {
-      this.saveTenantSettings(userId, {
-        ui: partial.ui,
-        thinkingEnabled: partial.thinkingEnabled,
-        defaultPreset: partial.defaultPreset,
-        defaultModel: partial.defaultModel,
-        defaultProvider: partial.defaultProvider,
-        workspace: partial.workspace
-      })
+    if (isAdmin || partial.providers !== undefined) {
+      this.updateSettings(partial)
+      if (partial.ui || partial.workspace) {
+        this.saveTenantSettings(userId, { ui: partial.ui, workspace: partial.workspace })
+      }
       return this.getSettingsForUser(userId)
     }
 
-    // Admin updates global settings
-    this.updateSettings(partial)
-    if (partial.ui || partial.workspace) {
-      this.saveTenantSettings(userId, { ui: partial.ui, workspace: partial.workspace })
-    }
+    this.saveTenantSettings(userId, {
+      ui: partial.ui,
+      thinkingEnabled: partial.thinkingEnabled,
+      defaultPreset: partial.defaultPreset,
+      defaultModel: partial.defaultModel,
+      defaultProvider: partial.defaultProvider,
+      workspace: partial.workspace
+    })
     return this.getSettingsForUser(userId)
   }
 
@@ -577,7 +596,7 @@ export class SettingsService extends Service {
     this.doc = {
       ...this.doc,
       ...partial,
-      providers: { ...this.doc.providers, ...(partial.providers || {}) },
+      providers: partial.providers !== undefined ? { ...partial.providers } : this.doc.providers,
       plugins: { ...(this.doc.plugins || {}), ...(partial.plugins || {}) },
       ui: { ...(this.doc.ui || {}), ...(partial.ui || {}) }
     }

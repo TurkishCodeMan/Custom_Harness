@@ -14,7 +14,7 @@ export function apply(ctx: Context) {
         properties: {
           query: {
             type: 'string',
-            description: 'Search term or regex pattern to look for in past conversation history.'
+            description: 'Search term or keywords to look for in past conversation history.'
           },
           sessionId: {
             type: 'string',
@@ -26,15 +26,27 @@ export function apply(ctx: Context) {
       async execute(args: any, context?: any) {
         const query = (args?.query ?? args?.keyword ?? args?.search ?? args?.q ?? args?.term ?? '').toString().trim()
         const targetSessionId = args?.sessionId || context?.sessionId
+        const currentUserId = context?.userId || (context?.sessionId ? ctx.session.getSession(context.sessionId)?.userId : undefined)
 
-        const sessions = ctx.session.listSessions()
-        const targetSessions = targetSessionId ? sessions.filter(s => s.id === targetSessionId) : sessions
+        // Strict tenant-boundary enforcement: list only sessions belonging to current tenant
+        const sessions = ctx.session.listSessions(currentUserId)
+        let targetSessions = targetSessionId ? sessions.filter(s => s.id === targetSessionId) : sessions
 
-        const matches: Array<{ sessionId: string; role: string; snippet: string }> = []
+        // Security boundary check: if targetSessionId specified, verify caller has access
+        if (targetSessionId && targetSessions.length === 0) {
+          const directSession = ctx.session.getSession(targetSessionId, currentUserId)
+          if (!directSession) {
+            return `Oturum bulunamadı veya bu oturuma erişim izniniz yok: ${targetSessionId}`
+          }
+          targetSessions = [{ id: targetSessionId, title: directSession.title, updatedAt: directSession.updatedAt || Date.now() }]
+        }
+
+        const matches: Array<{ sessionId: string; role: string; snippet: string; score: number }> = []
         const lowerQuery = query.toLowerCase()
+        const tokens = lowerQuery.split(/\s+/).filter(t => t.length > 1)
 
         for (const summary of targetSessions) {
-          const s = ctx.session.getSession(summary.id)
+          const s = ctx.session.getSession(summary.id, currentUserId)
           if (!s || !s.messages || !Array.isArray(s.messages)) continue
           for (const msg of s.messages) {
             if (!msg) continue
@@ -51,15 +63,31 @@ export function apply(ctx: Context) {
 
             if (!text) continue
 
-            if (!lowerQuery || text.toLowerCase().includes(lowerQuery)) {
+            const lowerText = text.toLowerCase()
+            let score = 0
+            if (!lowerQuery) {
+              score = 1
+            } else if (lowerText.includes(lowerQuery)) {
+              score = 10
+            } else if (tokens.length > 0) {
+              const matchedCount = tokens.filter(t => lowerText.includes(t)).length
+              if (matchedCount > 0) {
+                score = matchedCount
+              }
+            }
+
+            if (score > 0) {
               matches.push({
                 sessionId: s.id,
                 role: msg.role || 'unknown',
-                snippet: text.length > 300 ? text.substring(0, 300) + '...' : text
+                snippet: text.length > 300 ? text.substring(0, 300) + '...' : text,
+                score
               })
             }
           }
         }
+
+        matches.sort((a, b) => b.score - a.score)
 
         if (matches.length === 0) {
           return query ? `No matches found for '${query}' in session history.` : 'No session messages recorded yet.'

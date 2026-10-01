@@ -1030,14 +1030,339 @@ h1, h2, h3, h4, .font-display {
 }
 
 .card-items-body {
-  padding: 8px 18px 14px 44px;
+  padding: 8px 12px 14px 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.03);
-  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(0, 0, 0, 0.22);
 }
 
+/* Collapsible Tool Card within Action Card */
+.collapsible-tool-card {
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.collapsible-tool-card:hover {
+  border-color: rgba(56, 189, 248, 0.25);
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.collapsible-tool-card.open {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.75);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.collapsible-tool-card.running {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.collapsible-tool-card.error {
+  border-color: rgba(244, 63, 94, 0.35);
+}
+
+/* Tool Card Header */
+.tool-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  gap: 12px;
+  transition: background 0.15s ease;
+}
+
+.tool-card-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tool-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-status-glyph {
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tool-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-badge-icon {
+  font-size: 12px;
+}
+
+.tool-preview-snippet {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
+}
+
+.tool-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tool-duration-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.tool-toggle-text {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.tool-card-header:hover .tool-toggle-text {
+  color: #94a3b8;
+}
+
+.tool-chevron-icon {
+  font-size: 12px;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+
+.tool-chevron-icon.open {
+  transform: rotate(180deg);
+  color: #38bdf8;
+}
+
+/* Expandable Body: Ne Giriyor & Ne Geliyor Panels */
+.tool-card-body-expanded {
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fadeIn 0.2s ease;
+}
+
+.tool-io-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 8px;
+  background: rgba(7, 11, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+}
+
+.io-in-panel {
+  border-left: 3px solid #38bdf8;
+}
+
+.io-out-panel {
+  border-left: 3px solid #10b981;
+}
+
+.collapsible-tool-card.error .io-out-panel {
+  border-left: 3px solid #f43f5e;
+}
+
+.collapsible-tool-card.running .io-out-panel {
+  border-left: 3px solid #f59e0b;
+}
+
+.io-panel-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.io-panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.io-icon-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.io-badge-in {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.io-badge-out {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.collapsible-tool-card.error .io-badge-out {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.3);
+  color: #f87171;
+}
+
+.collapsible-tool-card.running .io-badge-out {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.io-sub-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.io-path-pill {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.io-copy-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.io-copy-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.io-terminal-surface {
+  background: #04070d;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  max-height: 220px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.bash-cmd-display {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.terminal-prompt {
+  color: #10b981;
+  font-weight: 700;
+  user-select: none;
+}
+
+.terminal-cmd {
+  color: #f1f5f9;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.io-pre-text {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.output-success-color {
+  color: #a7f3d0;
+}
+
+.error-color {
+  color: #fca5a5;
+}
+
+.io-running-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fbbf24;
+  font-size: 11px;
+  padding: 4px 2px;
+}
+
+.io-error-display {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #f87171;
+}
+
+.error-mark {
+  font-weight: 700;
+}
+
+.io-quiet-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+  font-style: italic;
+  padding: 4px 2px;
+}
+
+.quiet-mark {
+  color: #10b981;
+}
+
+/* Backward compatibility */
 .card-action-item {
   display: flex;
   align-items: center;

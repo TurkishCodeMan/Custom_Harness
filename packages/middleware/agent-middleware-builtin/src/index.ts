@@ -4,12 +4,14 @@ import { toolFilterMiddleware } from './tool-filter.js'
 import { skillReminderMiddleware } from './skill-reminder.js'
 import { autoSummaryMiddleware } from './auto-summary.js'
 import { sqlSafetyGuardMiddleware } from './sql-guard.js'
+import { toolGuardMiddleware } from './tool-guard.js'
 
 export * from './skill-pruner.js'
 export * from './tool-filter.js'
 export * from './skill-reminder.js'
 export * from './auto-summary.js'
 export * from './sql-guard.js'
+export * from './tool-guard.js'
 
 export const name = 'agent-middleware-builtin'
 export const inject = ['agentMiddleware']
@@ -23,12 +25,14 @@ export const inject = ['agentMiddleware']
  *   - skill-reminder  (order:  -80, preset: test) — injects available-skills note on turn 1
  *
  * beforeTool pipeline:
+ *   - tool-guard       (order: -100, all presets)  — execution guard enforcing preset whitelist/blacklist
  *   - sql-safety-guard (order:    0, preset: test) — read-only SQL policy for Analysis SQL Agent
  *
  * afterChat pipeline:
  *   - auto-summary    (order:  100, all presets)  — triggers summary turn when model returns empty
  */
 export function apply(ctx: Context) {
+  ctx.agentMiddleware.register(toolGuardMiddleware)
   ctx.agentMiddleware.register(skillPrunerMiddleware)
   ctx.agentMiddleware.register(toolFilterMiddleware)
   ctx.agentMiddleware.register(skillReminderMiddleware)

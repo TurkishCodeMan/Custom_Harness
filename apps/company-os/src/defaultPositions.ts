@@ -1,22 +1,22 @@
-import type { Position } from './types.js'
+/**
+ * SEED_PRESETS — Uygulama ilk kez başladığında backend boşsa bu presetler
+ * otomatik olarak backend'e yazılır. Sonraki açılışlarda backend'den okunur.
+ *
+ * Format: AgentPreset (backend formatı) + ek UI meta (level, parentId, workspace, specialization)
+ */
 
-export const REPORTING_GUARDRAIL = `
-[Kurumsal Raporlama Standardı]:
-- Asla karmaşık markdown tablosu oluşturma; verileri düz madde imleri (-) ile yaz.
-- Raporu en fazla 4-5 maddede özetle (aşırı uzun ve tekrarlı metinlerden kaçın).
-- Rapor tamamlandığında altına mutlaka "--- RAPOR BİTTİ ---" yazıp dur.
-`.trim()
+const REPORTING_GUARDRAIL = ``
 
-export const INITIAL_POSITIONS: Position[] = [
+export const SEED_PRESETS: any[] = [
   {
     id: 'ceo',
-    title: 'Genel Müdür & İcra Kurulu Başkanı (CEO)',
-    role: 'Şirket stratejisi, direktifler, kurumlar arası koordinasyon',
+    name: 'Genel Müdür & İcra Kurulu Başkanı (CEO)',
+    description: 'Şirket stratejisi, direktifler, kurumlar arası koordinasyon',
     icon: '👑',
     level: 1,
-    presetId: 'ceo',
+    parentId: undefined,
     workspace: '/home/huseyina/code_mode/COMPANY_ABC',
-    tools: [
+    enabledTools: [
       'invoke_subagent',
       'check_subagent',
       'schedule_create',
@@ -30,8 +30,8 @@ export const INITIAL_POSITIONS: Position[] = [
       'skill',
       'bash'
     ],
+    enabledSkills: [],
     specialization: 'Stratejik Kararlar, Kurumsal Direktifler, Performans Denetimi',
-    status: 'idle',
     currentAction: 'Direktif ve toplantı koordinasyonu için hazır',
     systemPrompt: `You are the Chief Executive Officer (CEO) and Executive Chairman for COMPANY_ABC. You hold ultimate executive authority across all departments (CFO/Finance, Supply Chain, Quality & Returns, CTO/Engineering). When given a directive, multi-agent meeting prompt or strategic question:
 - Synthesize strategic decisions and coordinate with relevant departments.
@@ -46,14 +46,13 @@ ${REPORTING_GUARDRAIL}`
   },
   {
     id: 'novatrend-cfo',
-    title: 'Kıdemli CFO & Finans Denetçisi',
-    role: 'Bütçe aşımları, harcama sapmaları, maliyet analizleri',
+    name: 'Kıdemli CFO & Finans Denetçisi',
+    description: 'Bütçe aşımları, harcama sapmaları, maliyet analizleri',
     icon: '📊',
     level: 2,
-    presetId: 'novatrend-cfo',
     parentId: 'ceo',
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/finans',
-    tools: [
+    enabledTools: [
       'read_file',
       'write_file',
       'edit_file',
@@ -66,9 +65,8 @@ ${REPORTING_GUARDRAIL}`
       'invoke_subagent',
       'check_subagent'
     ],
-    skills: ['butce-denetim'],
+    enabledSkills: ['butce-denetim'],
     specialization: 'Q3_2025_Butce_ve_Harcamalar.csv, tedarikci_fiyat_karsilastirma.json',
-    status: 'idle',
     currentAction: 'Finansal denetim ve kasa yönetimi için hazır',
     systemPrompt: `Sen NovaTrend Kıdemli CFO ve Finans Denetçisisin. 
 [Veri Perimetresi & Kasa Güvenliği]:
@@ -83,14 +81,13 @@ ${REPORTING_GUARDRAIL}`
   },
   {
     id: 'novatrend-kalite',
-    title: 'Kalite Güvence & İade Müdürü',
-    role: 'Müşteri iade oranları, ürün kusurları, tedarikçi SLA cezaları',
+    name: 'Kalite Güvence & İade Müdürü',
+    description: 'Müşteri iade oranları, ürün kusurları, tedarikçi SLA cezaları',
     icon: '🛡️',
     level: 2,
-    presetId: 'novatrend-kalite',
     parentId: 'ceo',
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/operasyon_ve_iadeler',
-    tools: [
+    enabledTools: [
       'read_file',
       'write_file',
       'edit_file',
@@ -103,9 +100,8 @@ ${REPORTING_GUARDRAIL}`
       'invoke_subagent',
       'check_subagent'
     ],
-    skills: ['kalite-ve-iade-kontrol'],
+    enabledSkills: ['kalite-ve-iade-kontrol'],
     specialization: 'musteri_iade_analizi.csv, tedarikci_sozlesme_ozetleri.md',
-    status: 'idle',
     currentAction: 'İade ve SLA denetimi için hazır',
     systemPrompt: `Sen NovaTrend Kalite Güvence ve İade Müdürüsün. 
 [Veri Perimetresi & Kasa Güvenliği]:
@@ -120,14 +116,13 @@ ${REPORTING_GUARDRAIL}`
   },
   {
     id: 'novatrend-tedarik',
-    title: 'Tedarik Zinciri & Satın Alma Müdürü',
-    role: 'Kritik stok seviyeleri, tükenme riski, satın alma sipariş taslakları',
+    name: 'Tedarik Zinciri & Satın Alma Müdürü',
+    description: 'Kritik stok seviyeleri, tükenme riski, satın alma sipariş taslakları',
     icon: '📦',
     level: 2,
-    presetId: 'novatrend-tedarik',
     parentId: 'ceo',
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/tedarik_ve_stok',
-    tools: [
+    enabledTools: [
       'read_file',
       'write_file',
       'edit_file',
@@ -140,9 +135,8 @@ ${REPORTING_GUARDRAIL}`
       'invoke_subagent',
       'check_subagent'
     ],
-    skills: ['tedarikci-denetim'],
+    enabledSkills: ['tedarikci-denetim'],
     specialization: 'kritik_stok_ve_siparisler.json',
-    status: 'idle',
     currentAction: 'Stok kontrolü ve satın alma için hazır',
     systemPrompt: `Sen NovaTrend Tedarik Zinciri ve Satın Alma Müdürüsün. 
 [Veri Perimetresi & Kasa Güvenliği]:
@@ -157,14 +151,13 @@ ${REPORTING_GUARDRAIL}`
   },
   {
     id: 'full-stack',
-    title: 'Teknoloji Direktörü & Sistem Mimarı (CTO)',
-    role: 'Sistem altyapısı, bulut maliyetleri, kesinti/uptime ve güvenlik',
+    name: 'Teknoloji Direktörü & Sistem Mimarı (CTO)',
+    description: 'Sistem altyapısı, bulut maliyetleri, kesinti/uptime ve güvenlik',
     icon: '💻',
     level: 2,
-    presetId: 'full-stack',
     parentId: 'ceo',
     workspace: '/home/huseyina/code_mode/COMPANY_ABC/teknoloji',
-    tools: [
+    enabledTools: [
       'read_file',
       'write_file',
       'edit_file',
@@ -177,8 +170,8 @@ ${REPORTING_GUARDRAIL}`
       'schedule_list',
       'schedule_delete'
     ],
+    enabledSkills: [],
     specialization: 'sunucu_ve_bulut_maliyetleri.csv, sistem_kesinti_ve_uptime.json, altyapi_ve_guvenlik_politikasi.md',
-    status: 'idle',
     currentAction: 'Sistemler operasyonel',
     systemPrompt: `Sen Teknoloji Direktörü & Sistem Mimarı (CTO) rolündesin. Kendi departman çalışma alanındaki (teknoloji/) sunucu ve bulut maliyetlerini, sistem uptime/SLA kesintilerini ve altyapı güvenlik politikalarını denetlersin.
 - Terminal komutları ve log incelemeleri için 'bash' aracını kullanabilirsin.

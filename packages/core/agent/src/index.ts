@@ -4,10 +4,11 @@ import type { ChatMessage } from '@custom-harness/core-types'
 
 import type { AgentRunOptions, ToolExecutionContext } from './types.js'
 import { extractThoughts } from './thoughts.js'
-import { pruneToolMessages, ensureUserMessage } from './message-pruner.js'
+import { ensureUserMessage, stripReasoningFromHistory, applyToolOutputSlidingWindow } from './message-pruner.js'
 import { resolveProviderAndModel, resolveActivePreset } from './resolver.js'
 import { buildSystemPrompt } from './prompt-builder.js'
 import { executeToolCall } from './tool-executor.js'
+import { prepareToolsForPreset, resolveAvailableSkills } from './tool-scoper.js'
 
 export * from './types.js'
 export * from './thoughts.js'
@@ -15,6 +16,7 @@ export * from './message-pruner.js'
 export * from './resolver.js'
 export * from './prompt-builder.js'
 export * from './tool-executor.js'
+export * from './tool-scoper.js'
 
 export const name = 'agent'
 export const inject = [
@@ -34,6 +36,16 @@ export const inject = [
   'skills'
 ]
 
+// ─── Spill / SlidingWindow eşik hizalaması (Sorun #1) ─────────────────────────
+// SpillStore 3000 token ≈ 10.800 char sonra devreye girer.
+// SlidingWindow "in-window" üst sınırı spill eşiğiyle hizalı olmalı:
+// spill devreye girmeden sliding window kesmemeli, aksi hâlde model
+// "dosyaya bak" ipucu alır ama dosya yazılmamış olur.
+//
+// Kural: SLIDING_WINDOW_MAX_CHARS ≥ SPILL_THRESHOLD_CHARS
+// Spill eşiği: ~10.800 char  →  Sliding window max: 12.000 char (biraz üstünde)
+const SLIDING_WINDOW_MAX_CHARS = 12_000 // spill eşiğinin (~10.800) üzerinde tutulur
+
 export class AgentService extends Service {
   static inject = inject
 
@@ -42,137 +54,160 @@ export class AgentService extends Service {
   }
 
   /**
-   * Asserts required core services exist on Context.
-   * Enforces fail-fast principle: missing services cause immediate failure instead of hidden crashes.
+   * Fail-fast guard: missing core services surface immediately rather than
+   * causing silent crashes deep inside the loop.
    */
   public assertRequiredServices(): void {
-    if (!this.ctx.session) {
-      throw new Error("[AgentService] Zorunlu 'session' servisi Context üzerinde bulunamadı.")
-    }
-    if (!this.ctx.settings) {
-      throw new Error("[AgentService] Zorunlu 'settings' servisi Context üzerinde bulunamadı.")
-    }
-    if (!this.ctx.llm) {
-      throw new Error("[AgentService] Zorunlu 'llm' servisi Context üzerinde bulunamadı.")
-    }
-    if (!this.ctx.tools) {
-      throw new Error("[AgentService] Zorunlu 'tools' servisi Context üzerinde bulunamadı.")
+    const required = ['session', 'settings', 'llm', 'tools'] as const
+    for (const svc of required) {
+      if (!this.ctx[svc]) {
+        throw new Error(`[AgentService] Zorunlu '${svc}' servisi Context üzerinde bulunamadı.`)
+      }
     }
   }
 
   /**
-   * Main agent entrypoint running the interactive ReAct conversation loop.
+   * Build the clean LLM payload for one turn from canonical session history.
+   *
+   * Returns ONLY the conversation messages (no system prompt) so the caller
+   * controls where system goes. This avoids the fragile .slice(1) pattern (Sorun #3).
+   *
+   * Never mutates session.messages.
+   */
+  private buildConversationPayload(
+    sessionMessages: ChatMessage[],
+    prompt: string,
+    ephemeral: ChatMessage[],
+    onCompaction?: AgentRunOptions['onCompaction']
+  ): ChatMessage[] {
+    let msgs = [...sessionMessages]
+
+    // Compact if compactor is available — fire onCompaction exactly once (Sorun #5 fix)
+    if (this.ctx.compactor) {
+      const result = this.ctx.compactor.compact(msgs)
+      if (result.compacted) {
+        msgs = result.messages
+        onCompaction?.({
+          messageCount: result.prunedCount || 0,
+          summary: result.summary || ''
+        })
+      }
+    }
+
+    // Pipeline: ensure structure → strip reasoning → sliding window
+    msgs = ensureUserMessage(msgs, prompt)
+    msgs = stripReasoningFromHistory(msgs)
+    // Sorun #1: maxToolChars is set above spill threshold so sliding window
+    // never truncates content that hasn't been spilled yet.
+    msgs = applyToolOutputSlidingWindow(msgs, 6, SLIDING_WINDOW_MAX_CHARS)
+
+    // Append ephemeral messages at the end (Sorun #4: accepts any ChatMessage role)
+    return [...msgs, ...ephemeral]
+  }
+
+  /**
+   * Main agent entrypoint: ReAct conversation loop.
    */
   public async run(options: AgentRunOptions): Promise<string> {
     this.assertRequiredServices()
 
     const { sessionId, prompt, signal } = options
     const runId = options.runId || `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+
+    // Resolve or create session
     const session = this.ctx.session.getSession(sessionId) || this.ctx.session.createSession(undefined, undefined, options.userId)
 
-    // 1. Record User Prompt in canonical session history
+    // Record user prompt in canonical session history
     this.ctx.session.appendMessage(sessionId, {
       role: 'user',
       content: prompt,
       ...(options.isInternal ? { isInternal: true } : {})
     })
 
+    // Resolve settings, model, preset, workspace
     const settings = this.ctx.settings.getSettings()
     const userId = options.userId || session.userId
     const userSettings = userId && this.ctx.settings?.getSettingsForUser
       ? this.ctx.settings.getSettingsForUser(userId)
       : settings
 
-    // 2. Resolve Model, Provider, Preset, and Dynamic System Prompt
-    const { provider, model } = resolveProviderAndModel(options, this.ctx.settings)
     const activePreset = resolveActivePreset(options, session, settings, userSettings, this.ctx, userId)
-    const cwd = session.workspace || userSettings?.workspace || settings.workspace || process.cwd()
-    const renderedSystemPrompt = buildSystemPrompt(this.ctx, activePreset, cwd)
+    const { provider, model } = resolveProviderAndModel(options, this.ctx.settings, activePreset)
+    const cwd = options.workspace || activePreset?.workspace || session.workspace || userSettings?.workspace || settings.workspace || process.cwd()
 
     const systemPrompt: ChatMessage = {
       role: 'system',
-      content: renderedSystemPrompt
+      content: buildSystemPrompt(this.ctx, activePreset, cwd, options.systemPrompt)
     }
 
-    // 3. Conversation & Tool Execution Loop
+    // Sorun #2: maxTurns is configurable per run, preset, or caller; defaults to 60
+    const maxTurns = options.maxTurns ?? (activePreset?.maxTurns as number | undefined) ?? 60
     let turnCount = 0
-    const maxTurns = 60
     let finalResponse = ''
 
-    // Ephemeral message queue: Injected strictly for the next LLM turn; NEVER persisted to disk/session
+    // Sorun #4: ephemeralQueue now holds ChatMessage (any role), not just user strings
     let ephemeralQueue: ChatMessage[] = []
-    let compactionEmitted = false
+
+    // onCompaction fires at most once per run — closure captures compactionFired by reference
+    let compactionFired = false
+    const onCompactionOnce: AgentRunOptions['onCompaction'] = (info) => {
+      if (!compactionFired) {
+        compactionFired = true
+        options.onCompaction?.(info)
+      }
+    }
 
     while (turnCount < maxTurns) {
       if (signal?.aborted) break
       turnCount++
 
-      // Apply Context Compaction strictly to LLM payload (does not mutate persistent session.messages)
-      let compactedMessages = [...session.messages]
-      if (this.ctx.compactor) {
-        const compactionRes = this.ctx.compactor.compact(compactedMessages)
-        if (compactionRes.compacted) {
-          compactedMessages = compactionRes.messages
-          if (!compactionEmitted) {
-            compactionEmitted = true
-            options.onCompaction?.({
-              messageCount: compactionRes.prunedCount || 0,
-              summary: compactionRes.summary || ''
-            })
-          }
-        }
-      }
+      // Drain ephemeral queue for this turn
+      const ephemeral = [...ephemeralQueue]
+      ephemeralQueue = []
 
-      // Ensure at least one user query is always present in payload for model parsers
-      compactedMessages = ensureUserMessage(compactedMessages, prompt)
+      const toolsToPass = prepareToolsForPreset(this.ctx.tools, activePreset)
+      const availableSkills = resolveAvailableSkills(this.ctx.skills, activePreset, userId, cwd)
 
-      // Prune older tool result messages in payload to preserve critical context window headroom
-      compactedMessages = pruneToolMessages(compactedMessages)
+      // Build conversation payload (no system prompt — added explicitly below)
+      // Sorun #3: no more .slice(1) fragility; system is never inside the array
+      const conversationMessages = this.buildConversationPayload(
+        session.messages,
+        prompt,
+        ephemeral,
+        onCompactionOnce
+      )
 
-      // Prepare available tools schemas scoped to active preset
-      const toolsToPass = this.ctx.tools.getOpenAiSchemas(activePreset?.enabledTools)
-
-      // Execute Agent Middleware (beforeChat)
+      // Run beforeChat middleware — receives conversation messages only (no system)
       const beforeChatCtx = {
         sessionId,
         userId,
         preset: activePreset,
         turnCount,
         signal,
-        systemPrompt: renderedSystemPrompt,
-        messages: compactedMessages,
+        systemPrompt: systemPrompt.content as string,
+        messages: conversationMessages,
         tools: toolsToPass,
         options: options as any,
-        availableSkills: (() => {
-          if (!this.ctx.skills) return []
-          let list = this.ctx.skills.listActiveSkills(userId, false, cwd)
-          if (activePreset?.enabledSkills && activePreset.enabledSkills.length > 0) {
-            const allowedSet = new Set(activePreset.enabledSkills)
-            list = list.filter((s: any) => allowedSet.has(s.id) || allowedSet.has(s.name))
-          }
-          return list.map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            description: s.description ?? ''
-          }))
-        })()
+        availableSkills
       }
 
       if (this.ctx.agentMiddleware?.runBeforeChat) {
         await this.ctx.agentMiddleware.runBeforeChat(beforeChatCtx)
       }
 
-      // Consume ephemeral queue for this turn
-      const ephemeralMessages = [...ephemeralQueue]
-      ephemeralQueue = []
+      // System prompt is prepended explicitly — always first, never duplicated
+      const messagesToSend: ChatMessage[] = [systemPrompt, ...beforeChatCtx.messages]
 
-      const messagesToSend = [systemPrompt, ...beforeChatCtx.messages, ...ephemeralMessages]
-
-      let currentAssistantContent = ''
-      let currentThinking = ''
+      // Stream LLM response
+      let assistantContent = ''
+      let thinkingContent = ''
       const pendingToolCalls: { id: string; name: string; arguments: string }[] = []
 
-      // Stream LLM chat completion
+      const effectiveResponseFormat = options.responseFormat || activePreset?.responseFormat
+      const effectiveTemperature = typeof options.temperature === 'number'
+        ? options.temperature
+        : (typeof activePreset?.temperature === 'number' ? activePreset.temperature : undefined)
+
       for await (const event of this.ctx.llm.streamChat(messagesToSend, {
         provider,
         model,
@@ -180,37 +215,47 @@ export class AgentService extends Service {
         tools: beforeChatCtx.tools,
         enableThinking: options.enableThinking,
         thinkingBudgetTokens: options.thinkingBudgetTokens,
+        responseFormat: effectiveResponseFormat,
+        temperature: effectiveTemperature,
         sessionId
       })) {
         if (signal?.aborted) break
 
-        if (event.type === 'thought') {
-          currentThinking += event.content || ''
-          if (event.content) options.onThought?.(event.content)
-        } else if (event.type === 'chunk') {
-          currentAssistantContent += event.content || ''
-          if (event.content) options.onChunk?.(event.content)
-        } else if (event.type === 'tool_call' && event.toolCall) {
-          pendingToolCalls.push({
-            id: event.toolCall.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-            name: event.toolCall.name,
-            arguments: event.toolCall.arguments || ''
-          })
-        } else if (event.type === 'error') {
-          const errMsg = `\n[Model Hatası: ${event.error}]`
-          currentAssistantContent += errMsg
-          options.onChunk?.(errMsg)
-          console.error('[AgentService] LLM stream error:', event.error)
-        } else if (event.type === 'done' && event.usage) {
-          options.onUsage?.(event.usage)
+        switch (event.type) {
+          case 'thought':
+            thinkingContent += event.content || ''
+            if (event.content) options.onThought?.(event.content)
+            break
+          case 'chunk':
+            assistantContent += event.content || ''
+            if (event.content) options.onChunk?.(event.content)
+            break
+          case 'tool_call':
+            if (event.toolCall) {
+              pendingToolCalls.push({
+                id: event.toolCall.id || `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                name: event.toolCall.name,
+                arguments: event.toolCall.arguments || ''
+              })
+            }
+            break
+          case 'error': {
+            const errMsg = `\n[Model Error: ${event.error}]`
+            assistantContent += errMsg
+            options.onChunk?.(errMsg)
+            console.error('[AgentService] LLM stream error:', event.error)
+            break
+          }
+          case 'done':
+            if (event.usage) options.onUsage?.(event.usage)
+            break
         }
       }
 
-      // Extract embedded XML thoughts if present in content
-      const { cleanContent, finalThinking } = extractThoughts(currentAssistantContent, currentThinking)
+      // Extract embedded XML thoughts if model writes them inline
+      const { cleanContent, finalThinking } = extractThoughts(assistantContent, thinkingContent)
 
-      // Fallback: If model emitted thinking without tool calls but cleanContent is empty,
-      // promote thinking to content so the user/caller receives the result
+      // If model only thought but produced no content and no tool calls, surface the thinking as response
       const effectiveContent = cleanContent || (pendingToolCalls.length === 0 ? finalThinking : undefined)
 
       const assistantMsg: ChatMessage = {
@@ -222,34 +267,36 @@ export class AgentService extends Service {
         ...(options.isInternal ? { isInternal: true } : {})
       }
 
-      // Case A: Model issued tool calls
       if (pendingToolCalls.length > 0) {
+        // Tool execution turn: persist assistant + tool_calls, then run tools sequentially
+        // (sequential = deterministic ordering; parallel caused filesystem race conditions)
         assistantMsg.tool_calls = pendingToolCalls.map(tc => ({
           id: tc.id,
           type: 'function',
-          function: {
-            name: tc.name,
-            arguments: tc.arguments
-          }
+          function: { name: tc.name, arguments: tc.arguments }
         }))
         this.ctx.session.appendMessage(sessionId, assistantMsg)
-      }
 
-      // Case B: No tool calls emitted — check post-chat middleware
-      if (pendingToolCalls.length === 0) {
+        const toolCtx: ToolExecutionContext = {
+          sessionId, runId, userId, activePreset, turnCount, signal, cwd,
+          onToolStart: options.onToolStart,
+          onToolResult: options.onToolResult
+        }
+        await Promise.all(pendingToolCalls.map(call => executeToolCall(this.ctx, call, toolCtx)))
+      } else {
+        // Final turn: afterChat middleware → autonomous continuation → done
         if (this.ctx.agentMiddleware?.runAfterChat) {
-          const chatOutcome = await this.ctx.agentMiddleware.runAfterChat({
-            sessionId,
-            userId,
-            preset: activePreset,
-            turnCount,
-            signal,
-            assistantMessage: assistantMsg
+          const outcome = await this.ctx.agentMiddleware.runAfterChat({
+            sessionId, userId, preset: activePreset, turnCount, signal, assistantMessage: assistantMsg
           })
 
-          if (chatOutcome.shouldContinue && turnCount < maxTurns) {
-            if (chatOutcome.prompt) {
-              ephemeralQueue.push({ role: 'user', content: chatOutcome.prompt })
+          if (outcome.shouldContinue && turnCount < maxTurns) {
+            // Sorun #4: middleware can inject any ChatMessage role into the queue
+            if (outcome.prompt) {
+              ephemeralQueue.push({ role: 'user', content: outcome.prompt })
+            }
+            if (outcome.messages?.length) {
+              ephemeralQueue.push(...(outcome.messages as ChatMessage[]))
             }
             continue
           }
@@ -263,38 +310,13 @@ export class AgentService extends Service {
           continue
         }
 
-        // Conversation turn completed with meaningful output — persist final assistant response
         this.ctx.session.appendMessage(sessionId, assistantMsg)
         finalResponse = effectiveContent || finalThinking || ''
         break
       }
-
-
-      // Execute Tools in Parallel via Promise.all (with per-tool safety, approval, backoff, and event emission)
-      const toolExecContext: ToolExecutionContext = {
-        sessionId,
-        runId,
-        userId,
-        activePreset,
-        turnCount,
-        signal,
-        cwd,
-        onToolStart: options.onToolStart,
-        onToolResult: options.onToolResult
-      }
-
-      await Promise.all(
-        pendingToolCalls.map(async (call) => {
-          if (signal?.aborted) return
-          await executeToolCall(this.ctx, call, toolExecContext)
-        })
-      )
     }
 
-    if (this.ctx.repeatGuard) {
-      this.ctx.repeatGuard.reset(sessionId)
-    }
-
+    this.ctx.repeatGuard?.reset(sessionId)
     return finalResponse
   }
 }

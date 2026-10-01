@@ -26,15 +26,192 @@ export async function savePreset(preset: any): Promise<boolean> {
   }
 }
 
-export async function fetchSkills(): Promise<any[]> {
+export async function deletePreset(presetId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/skills`)
+    const res = await fetch(`${API_BASE}/presets/${encodeURIComponent(presetId)}`, {
+      method: 'DELETE'
+    })
+    return res.ok
+  } catch (err) {
+    console.error('[CompanyOS] Preset silinemedi:', err)
+    return false
+  }
+}
+
+export interface SkillItem {
+  id: string
+  name: string
+  description: string
+  filePath?: string
+  content?: string
+  rawContent?: string
+  ownerId?: string
+  isGlobal?: boolean
+  allowedUserIds?: string[]
+  isPublic?: boolean
+  enabled?: boolean
+}
+
+export async function fetchSkills(userId?: string): Promise<SkillItem[]> {
+  try {
+    const headers: Record<string, string> = {}
+    if (userId) headers['X-User-Id'] = userId
+    const res = await fetch(`${API_BASE}/skills`, { headers })
     if (!res.ok) throw new Error(`HTTP error ${res.status}`)
     const data = await res.json()
     return Array.isArray(data) ? data : data.skills || []
   } catch (err) {
     console.warn('[CompanyOS] Skills çekilemedi:', err)
     return []
+  }
+}
+
+export async function fetchSkillTemplate(name?: string, description?: string): Promise<string> {
+  try {
+    const params = new URLSearchParams()
+    if (name) params.append('name', name)
+    if (description) params.append('description', description)
+    const res = await fetch(`${API_BASE}/skills/template?${params.toString()}`)
+    if (!res.ok) return ''
+    const data = await res.json()
+    return data.template || ''
+  } catch {
+    return ''
+  }
+}
+
+export async function createSkill(
+  payload: {
+    id?: string
+    name: string
+    description: string
+    rawContent?: string
+    content?: string
+    isGlobal?: boolean
+    enabled?: boolean
+  },
+  userId: string = 'user_admin'
+): Promise<{ success: boolean; skill?: any; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/skills`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId
+      },
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` }
+    }
+    return data
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+export async function updateSkill(
+  id: string,
+  payload: {
+    name?: string
+    description?: string
+    rawContent?: string
+    content?: string
+    enabled?: boolean
+  },
+  userId: string = 'user_admin'
+): Promise<{ success: boolean; skill?: any; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId
+      },
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` }
+    }
+    return data
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+export async function toggleSkill(
+  id: string,
+  enabled: boolean,
+  userId: string = 'user_admin'
+): Promise<{ success: boolean; skill?: any; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(id)}/toggle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId
+      },
+      body: JSON.stringify({ enabled })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` }
+    }
+    return data
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+export async function deleteSkill(
+  id: string,
+  userId: string = 'user_admin'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: {
+        'X-User-Id': userId
+      }
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` }
+    }
+    return data
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
+}
+
+export async function updateSkillPermissions(
+  skillId: string,
+  allowedUserIds: string[],
+  isPublic: boolean,
+  userId: string = 'user_admin'
+): Promise<{ success: boolean; skill?: any; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/skills/permissions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId
+      },
+      body: JSON.stringify({
+        skillId,
+        allowedUserIds,
+        isPublic
+      })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data.error || `HTTP ${res.status}` }
+    }
+    return data
+  } catch (err: any) {
+    return { success: false, error: err.message }
   }
 }
 
@@ -453,4 +630,56 @@ export async function fetchTraceGraph(traceId: string): Promise<{ nodes: any[]; 
     return null
   }
 }
+
+export interface UploadedFileInfo {
+  id: string
+  fileName: string
+  filePath: string
+  fileSize: number
+  mimeType?: string
+  fileCategory: 'spreadsheet' | 'document' | 'image' | 'code' | 'other'
+  schemaSummary?: string
+  ocrText?: string
+  sampleContent?: string
+  createdAt?: number
+}
+
+export async function uploadClientFiles(
+  files: File[],
+  sessionId: string = 'default',
+  userId: string = 'user_admin'
+): Promise<UploadedFileInfo[]> {
+  const fileItems = await Promise.all(
+    files.map(async file => {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      return {
+        fileName: file.name,
+        fileData: base64Data
+      }
+    })
+  )
+
+  const res = await fetch(`${API_BASE}/upload/${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': userId
+    },
+    body: JSON.stringify({ files: fileItems })
+  })
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}))
+    throw new Error(errData.error || `Yükleme başarısız: HTTP ${res.status}`)
+  }
+
+  const data = await res.json()
+  return data.files || []
+}
+
 

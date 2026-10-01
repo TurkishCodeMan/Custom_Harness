@@ -87,8 +87,15 @@ export interface AgentPreset {
   enabledTools?: string[]
   enabledSkills?: string[]
   temperature?: number
+  responseFormat?: ResponseFormat
+  maxTurns?: number
   ownerId?: string
   isGlobal?: boolean
+  workspace?: string
+  level?: number
+  parentId?: string
+  specialization?: string
+  currentAction?: string
 }
 
 export interface UiSettings {
@@ -154,6 +161,7 @@ export interface SessionData {
   updatedAt: number
   workspace: string
   userId?: string
+  presetId?: string
   messages: ChatMessage[]
   isInternal?: boolean
 }

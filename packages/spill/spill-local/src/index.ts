@@ -6,11 +6,13 @@ import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 
 export interface LocalSpillConfig {
-  /** Threshold in characters after which output is spilled to file. Default: 4000 */
+  /** Threshold in tokens after which output is spilled to file. Default: 3000 tokens */
+  thresholdTokens?: number
+  /** Threshold in characters after which output is spilled to file. */
   thresholdChars?: number
-  /** Number of characters to retain at the beginning of the preview. Default: 1400 */
+  /** Number of characters to retain at the beginning of the preview. Default: 2000 */
   previewHeadChars?: number
-  /** Number of characters to retain at the end of the preview. Default: 800 */
+  /** Number of characters to retain at the end of the preview. Default: 1000 */
   previewTailChars?: number
   /** Root directory for spill files. Default: ~/.dsh/spills */
   root?: string
@@ -18,6 +20,7 @@ export interface LocalSpillConfig {
 
 export class LocalSpillService extends SpillService {
   private storeMap = new Map<string, SpillEntry>()
+  public thresholdTokens: number
   public thresholdChars: number
   public previewHeadChars: number
   public previewTailChars: number
@@ -25,10 +28,27 @@ export class LocalSpillService extends SpillService {
 
   constructor(ctx: Context, config?: LocalSpillConfig) {
     super(ctx)
-    this.thresholdChars = config?.thresholdChars ?? 4000
-    this.previewHeadChars = config?.previewHeadChars ?? 1400
-    this.previewTailChars = config?.previewTailChars ?? 800
+    // 3000 token altındaki hiçbir araç çıktısı kesinlikle spille düşmez
+    this.thresholdTokens = config?.thresholdTokens ?? (config?.thresholdChars ? Math.ceil(config.thresholdChars / 3.6) : 3000)
+    this.thresholdChars = config?.thresholdChars ?? Math.round(this.thresholdTokens * 3.6)
+    this.previewHeadChars = config?.previewHeadChars ?? 2000
+    this.previewTailChars = config?.previewTailChars ?? 1000
     this.root = config?.root ? path.resolve(config.root) : path.join(os.homedir(), '.dsh', 'spills')
+  }
+
+  /**
+   * Helper to estimate token count from text using tokenMeter service if available or heuristic
+   */
+  public estimateTokens(text: string): number {
+    if (!text) return 0
+    try {
+      const tm = (this.ctx as any).get?.('tokenMeter', false) || (this.ctx as any).reflect?.get?.('tokenMeter', false)
+      if (tm?.estimateText) {
+        return tm.estimateText(text)
+      }
+    } catch {}
+    // Standard heuristic: 1 token ~= 3.6 chars for Turkish & code
+    return Math.max(1, Math.ceil(text.length / 3.6))
   }
 
   /**
@@ -100,8 +120,10 @@ export class LocalSpillService extends SpillService {
   public async processOutput(output: any, sessionId?: string, toolName?: string): Promise<ProcessOutputResult> {
     const text = typeof output === 'string' ? output : JSON.stringify(output, null, 2)
     const length = text?.length || 0
+    const tokens = this.estimateTokens(text)
 
-    if (length <= this.thresholdChars) {
+    // 3000 token'e kadar (veya yapılandırılan thresholdTokens) kesinlikle spille düşmez
+    if (tokens <= this.thresholdTokens) {
       return {
         modelText: text,
         spilled: false,
@@ -115,7 +137,7 @@ export class LocalSpillService extends SpillService {
     const omitted = length - (this.previewHeadChars + this.previewTailChars)
 
     const modelText = `[⚠️ ÇIKTI TAŞMASI - TAM ÇIKTI DOSYAYA AKTARILDI / TOOL OUTPUT SPILLED]
-Araç çıktısı bağlam sınırını aştığı için (${length} karakter) tam metin oturum dosyasına kaydedildi:
+Araç çıktısı bağlam sınırını aştığı için (~${tokens.toLocaleString()} token / ${length} karakter, sınır: ${this.thresholdTokens.toLocaleString()} token) tam metin oturum dosyasına kaydedildi:
 📁 Dosya Yolu: ${filePath}
 
 --- [ÖNİZLEME: BAŞLANGIÇ] ---

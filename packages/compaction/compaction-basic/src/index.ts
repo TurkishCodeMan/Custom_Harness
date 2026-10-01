@@ -26,8 +26,8 @@ export class CompactionBasicService extends Service {
     const totalChars = messages.reduce((acc, m) => acc + (m.content?.length || 0) + (m.reasoning_content?.length || 0), 0)
     const approxTokens = Math.ceil(totalChars / 2.5)
 
-    // Trigger compaction when message count > 10 OR tokens >= 12,000 (or if forced)
-    const shouldCompact = force || messages.length > 10 || approxTokens >= 12000
+    // Trigger compaction when message count > 20 OR tokens >= 12,000 (or if forced)
+    const shouldCompact = force || messages.length > 20 || approxTokens >= 12000
 
     if (!shouldCompact) {
       return { messages, compacted: false }

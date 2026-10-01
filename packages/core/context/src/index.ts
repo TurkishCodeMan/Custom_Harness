@@ -18,6 +18,7 @@ import type { AuthService } from '@custom-harness/auth'
 import type { ServerService } from '@custom-harness/server'
 import type { ScheduleService } from '@custom-harness/schedule'
 import type { SubagentService, SubagentTask } from '@custom-harness/subagent'
+import type { InspectorService } from '@custom-harness/inspector'
 
 declare module 'cordis' {
   interface Events {
@@ -37,6 +38,9 @@ declare module 'cordis' {
     'agent/done'(data: { sessionId: string; response: string; measurement?: any }): void
     'agent/error'(data: { sessionId: string; error: string }): void
     'rag/progress'(progress: any): void
+    'inspector/turn_start'(snapshot: any): void
+    'inspector/turn_end'(snapshot: any): void
+    'inspector/tool_execution'(data: any): void
   }
 
   interface Context {
@@ -75,6 +79,7 @@ declare module 'cordis' {
     agentMiddleware: any
     workflowEngine: any
     reflexion: any
+    inspector: InspectorService
   }
 }
 

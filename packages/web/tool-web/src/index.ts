@@ -85,10 +85,13 @@ export function apply(ctx: Context) {
     ctx.systemPrompt.section({
       name: 'web-tools-guidance',
       order: 85,
-      text: () => `\n## WEB ACCESS CAPABILITY (Active)
+      text: () => {
+        const allowed = ctx.systemPrompt?.currentSessionAllowedTools
+        if (!allowed || (!allowed.includes('web_search') && !allowed.includes('web_fetch'))) return ''
+        return `\n## WEB ACCESS CAPABILITY (Active)
 - Use 'web_search' to find external documentation, library APIs, and latest tech information.
-- Use 'web_fetch' with a specific URL to read full articles, GitHub readmes, or technical documentation.
-`
+- Use 'web_fetch' with a specific URL to read full articles, GitHub readmes, or technical documentation.\n`
+      }
     })
   }
 }

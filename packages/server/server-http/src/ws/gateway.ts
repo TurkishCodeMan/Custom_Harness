@@ -6,6 +6,23 @@ import fs from 'node:fs'
 import { ScheduleService } from '@custom-harness/schedule'
 import { generateSessionTitle } from './title-generator.js'
 
+function getSafeTokenMeter(ctx: Context): any {
+  try {
+    return (ctx as any).get?.('tokenMeter', false) || (ctx as any).reflect?.get?.('tokenMeter', false) || (ctx as any).tokenMeter || null
+  } catch {
+    return null
+  }
+}
+
+function measureSessionSafe(ctx: Context, sessionId?: string): any {
+  try {
+    const tm = getSafeTokenMeter(ctx)
+    return tm?.measureSession ? tm.measureSession(sessionId) : null
+  } catch {
+    return null
+  }
+}
+
 export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ server })
   wss.on('error', () => {})
@@ -207,7 +224,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
 
         // 2. Get Context update
         if (msg.type === 'get_context') {
-          const measurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(msg.sessionId) : null
+          const measurement = measureSessionSafe(ctx, msg.sessionId)
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'context_update', measurement, sessionId: msg.sessionId }))
           }
@@ -256,7 +273,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
 
         // 5. Chat message
         if (msg.type === 'chat') {
-          const { sessionId, prompt, providerId, modelId, presetId, attachments, userId, enableThinking, thinkingBudgetTokens, workspace: clientWorkspace } = msg
+          const { sessionId, prompt, providerId, modelId, presetId, attachments, userId, enableThinking, thinkingBudgetTokens, workspace: clientWorkspace, responseFormat, systemPrompt } = msg
           const controller = new AbortController()
           activeRuns.set(ws, controller)
 
@@ -273,10 +290,16 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
             }
           }
 
+          // Persist the preset that is handling this session — this is the backend source of truth
+          if (presetId && presetId !== (activeSession as any).presetId) {
+            ;(activeSession as any).presetId = presetId
+            ctx.session.saveSession(activeSession)
+          }
+
           // Send active session id and initial context measurement immediately
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'session_init', sessionId: activeSessionId }))
-            const initialMeasurement = ctx.tokenMeter.measureSession(activeSessionId)
+            const initialMeasurement = measureSessionSafe(ctx, activeSessionId)
             ws.send(JSON.stringify({ type: 'context_update', measurement: initialMeasurement, sessionId: activeSessionId }))
           }
 
@@ -327,10 +350,13 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
               providerId,
               modelId,
               presetId,
+              workspace: clientWorkspace,
+              systemPrompt,
               userId: sessionUserId,
               autonomous: isAutonomous,
               enableThinking: typeof enableThinking === 'boolean' ? enableThinking : undefined,
               thinkingBudgetTokens: typeof thinkingBudgetTokens === 'number' ? thinkingBudgetTokens : undefined,
+              responseFormat,
               signal: controller.signal,
               onThought: (text: string) => {
                 if (ws.readyState === WebSocket.OPEN) {
@@ -366,7 +392,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
                 } catch {}
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'tool_result', result, sessionId: activeSessionId }))
-                  const toolMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  const toolMeasurement = measureSessionSafe(ctx, activeSessionId)
                   if (toolMeasurement) {
                     ws.send(JSON.stringify({ type: 'context_update', measurement: toolMeasurement, sessionId: activeSessionId }))
                   }
@@ -375,7 +401,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
               onCompaction: (info: { messageCount: number; summary: string }) => {
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(JSON.stringify({ type: 'compaction', info, sessionId: activeSessionId }))
-                  const compMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  const compMeasurement = measureSessionSafe(ctx, activeSessionId)
                   if (compMeasurement) {
                     ws.send(JSON.stringify({ type: 'context_update', measurement: compMeasurement, sessionId: activeSessionId }))
                   }
@@ -383,7 +409,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
               },
               onUsage: (usage) => {
                 if (ws.readyState === WebSocket.OPEN) {
-                  const updatedMeasurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+                  const updatedMeasurement = measureSessionSafe(ctx, activeSessionId)
                   ws.send(JSON.stringify({
                     type: 'token_usage',
                     usage,
@@ -397,7 +423,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
               }
             })
 
-            const measurement = ctx.tokenMeter?.measureSession ? ctx.tokenMeter.measureSession(activeSessionId) : null
+            const measurement = measureSessionSafe(ctx, activeSessionId)
             ctx.emit('agent/done', { sessionId: activeSessionId, response: finalResponse, measurement })
 
             if (ws.readyState === WebSocket.OPEN) {
@@ -406,6 +432,7 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
                   type: 'done',
                   response: finalResponse,
                   sessionId: activeSessionId,
+                  presetId,
                   measurement
                 })
               )

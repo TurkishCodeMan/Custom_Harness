@@ -70,10 +70,12 @@ export type NavView =
   | 'workflows'
   | 'agents'
   | 'knowledge'
+  | 'skills'
   | 'integrations'
   | 'company'
   | 'roi'
   | 'settings'
+  | 'inspector'
 
 export interface ApprovalItem {
   id: string
@@ -100,17 +102,24 @@ export interface ChatThread {
   targetPositionId?: string
 }
 
+export interface ExecutionActionItem {
+  id?: string
+  label: string
+  status: 'completed' | 'running' | 'pending' | 'error'
+  detail?: string
+  input?: any
+  output?: any
+  startedAt?: number
+  durationMs?: number
+}
+
 export interface ExecutionActionCard {
   id: string
   name: string
   icon: string
   badgeText: string
   isExpanded: boolean
-  items: {
-    label: string
-    status: 'completed' | 'running' | 'pending' | 'error'
-    detail?: string
-  }[]
+  items: ExecutionActionItem[]
 }
 
 export interface ThreadMessage {
@@ -120,8 +129,12 @@ export interface ThreadMessage {
   reasoning_content?: string
   presetName?: string
   tool_calls?: any[]
+  tool_call_id?: string
+  name?: string
   timestamp?: number
   isStreaming?: boolean
+  actionCards?: ExecutionActionCard[]
+  attachments?: any[]
 }
 
 

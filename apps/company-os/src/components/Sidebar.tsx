@@ -12,7 +12,9 @@ import {
   BellIcon,
   PlusIcon,
   TrashIcon,
-  FlowIcon
+  FlowIcon,
+  SparklesIcon,
+  InspectorIcon
 } from './Icons.js'
 
 interface SidebarProps {
@@ -80,12 +82,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ]
 
+  const isAdmin = !userRole || userRole.toLowerCase().includes('yönetici') || userRole.toLowerCase().includes('admin') || userRole.toLowerCase().includes('executive')
+
   // Secondary Tools & System Dock
   const utilityItems: NavItemDef[] = [
     { id: 'workflows', label: 'İş Akışları (DAG)', icon: <FlowIcon size={15} /> },
     { id: 'knowledge', label: 'Bilgi Tabanı (RAG)', icon: <KnowledgeIcon size={15} /> },
+    { id: 'skills', label: 'Beceriler (Skills)', icon: <SparklesIcon size={15} /> },
     { id: 'recurring', label: 'Zamanlanmış Görevler', icon: <RecurringIcon size={15} /> },
     { id: 'integrations', label: 'Entegrasyonlar', icon: <PlugIcon size={15} /> },
+    ...(isAdmin ? [{
+      id: 'inspector' as NavView,
+      label: 'Ajan Röntgeni (Debug)',
+      icon: <InspectorIcon size={15} />,
+      badge: 'ADMIN',
+      badgeVariant: 'warning' as const
+    }] : []),
     { id: 'settings', label: 'Sistem Ayarları', icon: <SettingsIcon size={15} /> }
   ]
 

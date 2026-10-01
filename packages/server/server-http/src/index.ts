@@ -22,6 +22,7 @@ import { createRagRouter } from './routes/rag.js'
 import { createSchedulesRouter } from './routes/schedules.js'
 import { createAuditRouter } from './routes/audit.js'
 import { createTraceRouter } from './routes/trace.js'
+import { createInspectorRouter } from './routes/inspector.js'
 import { setupWebSocketGateway } from './ws/gateway.js'
 
 export const name = 'server-http'
@@ -42,7 +43,8 @@ export const inject = [
   'mcpClient',
   'schedule',
   'subagent',
-  'auditLog'
+  'auditLog',
+  'inspector'
 ]
 
 export class HttpServerService extends ServerService {
@@ -78,6 +80,7 @@ export class HttpServerService extends ServerService {
     this.app.use('/api', createSchedulesRouter(ctx))
     this.app.use('/api', createAuditRouter(ctx))
     this.app.use('/api', createTraceRouter(ctx))
+    this.app.use('/api/debug', createInspectorRouter(ctx))
 
     // Assets & Static Files Router (Mounted at root)
     this.app.use(createAssetsRouter())

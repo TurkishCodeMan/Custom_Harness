@@ -31,6 +31,7 @@ export interface StreamChatOptions {
   enableThinking?: boolean
   thinkingBudgetTokens?: number
   responseFormat?: ResponseFormat
+  temperature?: number
   retry?: RetryConfig
   sessionId?: string
 }
