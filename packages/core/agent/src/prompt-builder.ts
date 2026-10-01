@@ -16,12 +16,20 @@ export function buildSystemPrompt(ctx: Context, activePreset: any, cwd: string, 
     return rendered
   }
 
-  let personaPrompt: string | undefined = activePreset?.systemPrompt
-  if (!personaPrompt && ctx.persona?.getActivePersona) {
-    personaPrompt = ctx.persona.getActivePersona()
+  // Preset systemPrompt: undefined/null → persona fallback; empty string "" → minimal neutral identity (no hallucination)
+  let personaPrompt: string | undefined
+  const rawPresetPrompt = activePreset?.systemPrompt
+  if (rawPresetPrompt && rawPresetPrompt.trim()) {
+    // Preset has a real system prompt → use it directly
+    personaPrompt = rawPresetPrompt.trim()
+  } else if (rawPresetPrompt === undefined || rawPresetPrompt === null) {
+    // No preset at all → fall back to persona service
+    personaPrompt = ctx.persona?.getActivePersona?.()
   }
+  // else: rawPresetPrompt === "" → personaPrompt stays undefined → minimal identity below
 
-  let renderedPrompt = personaPrompt || `You are an autonomous AI coding assistant. Working directory: ${cwd}`
+  const presetLabel = activePreset?.name ? `"${activePreset.name}"` : 'an AI assistant'
+  let renderedPrompt = personaPrompt || `You are ${presetLabel}, an autonomous AI assistant. Working directory: ${cwd}`
 
   if (ctx.systemPrompt) {
     ctx.systemPrompt.setSessionWorkspace(cwd)
@@ -29,7 +37,7 @@ export function buildSystemPrompt(ctx: Context, activePreset: any, cwd: string, 
       ctx.systemPrompt.setSessionPresetId(activePreset?.id)
     }
     if (ctx.systemPrompt.setAllowedTools) {
-      const allowedTools = activePreset?.enabledTools || activePreset?.allowed_tools || []
+      const allowedTools = activePreset?.enabledTools || activePreset?.allowed_tools
       ctx.systemPrompt.setAllowedTools(allowedTools)
     }
     if (ctx.systemPrompt.setAllowedSkills) {

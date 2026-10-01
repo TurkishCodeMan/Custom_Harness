@@ -17,6 +17,8 @@ export * from './resolver.js'
 export * from './prompt-builder.js'
 export * from './tool-executor.js'
 export * from './tool-scoper.js'
+export * from './schema-validator.js'
+export * from './contract-delegator.js'
 
 export const name = 'agent'
 export const inject = [
@@ -165,7 +167,8 @@ export class AgentService extends Service {
       const ephemeral = [...ephemeralQueue]
       ephemeralQueue = []
 
-      const toolsToPass = prepareToolsForPreset(this.ctx.tools, activePreset)
+      const presetsResolver = (this.ctx as any).agentPresets || (this.ctx as any).settings
+      const toolsToPass = prepareToolsForPreset(this.ctx.tools, activePreset, presetsResolver, userId)
       const availableSkills = resolveAvailableSkills(this.ctx.skills, activePreset, userId, cwd)
 
       // Build conversation payload (no system prompt — added explicitly below)
@@ -310,8 +313,8 @@ export class AgentService extends Service {
           continue
         }
 
-        this.ctx.session.appendMessage(sessionId, assistantMsg)
         finalResponse = effectiveContent || finalThinking || ''
+        this.ctx.session.appendMessage(sessionId, assistantMsg)
         break
       }
     }

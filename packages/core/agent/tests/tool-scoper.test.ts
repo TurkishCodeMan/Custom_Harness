@@ -65,4 +65,103 @@ describe('tool-scoper (Zero-Trust Tool & Skill Scoping)', () => {
     assert.equal(res.length, 1)
     assert.equal(res[0].id, 's1')
   })
+
+  describe('Contract-Safe Dynamic Delegation Tools', () => {
+    const mockPresetsResolver = {
+      get: (id: string) => {
+        if (id === 'erp-validator') {
+          return {
+            id: 'erp-validator',
+            name: 'ERP / DB Validator',
+            description: 'Validates purchase orders against ERP database',
+            contract: {
+              contractVersion: 1,
+              isCallableByAgents: true,
+              allowedCallers: ['invoice-reviewer-v1'],
+              inputSchema: {
+                type: 'object',
+                required: ['po_number'],
+                properties: {
+                  po_number: { type: 'string' },
+                  check_grn: { type: 'boolean' }
+                }
+              }
+            }
+          }
+        }
+        if (id === 'private-agent') {
+          return {
+            id: 'private-agent',
+            name: 'Private Vault Agent',
+            contract: {
+              contractVersion: 1,
+              isCallableByAgents: true,
+              allowedCallers: ['admin-preset-only'], // invoice-reviewer-v1 is NOT allowed!
+              inputSchema: { type: 'object', properties: { secret: { type: 'string' } } }
+            }
+          }
+        }
+        if (id === 'no-schema-agent') {
+          return {
+            id: 'no-schema-agent',
+            name: 'No Schema Agent',
+            contract: {
+              contractVersion: 1,
+              isCallableByAgents: true,
+              allowedCallers: ['invoice-reviewer-v1']
+              // inputSchema is MISSING!
+            }
+          }
+        }
+        return undefined
+      }
+    }
+
+    test('synthesizes delegate_to_<presetId> when allowedDelegates and allowedCallers match', () => {
+      const callerPreset = {
+        id: 'invoice-reviewer-v1',
+        enabledTools: ['read_file'],
+        contract: {
+          allowedDelegates: ['erp-validator']
+        }
+      }
+
+      const tools = prepareToolsForPreset(mockToolsService, callerPreset, mockPresetsResolver)
+      assert.equal(tools.length, 2) // read_file + delegate_to_erp_validator
+
+      const delegateTool = tools.find(t => t.function.name === 'delegate_to_erp_validator')
+      assert.ok(delegateTool)
+      assert.equal(delegateTool.function.parameters.type, 'object')
+      assert.deepEqual(delegateTool.function.parameters.required, ['po_number'])
+      assert.ok(delegateTool.function.parameters.properties.po_number)
+    })
+
+    test('blocks delegation tool synthesis when target allowedCallers rejects caller', () => {
+      const callerPreset = {
+        id: 'invoice-reviewer-v1',
+        enabledTools: ['read_file'],
+        contract: {
+          allowedDelegates: ['private-agent'] // private-agent only allows admin-preset-only
+        }
+      }
+
+      const tools = prepareToolsForPreset(mockToolsService, callerPreset, mockPresetsResolver)
+      assert.equal(tools.length, 1) // only read_file
+      assert.equal(tools.some(t => t.function.name.includes('private_agent')), false)
+    })
+
+    test('strictly rejects delegation tool when target has no inputSchema (No free-text fallback!)', () => {
+      const callerPreset = {
+        id: 'invoice-reviewer-v1',
+        enabledTools: ['read_file'],
+        contract: {
+          allowedDelegates: ['no-schema-agent']
+        }
+      }
+
+      const tools = prepareToolsForPreset(mockToolsService, callerPreset, mockPresetsResolver)
+      assert.equal(tools.length, 1) // only read_file
+      assert.equal(tools.some(t => t.function.name.includes('no_schema_agent')), false)
+    })
+  })
 })

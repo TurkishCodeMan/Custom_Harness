@@ -5,29 +5,8 @@ import { wsClient } from '../ws.js'
 export type ApprovalPolicyType = 'auto' | 'ask_dangerous' | 'ask_all'
 
 export function useApprovals() {
-  const [approvals, setApprovals] = useState<ApprovalItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('company_os_approvals_v2')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
-
-  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicyType>(() => {
-    try {
-      const saved = localStorage.getItem('company_os_approval_policy')
-      return (saved as any) || 'ask_dangerous'
-    } catch {
-      return 'ask_dangerous'
-    }
-  })
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('company_os_approvals_v2', JSON.stringify(approvals))
-    } catch {}
-  }, [approvals])
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([])
+  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicyType>('ask_dangerous')
 
   const handleSelectApprovalPolicy = (newPolicy: ApprovalPolicyType) => {
     setApprovalPolicy(newPolicy)

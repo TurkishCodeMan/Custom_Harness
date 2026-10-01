@@ -329,7 +329,7 @@ export const App: React.FC = () => {
         id: req.id || `appr_${Date.now()}`,
         sessionId: req.sessionId,
         toolName: req.toolName || req.action || 'Tool Execution',
-        title: `${targetPos ? targetPos.title : 'Ajan'}: ${req.toolName || req.action}`,
+        title: req.title || `${targetPos ? targetPos.title : 'Ajan'}: ${req.toolName || req.action}`,
         status: 'pending',
         details: req.details || req.args,
         to: req.args?.to,
@@ -1571,6 +1571,7 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
         onUpdatePosition={handleUpdatePosition}
         onDeletePosition={handleDeletePosition}
         companyWorkspace={companyWorkspace}
+        allPositions={positions}
       />
 
       {/* Directive Modal */}

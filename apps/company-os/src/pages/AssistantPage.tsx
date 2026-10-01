@@ -1289,7 +1289,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                     gap: '6px'
                   }}
                   onClick={() => {
-                    setInputText(`@${p.title} son durum raporunu masama koy`)
+                    setInputText(`@${p.title} `)
                     inputRef.current?.focus()
                   }}
                 >

@@ -87,6 +87,7 @@ export class ApprovalService extends Service {
       'skill',
       'manage_todo',
       'ask_user_question',
+      'submit_decision_for_approval',
       'web_search',
       'read_url_content',
       'schedule_list',
@@ -110,6 +111,18 @@ export class ApprovalService extends Service {
       toolName === 'list'
     ) {
       return 'allow_once'
+    }
+
+    // Auto-allow safe calculation / inspection bash commands (python arithmetic, cat, ls, head)
+    if (toolName === 'bash' && typeof args?.command === 'string') {
+      const cmd = args.command.trim()
+      // Strip leading cd commands like "cd /path/to/dir && ..."
+      const effectiveCmd = cmd.replace(/^cd\s+[^&;]+\s*(&&|;)\s*/i, '').trim()
+      const isSafe = /^(python3?\s+-c|cat|head|tail|echo|ls|grep|find|wc|pwd)\b/i.test(effectiveCmd)
+      const hasDestructive = /(rm|mv|chmod|chown|dd|mkfs|sudo|kill|pkill)\b/i.test(cmd)
+      if (isSafe && !hasDestructive) {
+        return 'allow_once'
+      }
     }
 
     if (signal?.aborted) {
@@ -137,9 +150,66 @@ export class ApprovalService extends Service {
         id,
         sessionId,
         toolName,
-        action: toolName,
+        action: extra?.action || toolName,
+        title: extra?.title || `${toolName}`,
+        summary: extra?.summary,
+        severity: extra?.severity || 'medium',
         args,
-        details: args,
+        details: extra?.details || args,
+        createdAt: Date.now()
+      })
+    })
+  }
+
+  public async requestDecisionApproval(params: {
+    sessionId: string
+    positionId?: string
+    positionTitle?: string
+    action: string
+    title: string
+    summary: string
+    severity?: string
+    details?: any
+    timeoutMs?: number
+    signal?: AbortSignal
+  }): Promise<ApprovalOutcome> {
+    const isApprovalEnabled = this.ctx.settings?.isApprovalEnabled ? this.ctx.settings.isApprovalEnabled() : true
+    if (!isApprovalEnabled) {
+      return 'allow_once'
+    }
+    if (params.signal?.aborted) {
+      return 'deny'
+    }
+
+    const id = `appr_decision_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const timeoutMs = params.timeoutMs ?? 300_000 // 5 minutes default for human business decisions
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pendingApprovals.has(id)) {
+          this.pendingApprovals.delete(id)
+          console.warn(`[Approval] Karar onayı zaman aşımına uğradı (${params.action}): ${id}`)
+          resolve('deny')
+        }
+      }, timeoutMs)
+
+      this.pendingApprovals.set(id, (outcome: ApprovalOutcome) => {
+        clearTimeout(timer)
+        resolve(outcome)
+      })
+
+      this.ctx.emit('approval/asked', {
+        id,
+        sessionId: params.sessionId,
+        positionId: params.positionId,
+        positionTitle: params.positionTitle,
+        toolName: 'submit_decision_for_approval',
+        action: params.action,
+        title: params.title,
+        summary: params.summary,
+        severity: params.severity || 'medium',
+        details: params.details || {},
+        timeout: Math.round(timeoutMs / 1000),
         createdAt: Date.now()
       })
     })

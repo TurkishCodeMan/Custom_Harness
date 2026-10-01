@@ -1,119 +1,160 @@
-# 🚀 Custom Harness
-
-Cordis framework'ü üzerine inşa edilmiş, hafifletilmiş, modüler ve genişletilebilir AI Ajan Geliştirme Platformu.
-
-Bu proje; gereksiz monorepo kalıntılarından arındırılmış, **tam özellikli modern bir Web UI (Model yönetimi, model keşfi, canlı sohbet, araç kartları)** ve **saf Bash komut aracı (`tool-bash`)** ile çalışan temiz bir başlangıç şablonudur.
 
 ---
 
-## 📁 Proje Klasör Mimarisi
+## 🏗️ Custom-Harness Mimarisi — Mevcut Durum Değerlendirmesi
 
-```text
-custom-harness/
-├── vendor/                   # 1. Cordis Framework Çekirdeği (Context, Service, Loader)
-│   ├── cordis/
-│   ├── loader/
-│   └── cosmokit/ & schemastery/
-│
-├── packages/                 # 2. Modüler Yetenek Paketleri
-│   ├── core/                 # Ajan döngüsü, araç kayıt defteri, oturum yönetimi
-│   ├── llm/                  # Çoklu model desteği (OpenAI, vLLM, Gemma, DeepSeek, Anthropic)
-│   ├── shell/                # Bash komut aracı (tool-bash) ve sandbox
-│   ├── client/               # React Web UI bileşenleri (Sohbet, model ayarları, araç kartları)
-│   ├── skill/                # Beceri (SKILL.md) keşif ve yükleme motoru
-│   └── bundle/               # Base ve Web-App eklenti profilleri
-│
-├── apps/                     # 3. Uygulama Başlatıcıları
-│   ├── cli/                  # `dsh` komut satırı ve Web server başlatıcısı
-│   └── web/                  # Vite + React Web UI ön yüzü
-│
-└── .agents/                  # 4. Ajan Becerileri ve Kararlar
-    └── skills/               # Özel beceriler (.agents/skills/<ad>/SKILL.md)
+---
+
+### 1. Temel: Cordis DI Framework
+
+Projenin kalbi [`vendor/cordis`](file:///home/huseyina/code_mode/custom-harness/vendor/cordis/src) — vendored (fork'lanmış) bir bağımlılık enjeksiyonu framework'ü. Temel kuralları:
+
+```
+Context → Plugin Registry → Service Fibers
 ```
 
+| Cordis Kavramı | Ne Anlama Gelir |
+|---|---|
+| `ctx.plugin(X)` | X'i sisteme yükle, servislerini kaydet |
+| `static inject = ['svc']` | "Bu servis olmadan BEN başlamam" — hard dependency |
+| `ctx.get('svc', false)` | Servis varsa al, yoksa `undefined` döndür — soft lookup |
+| `Service` base class | Her servis `super(ctx, 'name')` ile context'e kaydolur |
+| Fiber | Her plugin'in izole yaşam döngüsü; parent ctx ile bağlantılı |
+
+**Kritik kural:** `inject` dizisindeki bir servis henüz yüklenmemişse, Cordis o plugin'i "inactive" bırakır — hata atmak yerine bekler. Bu yüzden döngüsel ya da geç-gelen dependency'ler için `inject` kullanılmaz.
+
 ---
 
-## ⚡ Hızlı Başlangıç
+### 2. Layered Plugin Stack (Base Bundle)
 
-### 1. Bağımlılıkları Yükleme ve Derleme
-```bash
-# Bağımlılıkları yükle
-pnpm install
+[`packages/bundle/base/src/index.ts`](file:///home/huseyina/code_mode/custom-harness/packages/bundle/base/src/index.ts) — tüm pluginlerin `apply()` sırasıyla yüklendiği yer:
 
-# Tüm projeyi ve Web UI'ı derle
-pnpm run build
+```
+Katman 1 — Capability Seams (Altyapı Soyutlamaları)
+  auth, authLocal
+  fs, fsLocal
+  sandbox, sandboxLocal
+  subprocess, subprocessLocal
+  spill, spillLocal          ← SpillService seam
+  inspector, inspectorLocal
+  userApproval, userQuestions
+  lsp, rag, web, jobs, terminals, workflow
+
+Katman 2 — Core Services
+  settings (önce!)
+  tools, skills, systemPrompt
+  llm, llmProviderOpenai
+  session (satır 113)        ← SessionService burada başlıyor
+  agentPresets, persona, repeatGuard
+  compactor
+  agentMiddleware, agent (satır 123)
+  tokenMeter
+  reflexion (satır 125)      ← ReflexionService BURADA — session'dan SONRA!
+  reflexionLocal (satır 126)
+
+Katman 3 — Built-in Tools
+  bash, toolFs, toolTodo, toolAskUser ...
 ```
 
-### 2. Web Arayüzünü Başlatma
-```bash
-# Web sunucusunu başlat (Varsayılan port: 3080)
-pnpm dsh web
+**Bu sıralama sorunun temelidir:** `session` (113) `reflexion`'dan (125) önce yükleniyor. Dolayısıyla `SessionService.inject = ['reflexion']` yazarsak, `reflexion` servis hazır olmadan session başlamaya çalışır → Cordis plugin'i askıya alır ya da hata fırlatır.
+
+---
+
+### 3. Seam/Provider/Consumer Deseni
+
+Projede her kapasite için 3 katmanlı yapı var:
+
 ```
-Tarayıcınızdan `http://127.0.0.1:3080` adresini açarak sohbete başlayabilirsiniz.
+[Seam / Interface]          [Provider / Impl]         [Consumer]
+spill/spill           →     spill/spill-local    →     core-agent (inject: spillStore)
+memory/reflexion      →     memory/reflexion-local →   session (optional getter ile)
+auth/auth             →     auth/auth-local       →    server-http gateway
+inspector/inspector   →     inspector-local       →    gateway events
+```
+
+Bu pattern sağlar ki: production'da `spillLocal` yerine farklı bir storage backend kullanabilirsin, servis consumer'ları değişmeden.
 
 ---
 
-## 🌐 Web UI Üzerinden Model Yönetimi
+### 4. Session Service — Yaptığımız Fix'in Yeri
 
-Web arayüzünde sol alttaki **Settings ➔ Models** menüsüne giderek:
-1. **Model Ekleme:** Yerel modelinizi (`http://localhost:8888/v1`), Ollama'yı veya DeepSeek API'yi ekleyebilirsiniz.
-2. **Fetch Models (Otomatik Keşif):** Endpoint URL'sini yazıp "Fetch models" butonuna basarak sunucudaki tüm modelleri otomatik listeleyebilirsiniz.
-3. **Parametre Ayarları:** Her model için ayrı ayrı `contextWindow` (bağlam boyutu) ve `maxTokens` (çıktı limiti) belirleyebilirsiniz.
+[`packages/session/session/src/index.ts`](file:///home/huseyina/code_mode/custom-harness/packages/session/session/src/index.ts):
 
----
+```typescript
+export const inject = ['settings']  // SADECE settings zorunlu
 
-## 🧩 Kendi Özel Aracınızı (Custom Tool) Nasıl Eklersiniz?
+// ✅ Optional resolution — inject olmadan, Cordis native
+private get reflexion(): any {
+  return (this.ctx as any).get?.('reflexion', false)
+    || (this.ctx as any).reflect?.get?.('reflexion', false)
+    || (this.ctx as any).root?.reflexion
+}
 
-Sisteme yeni bir Cordis aracı eklemek için iki basit adım yeterlidir:
-
-### 1. `packages/` altında yeni paket oluşturun veya mevcut aracı yazın:
-```ts
-import { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-import { Schema } from '@deepseek-ai/schemastery'
-
-export const name = 'my-custom-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  ctx.tools.register(
-    defineTool({
-      name: 'topla',
-      description: 'İki sayıyı toplar.',
-      parameters: Schema.object({
-        a: Schema.number().description('Birinci sayı').required(),
-        b: Schema.number().description('İkinci sayı').required()
-      }),
-      execute: async ({ a, b }) => {
-        return `Toplam: ${a + b}`
-      }
-    })
-  )
+private get spillStore(): any {
+  return (this.ctx as any).get?.('spillStore', false)
+    || (this.ctx as any).reflect?.get?.('spillStore', false)
+    || (this.ctx as any).root?.spillStore
 }
 ```
 
-### 2. Presete Ekleyin:
-`apps/cli/config/agent-presets/standard/agent.cordis.yml` dosyasının altına aracınızı tanımlayın:
-```yaml
-- id: my-custom-tool
-  name: 'my-custom-tool'
+Bu getter'lar çağrıldığı anda servisi arar — `clearAllSessions()` veya benzeri metotlar `reflexion`'a eriştiğinde artık "inject olmadan çağrı" hatası almaz, çünkü **o noktada reflexion zaten yüklenmiş olur** (başlatılma sırasının getirdiği avantaj).
+
+---
+
+### 5. Ön Uç (Frontend) Bağlantısı
+
+```
+apps/company-os        ← React uygulaması
+    └── src/
+        ├── ws.js              ← WebSocket client
+        ├── hooks/
+        │   ├── useApprovals.ts   ← Onay UI state
+        │   └── ...
+        └── types.js
+              
+packages/server/server-http
+    └── src/
+        └── ws/
+            └── gateway.ts    ← Backend WS gateway
 ```
 
+Frontend → `wsClient.send('approval_policy', { policy })` → Gateway → `ctx.approval.setPolicy(policy)` → `ApprovalService`
+
+Gateway aynı zamanda şu event'leri broadcast eder:
+- `approval/asked` → UI'da onay kutusu açılır
+- `agent/done`, `agent/error` → mesaj sonuçları
+- `rag/progress` → RAG indexleme durumu
+- `user_question_request` → agent kullanıcıya soru sorar
+
 ---
 
-## 🧠 Kendi Becerinizi (.agents/skills/) Nasıl Tanımlarsınız?
+### 6. Paket Sayısı ve Durumu
 
-`.agents/skills/` klasörü altına yeni bir dizin ve `SKILL.md` dosyası ekleyin:
-
-**Örnek: `.agents/skills/sql-expert/SKILL.md`**
-```markdown
----
-name: sql-expert
-description: PostgreSQL ve veritabanı sorguları uzmanı becerisi.
----
-
-# SQL Expert Skill
-Bu beceri aktif olduğunda ajan veritabanı optimizasyonu kurallarına göre SQL yazar.
+```
+35 packages/  →  ~200+ kaynak dosya
+ 3 apps/       →  cli, company-os (web), web
+ 1 vendor/     →  cordis (fork)
 ```
 
-Ajan bu beceriyi otomatik olarak tanır ve gerektiğinde hafızasına yükler!
+**Çalışan paketler:**
+- ✅ `user-approval` — Onay mekanizması + `submit_decision_for_approval` tool
+- ✅ `session` — Oturum yönetimi, reflexion/spillStore optional getter ile
+- ✅ `llm + llm-provider-openai` — LLM çağrıları
+- ✅ `tool-skill` — Skill sistemi (invoice-review-skill dahil)
+- ✅ `reflexion + reflexion-local` — Agent belleği
+- ✅ `spill + spill-local` — Büyük çıktıları dosyaya döken mekanizma
+- ✅ `agent` — Ana agent loop (`AgentService`)
+- ✅ `server-http + WS gateway` — REST + WebSocket
+
+---
+
+### 7. Kalan Açık Konular
+
+| Konu | Durum |
+|---|---|
+| Invoice Agent loop önleme | Skill + system prompt güncellendi, gözlem gerekli |
+| `clearAllSessions` hatası | ✅ Çözüldü — optional getter ile |
+| `max_tokens` limiti kontrolü | Henüz doğrulanmadı — model cevabı kesilebiliyor |
+| POLICY.md eşik mantığı | 500.000 sabit değer, dinamik yapılabilir |
+
+En kritik gözlem noktası: eğer invoice agent hâlâ loop atıyorsa, `llm-provider-openai`'daki `max_tokens` değerini kontrol etmek gerekiyor — model JSON ortasında kesilirse "tamamlama girişimi" looplarına giriyor.

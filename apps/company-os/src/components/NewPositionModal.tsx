@@ -3,6 +3,7 @@ import type { Position, PositionLevel } from '../types.js'
 import { fetchTools, fetchSkills, fetchPresets, fetchSettings } from '../api.js'
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
 import { PresetCognitiveSettings } from './PresetCognitiveSettings.js'
+import { AgentContractSettings } from './AgentContractSettings.js'
 
 interface NewPositionModalProps {
   isOpen: boolean
@@ -110,6 +111,14 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
   const [specialization, setSpecialization] = useState('')
   const [selectedTools, setSelectedTools] = useState<string[]>(['read_file', 'write_file', 'grep_search', 'list_dir'])
   const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+
+  // Phase 2: Agent Contract & Delegation Mesh states
+  const [isCallableByAgents, setIsCallableByAgents] = useState(false)
+  const [allowedDelegates, setAllowedDelegates] = useState<string[]>([])
+  const [allowedCallers, setAllowedCallers] = useState<string[]>([])
+  const [inputSchemaStr, setInputSchemaStr] = useState('')
+  const [outputSchemaStr, setOutputSchemaStr] = useState('')
+  const [verificationRules, setVerificationRules] = useState<any[]>([])
 
   const [liveTools, setLiveTools] = useState<Array<{ name: string; description: string }>>([])
   const [toolSearchTerm, setToolSearchTerm] = useState('')
@@ -284,6 +293,12 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
     if (Array.isArray(tmpl.skills || tmpl.enabledSkills)) {
       setSelectedSkills(tmpl.skills || tmpl.enabledSkills)
     }
+    const tmplCall = tmpl.isCallableByAgents ?? !!tmpl.inputSchema
+    setIsCallableByAgents(tmplCall)
+    if (Array.isArray(tmpl.allowedDelegates)) setAllowedDelegates(tmpl.allowedDelegates)
+    if (Array.isArray(tmpl.allowedCallers)) setAllowedCallers(tmpl.allowedCallers)
+    if (tmpl.inputSchema) setInputSchemaStr(JSON.stringify(tmpl.inputSchema, null, 2))
+    if (tmpl.outputSchema) setOutputSchemaStr(JSON.stringify(tmpl.outputSchema, null, 2))
   }
 
   const handleAddCustomSkill = () => {
@@ -332,6 +347,13 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
         else setResponseFormat('json_object')
       }
       if (typeof existing.maxTurns === 'number') setMaxTurns(existing.maxTurns)
+
+      const isCall = existing.isCallableByAgents ?? !!existing.inputSchema
+      setIsCallableByAgents(isCall)
+      if (Array.isArray(existing.allowedDelegates)) setAllowedDelegates(existing.allowedDelegates)
+      if (Array.isArray(existing.allowedCallers)) setAllowedCallers(existing.allowedCallers)
+      if (existing.inputSchema) setInputSchemaStr(JSON.stringify(existing.inputSchema, null, 2))
+      if (existing.outputSchema) setOutputSchemaStr(JSON.stringify(existing.outputSchema, null, 2))
     }
   }
 
@@ -365,6 +387,20 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       parsedResponseFormat = { type: 'json_schema' }
     }
 
+    let parsedInputSchema: any = undefined
+    if (inputSchemaStr.trim()) {
+      try {
+        parsedInputSchema = JSON.parse(inputSchemaStr)
+      } catch {}
+    }
+
+    let parsedOutputSchema: any = undefined
+    if (outputSchemaStr.trim()) {
+      try {
+        parsedOutputSchema = JSON.parse(outputSchemaStr)
+      } catch {}
+    }
+
     const newPos: Position = {
       id: targetId,
       title: effectivePresetName,
@@ -384,7 +420,26 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       providerId: providerId.trim() || undefined,
       temperature: typeof temperature === 'number' ? temperature : undefined,
       responseFormat: parsedResponseFormat,
-      maxTurns: typeof maxTurns === 'number' && maxTurns > 0 ? maxTurns : undefined
+      maxTurns: typeof maxTurns === 'number' && maxTurns > 0 ? maxTurns : undefined,
+      // Phase 2: Contract-Safe Agent Runtime fields
+      isCallableByAgents,
+      allowedDelegates,
+      allowedCallers,
+      inputSchema: parsedInputSchema,
+      outputSchema: parsedOutputSchema,
+      verificationRules,
+      contract: {
+        contractVersion: 1,
+        isCallableByAgents,
+        inputSchema: parsedInputSchema,
+        outputSchema: parsedOutputSchema,
+        allowedDelegates,
+        allowedCallers,
+        verificationPolicy: {
+          rulesVersion: 1,
+          rules: verificationRules
+        }
+      }
     }
 
     // Tek doğruluk kaynağı: Koltuk usePositions hook'u (handleAddPosition) üzerinden backend'e eksiksiz kaydedilir ve liste tazelenir
@@ -794,6 +849,22 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
             configuredProviders={configuredProviders}
             configuredModels={configuredModels}
             idPrefix="new"
+          />
+
+          {/* Phase 2: Agent Contract & Delegation Mesh */}
+          <AgentContractSettings
+            isCallableByAgents={isCallableByAgents}
+            onChangeCallable={setIsCallableByAgents}
+            allowedDelegates={allowedDelegates}
+            onChangeAllowedDelegates={setAllowedDelegates}
+            allowedCallers={allowedCallers}
+            onChangeAllowedCallers={setAllowedCallers}
+            inputSchemaStr={inputSchemaStr}
+            onChangeInputSchemaStr={setInputSchemaStr}
+            outputSchemaStr={outputSchemaStr}
+            onChangeOutputSchemaStr={setOutputSchemaStr}
+            allPositions={positions}
+            currentPositionId={isCustomPreset ? (customPresetId || 'new-pos') : (presetId || 'new-pos')}
           />
 
           {/* Available Tools Selector */}

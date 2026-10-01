@@ -20,6 +20,15 @@ export interface Position {
   temperature?: number
   responseFormat?: any
   maxTurns?: number
+  // Contract-Safe Agent Runtime (Phase 2)
+  contract?: any
+  contractVersion?: number
+  isCallableByAgents?: boolean
+  inputSchema?: Record<string, any>
+  outputSchema?: Record<string, any>
+  allowedDelegates?: string[]
+  allowedCallers?: string[]
+  verificationRules?: any[]
   status: PositionStatus
   currentAction?: string
   lastActive?: number

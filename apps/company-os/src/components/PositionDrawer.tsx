@@ -3,6 +3,7 @@ import type { Position, PositionLevel, ActivityReceipt } from '../types.js'
 import { fetchSkills, fetchPresets, fetchTools, savePreset, browseWorkspace, fetchSettings } from '../api.js'
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
 import { PresetCognitiveSettings } from './PresetCognitiveSettings.js'
+import { AgentContractSettings } from './AgentContractSettings.js'
 
 interface PositionDrawerProps {
   position: Position | null
@@ -14,6 +15,7 @@ interface PositionDrawerProps {
   onUpdatePosition: (updated: Position) => void
   onDeletePosition: (positionId: string) => void
   companyWorkspace?: string
+  allPositions?: Position[]
 }
 
 export const PositionDrawer: React.FC<PositionDrawerProps> = ({
@@ -25,7 +27,8 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
   isExecuting,
   onUpdatePosition,
   onDeletePosition,
-  companyWorkspace
+  companyWorkspace,
+  allPositions = []
 }) => {
   const [prompt, setPrompt] = useState('')
   const [isEditing, setIsEditing] = useState(false)
@@ -61,6 +64,20 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
   )
   const [configuredProviders, setConfiguredProviders] = useState<string[]>([])
   const [configuredModels, setConfiguredModels] = useState<string[]>([])
+
+  // Contract-Safe Agent Runtime states (Phase 2)
+  const [editIsCallable, setEditIsCallable] = useState<boolean>(position?.isCallableByAgents ?? !!position?.inputSchema)
+  const [editAllowedDelegates, setEditAllowedDelegates] = useState<string[]>(position?.allowedDelegates || [])
+  const [editAllowedCallers, setEditAllowedCallers] = useState<string[]>(position?.allowedCallers || [])
+  const [editInputSchemaStr, setEditInputSchemaStr] = useState<string>(() => {
+    return position?.inputSchema ? JSON.stringify(position.inputSchema, null, 2) : ''
+  })
+  const [editOutputSchemaStr, setEditOutputSchemaStr] = useState<string>(() => {
+    return position?.outputSchema ? JSON.stringify(position.outputSchema, null, 2) : ''
+  })
+  const [editVerificationRules, setEditVerificationRules] = useState<any[]>(() => {
+    return position?.verificationRules || position?.contract?.verificationPolicy?.rules || []
+  })
 
   const rootWs = companyWorkspace || '/home/huseyina/code_mode/COMPANY_ABC'
 
@@ -129,6 +146,14 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
         ? position.maxTurns
         : (typeof matchingPreset?.maxTurns === 'number' ? matchingPreset.maxTurns : undefined)
       setEditMaxTurns(maxTVal)
+
+      const isCall = position.isCallableByAgents ?? !!position.inputSchema
+      setEditIsCallable(isCall)
+      setEditAllowedDelegates(position.allowedDelegates || [])
+      setEditAllowedCallers(position.allowedCallers || [])
+      setEditInputSchemaStr(position.inputSchema ? JSON.stringify(position.inputSchema, null, 2) : '')
+      setEditOutputSchemaStr(position.outputSchema ? JSON.stringify(position.outputSchema, null, 2) : '')
+      setEditVerificationRules(position.verificationRules || position.contract?.verificationPolicy?.rules || [])
 
       setIsEditing(false)
     }
@@ -262,6 +287,20 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       parsedResponseFormat = { type: 'json_schema' }
     }
 
+    let parsedInputSchema: any = undefined
+    if (editInputSchemaStr.trim()) {
+      try {
+        parsedInputSchema = JSON.parse(editInputSchemaStr)
+      } catch {}
+    }
+
+    let parsedOutputSchema: any = undefined
+    if (editOutputSchemaStr.trim()) {
+      try {
+        parsedOutputSchema = JSON.parse(editOutputSchemaStr)
+      } catch {}
+    }
+
     const updated: Position = {
       ...position,
       title: editTitle.trim() || position.title,
@@ -278,7 +317,26 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       providerId: editProviderId.trim() || undefined,
       temperature: typeof editTemperature === 'number' ? editTemperature : undefined,
       responseFormat: parsedResponseFormat,
-      maxTurns: typeof editMaxTurns === 'number' && editMaxTurns > 0 ? editMaxTurns : undefined
+      maxTurns: typeof editMaxTurns === 'number' && editMaxTurns > 0 ? editMaxTurns : undefined,
+      // Phase 2: Contract-Safe Agent Runtime fields
+      isCallableByAgents: editIsCallable,
+      allowedDelegates: editAllowedDelegates,
+      allowedCallers: editAllowedCallers,
+      inputSchema: parsedInputSchema,
+      outputSchema: parsedOutputSchema,
+      verificationRules: editVerificationRules,
+      contract: {
+        contractVersion: (position as any).contract?.contractVersion ? (position as any).contract.contractVersion + 1 : 1,
+        isCallableByAgents: editIsCallable,
+        inputSchema: parsedInputSchema,
+        outputSchema: parsedOutputSchema,
+        allowedDelegates: editAllowedDelegates,
+        allowedCallers: editAllowedCallers,
+        verificationPolicy: {
+          rulesVersion: 1,
+          rules: editVerificationRules
+        }
+      }
     }
     onUpdatePosition(updated)
     setIsEditing(false)
@@ -562,6 +620,22 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
               configuredProviders={configuredProviders}
               configuredModels={configuredModels}
               idPrefix="drawer"
+            />
+
+            {/* Phase 2: Agent Contract & Delegation Mesh */}
+            <AgentContractSettings
+              isCallableByAgents={editIsCallable}
+              onChangeCallable={setEditIsCallable}
+              allowedDelegates={editAllowedDelegates}
+              onChangeAllowedDelegates={setEditAllowedDelegates}
+              allowedCallers={editAllowedCallers}
+              onChangeAllowedCallers={setEditAllowedCallers}
+              inputSchemaStr={editInputSchemaStr}
+              onChangeInputSchemaStr={setEditInputSchemaStr}
+              outputSchemaStr={editOutputSchemaStr}
+              onChangeOutputSchemaStr={setEditOutputSchemaStr}
+              allPositions={allPositions}
+              currentPositionId={position.id}
             />
 
             {/* Available Tools Selector */}
@@ -954,12 +1028,29 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
             {/* Tools Assigned */}
             <div>
               <h4 style={{ fontSize: '13px', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                Yetkili Araçlar ({position.tools.length})
+                Yetkili Araçlar ({position.tools.length + (position.allowedDelegates ? position.allowedDelegates.length : 0)})
               </h4>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {position.tools.map(t => (
                   <span key={t} className="tool-tag" style={{ fontSize: '11px', padding: '3px 8px' }}>
                     ⚙️ {t}
+                  </span>
+                ))}
+                {position.allowedDelegates && position.allowedDelegates.map(targetId => (
+                  <span
+                    key={targetId}
+                    className="tool-tag"
+                    style={{
+                      fontSize: '11px',
+                      padding: '3px 8px',
+                      background: 'rgba(168, 85, 247, 0.18)',
+                      color: '#e9d5ff',
+                      border: '1px solid rgba(168, 85, 247, 0.45)',
+                      fontWeight: 600
+                    }}
+                    title="Sözleşmeli Delege Aracı"
+                  >
+                    🤝 delegate_to_{targetId.replace(/[^a-zA-Z0-9_]/g, '_')}
                   </span>
                 ))}
               </div>

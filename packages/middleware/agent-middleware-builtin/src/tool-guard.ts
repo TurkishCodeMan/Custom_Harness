@@ -17,9 +17,10 @@ export const toolGuardMiddleware = defineMiddleware({
       return
     }
 
-    // İzin verilen araçlar (Whitelist) kontrolü: Sadece açıkça enabledTools listesinde olan araçlar çalıştırılabilir
+    // İzin verilen araçlar kontrolü: enabledTools listesinde olan araçlar VEYA sözleşmeli delege araçları (delegate_to_*)
     const allowed = preset.enabledTools ?? preset.allowed_tools
-    if (!Array.isArray(allowed) || !allowed.includes(ctx.toolName)) {
+    const isDelegationTool = typeof ctx.toolName === 'string' && ctx.toolName.startsWith('delegate_to_')
+    if (!isDelegationTool && (!Array.isArray(allowed) || !allowed.includes(ctx.toolName))) {
       ctx.skipExecution = true
       ctx.customOutput = `[Erişim Engeli / Tool Guard]: '${ctx.toolName}' aracı '${preset.name || preset.id}' rolü için yetkilendirilmemiştir. İzin verilen araçlar: ${Array.isArray(allowed) && allowed.length > 0 ? allowed.join(', ') : 'hiçbiri'}`
       return

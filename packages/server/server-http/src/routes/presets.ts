@@ -66,7 +66,15 @@ export function createPresetsRouter(ctx: Context): Router {
         currentAction: raw.currentAction,
         isDefault: Boolean(raw.isDefault),
         isGlobal: Boolean(raw.isGlobal && isAdmin),
-        ownerId: user?.id || 'user_admin'
+        ownerId: user?.id || 'user_admin',
+        // Phase 2: Contract-Safe Agent Runtime & Delegation Mesh
+        contract: raw.contract,
+        inputSchema: raw.inputSchema,
+        outputSchema: raw.outputSchema,
+        allowedDelegates: Array.isArray(raw.allowedDelegates) ? raw.allowedDelegates : undefined,
+        allowedCallers: Array.isArray(raw.allowedCallers) ? raw.allowedCallers : undefined,
+        verificationRules: Array.isArray(raw.verificationRules) ? raw.verificationRules : undefined,
+        isCallableByAgents: typeof raw.isCallableByAgents === 'boolean' ? raw.isCallableByAgents : undefined
       }
       const ap = safeGetAgentPresets()
       const saved = ap ? ap.save(preset, user?.id, isAdmin) : ctx.settings.savePreset(preset)

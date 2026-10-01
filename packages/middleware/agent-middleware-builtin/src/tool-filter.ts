@@ -24,7 +24,8 @@ export const toolFilterMiddleware = defineMiddleware({
     const allowedSet = new Set(enabledTools)
     ctx.tools = ctx.tools.filter((t: any) => {
       const name = t.function?.name ?? t.name
-      return allowedSet.has(name)
+      // Allow tool if in preset enabledTools or if it is an authorized contract delegation tool
+      return allowedSet.has(name) || (typeof name === 'string' && name.startsWith('delegate_to_'))
     })
 
     await next()

@@ -76,6 +76,76 @@ export interface PluginConfig {
   config?: Record<string, any>
 }
 
+export interface VerificationRule {
+  id: string
+  name: string
+  type: 
+    | 'required_field'
+    | 'arithmetic_consistency'
+    | 'max_value'
+    | 'min_value'
+    | 'must_equal'
+    | 'must_exist'
+    | 'requires_approval_above'
+  field?: string
+  params?: Record<string, any>
+  actionOnFail: 'MUTATE_TO_REVIEW' | 'MUTATE_TO_NEEDS_INFO' | 'REJECT'
+  failureMessage: string
+}
+
+export interface AgentContractBudget {
+  timeoutMs?: number
+  maxTurns?: number
+  maxDelegationDepth?: number
+}
+
+export interface AgentContract {
+  contractVersion: number
+  isCallableByAgents: boolean
+  inputSchema?: Record<string, any>
+  outputSchema?: Record<string, any>
+  allowedDelegates?: string[]
+  allowedCallers?: string[]
+  budget?: AgentContractBudget
+  verificationPolicy?: {
+    rulesVersion: number
+    rules: VerificationRule[]
+  }
+}
+
+export interface ExecutionReceipt {
+  receiptId: string
+  caseId?: string
+  traceId: string
+  presetId: string
+  contractVersion: number
+  hashes?: {
+    inputSchemaHash?: string
+    outputSchemaHash?: string
+    rulesHash?: string
+    policyHash?: string
+  }
+  modelMetadata?: {
+    modelId?: string
+    providerId?: string
+    temperature?: number
+  }
+  delegationChain?: {
+    callerPreset: string
+    targetPreset: string
+    inputPayload: any
+    outputPayload: any
+    durationMs: number
+  }[]
+  verificationResults?: {
+    ruleId: string
+    passed: boolean
+    message?: string
+  }[]
+  finalDecision?: string
+  timestamp: number
+}
+
 export interface AgentPreset {
   id: string
   name: string
@@ -96,6 +166,13 @@ export interface AgentPreset {
   parentId?: string
   specialization?: string
   currentAction?: string
+  // Contract-Safe Agent Runtime (Phase 2)
+  contract?: AgentContract
+  inputSchema?: Record<string, any>
+  outputSchema?: Record<string, any>
+  allowedDelegates?: string[]
+  allowedCallers?: string[]
+  verificationRules?: VerificationRule[]
 }
 
 export interface UiSettings {

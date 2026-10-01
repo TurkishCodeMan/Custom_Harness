@@ -41,6 +41,15 @@ export class SessionService extends Service {
     }
   }
 
+  /** Cordis native resolution for optional services without inject deadlock */
+  private get reflexion(): any {
+    return (this.ctx as any).get?.('reflexion', false) || (this.ctx as any).reflect?.get?.('reflexion', false) || (this.ctx as any).root?.reflexion
+  }
+
+  private get spillStore(): any {
+    return (this.ctx as any).get?.('spillStore', false) || (this.ctx as any).reflect?.get?.('spillStore', false) || (this.ctx as any).root?.spillStore
+  }
+
   public createSession(
     title: string = 'Yeni Sohbet',
     workspace?: string,
@@ -362,8 +371,8 @@ export class SessionService extends Service {
 
     // Clean up session tool output spills (SpillStore)
     try {
-      if ((this.ctx as any).spillStore?.deleteSessionSpills) {
-        (this.ctx as any).spillStore.deleteSessionSpills(id)
+      if (this.spillStore?.deleteSessionSpills) {
+        this.spillStore.deleteSessionSpills(id)
       } else {
         const safeSession = createHash('sha256').update(id).digest('hex').slice(0, 12)
         const spillDir = path.join(getDshDir(), 'spills', `session-${safeSession}`)
@@ -385,9 +394,9 @@ export class SessionService extends Service {
   public clearAllSessions(userId?: string, isAdmin?: boolean) {
     this.ensureDir()
     // 1. Purge tenant reflections on full session reset
-    if (userId && (this.ctx as any).reflexion?.clearReflections) {
+    if (userId && this.reflexion?.clearReflections) {
       try {
-        (this.ctx as any).reflexion.clearReflections(userId)
+        this.reflexion.clearReflections(userId)
       } catch {}
     }
 
@@ -402,8 +411,8 @@ export class SessionService extends Service {
             this.sessions.delete(id)
             try { fs.unlinkSync(path.join(tenantDir, f)) } catch (e) {}
             try {
-              if ((this.ctx as any).spillStore?.deleteSessionSpills) {
-                (this.ctx as any).spillStore.deleteSessionSpills(id)
+              if (this.spillStore?.deleteSessionSpills) {
+                this.spillStore.deleteSessionSpills(id)
               }
             } catch (e) {}
           }
@@ -411,7 +420,7 @@ export class SessionService extends Service {
       }
     }
 
-    // 2. Clear legacy sessions
+    // 3. Clear legacy sessions
     try {
       const files = fs.readdirSync(getSessionsDir()).filter(f => f.endsWith('.json'))
       for (const f of files) {
@@ -423,8 +432,8 @@ export class SessionService extends Service {
             fs.unlinkSync(path.join(getSessionsDir(), f))
           } catch (e) {}
           try {
-            if ((this.ctx as any).spillStore?.deleteSessionSpills) {
-              (this.ctx as any).spillStore.deleteSessionSpills(id)
+            if (this.spillStore?.deleteSessionSpills) {
+              this.spillStore.deleteSessionSpills(id)
             }
           } catch (e) {}
         }

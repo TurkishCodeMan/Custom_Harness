@@ -33,7 +33,7 @@ const CATEGORY_MATCHERS: Array<{ category: ToolCategory; match: RegExp }> = [
   { category: 'rag_web', match: /(rag|folder|image|web_)/i },
   { category: 'schedule', match: /^schedule/i },
   { category: 'subagent', match: /subagent/i },
-  { category: 'planning', match: /(goal|todo|reflection|plan|ralph|workflow)/i },
+  { category: 'planning', match: /(goal|todo|reflection|plan|ralph|workflow|approval|decision)/i },
   { category: 'terminal', match: /(bash|terminal|job)/i },
   { category: 'fs', match: /(read|write|edit|file|dir|grep|diff|lsp)/i },
 ]

@@ -72,8 +72,48 @@ export const PositionCard: React.FC<PositionCardProps> = ({
         >
           {position.icon || <CpuIcon size={20} />}
         </div>
-        <div className={`level-badge level-${position.level}`}>
-          L{position.level} • {isLevel1 ? 'STRATEJİK' : isLevel2 ? 'TAKTIKSEL' : 'OPERASYONEL'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div className={`level-badge level-${position.level}`}>
+            L{position.level} • {isLevel1 ? 'STRATEJİK' : isLevel2 ? 'TAKTIKSEL' : 'OPERASYONEL'}
+          </div>
+          {(position.isCallableByAgents || position.inputSchema) && (
+            <span
+              style={{
+                fontSize: '10px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(168, 85, 247, 0.2)',
+                color: '#d8b4fe',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+              title="Ajanlar Arası Çağrıya Açık (Contract-Safe Service Node)"
+            >
+              🤝 Servis
+            </span>
+          )}
+          {position.allowedDelegates && position.allowedDelegates.length > 0 && (
+            <span
+              style={{
+                fontSize: '10px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(56, 189, 248, 0.15)',
+                color: '#7dd3fc',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+              title={`Delege Yetkisi: ${position.allowedDelegates.join(', ')}`}
+            >
+              ↗️ {position.allowedDelegates.length} Delege
+            </span>
+          )}
         </div>
       </div>
 
@@ -105,6 +145,24 @@ export const PositionCard: React.FC<PositionCardProps> = ({
         <div className="card-tools">
           {position.tools.map((tool) => (
             <span key={tool} className="tool-tag">{tool}</span>
+          ))}
+          {position.allowedDelegates && position.allowedDelegates.map((targetId) => (
+            <span
+              key={targetId}
+              className="tool-tag"
+              style={{
+                background: 'rgba(168, 85, 247, 0.18)',
+                color: '#e9d5ff',
+                border: '1px solid rgba(168, 85, 247, 0.45)',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+              title={`Sözleşmeli Delege Aracı: delegate_to_${targetId.replace(/[^a-zA-Z0-9_]/g, '_')}`}
+            >
+              🤝 delegate_to_{targetId.replace(/[^a-zA-Z0-9_]/g, '_')}
+            </span>
           ))}
         </div>
 

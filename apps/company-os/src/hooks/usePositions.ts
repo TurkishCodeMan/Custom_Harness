@@ -38,7 +38,21 @@ function presetToPosition(preset: any): Position {
     responseFormat: preset.responseFormat || undefined,
     maxTurns: typeof preset.maxTurns === 'number' ? preset.maxTurns : undefined,
     status: 'idle',
-    currentAction: preset.currentAction || 'Hazır'
+    currentAction: preset.currentAction || 'Hazır',
+    // Phase 2: Contract-Safe Agent Runtime & Delegation Mesh
+    isCallableByAgents: preset.isCallableByAgents ?? (preset.contract?.isCallableByAgents ?? !!preset.inputSchema),
+    allowedDelegates: preset.allowedDelegates || preset.contract?.allowedDelegates || [],
+    allowedCallers: preset.allowedCallers || preset.contract?.allowedCallers || [],
+    inputSchema: preset.inputSchema || preset.contract?.inputSchema,
+    outputSchema: preset.outputSchema || preset.contract?.outputSchema,
+    contract: preset.contract || (preset.inputSchema ? {
+      contractVersion: 1,
+      isCallableByAgents: preset.isCallableByAgents ?? !!preset.inputSchema,
+      inputSchema: preset.inputSchema,
+      outputSchema: preset.outputSchema,
+      allowedDelegates: preset.allowedDelegates,
+      allowedCallers: preset.allowedCallers
+    } : undefined)
   }
 }
 
@@ -61,7 +75,14 @@ function positionToPreset(pos: Position): any {
     providerId: pos.providerId || undefined,
     temperature: typeof pos.temperature === 'number' ? pos.temperature : undefined,
     responseFormat: pos.responseFormat || undefined,
-    maxTurns: typeof pos.maxTurns === 'number' ? pos.maxTurns : undefined
+    maxTurns: typeof pos.maxTurns === 'number' ? pos.maxTurns : undefined,
+    // Phase 2: Contract-Safe Agent Runtime & Delegation Mesh
+    isCallableByAgents: pos.isCallableByAgents,
+    allowedDelegates: pos.allowedDelegates,
+    allowedCallers: pos.allowedCallers,
+    inputSchema: pos.inputSchema,
+    outputSchema: pos.outputSchema,
+    contract: pos.contract
   }
 }
 

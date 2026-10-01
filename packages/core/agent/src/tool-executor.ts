@@ -1,5 +1,6 @@
 import type { Context } from '@custom-harness/core-context'
 import type { ToolExecutionContext } from './types.js'
+import { executeContractDelegation } from './contract-delegator.js'
 
 /**
  * Common helper to emit the tool result callback and persist the tool response to session messages.
@@ -133,13 +134,18 @@ export async function executeToolCall(
   // 4. Physical Tool Execution with Exponential Backoff
   let output: any = ''
   try {
-    if (!ctx.tools) {
-      throw new Error("[AgentService] 'tools' servisi Context üzerinde bulunamadı.")
+    if (call.name.startsWith('delegate_to_')) {
+      // Contract-Safe Agent Delegation (Phase 2)
+      output = await executeContractDelegation(ctx, call, execContext)
+    } else {
+      if (!ctx.tools) {
+        throw new Error("[AgentService] 'tools' servisi Context üzerinde bulunamadı.")
+      }
+      output = await executeWithRetry(
+        () => ctx.tools.execute(call.name, parsedArgs, { signal, cwd, sessionId, activePreset }),
+        { maxRetries: 2, initialDelayMs: 200, signal }
+      )
     }
-    output = await executeWithRetry(
-      () => ctx.tools.execute(call.name, parsedArgs, { signal, cwd, sessionId, activePreset }),
-      { maxRetries: 2, initialDelayMs: 200, signal }
-    )
   } catch (err: any) {
     output = `Araç Çalıştırma Hatası: ${err.message}`
   }
