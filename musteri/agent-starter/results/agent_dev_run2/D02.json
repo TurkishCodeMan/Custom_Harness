@@ -1,0 +1,7 @@
+{
+  "case_id": "D02",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (SUP-A, TRY) PO-001 ile tutarlıdır: tedarikçi, para birimi ve sipariş referansı eşleşir (INV/PO). Fatura satırı L1'de SKU-A/EA siparişle eşleşir; birim fiyat farkı yoktur (INV:L1 ve PO:L1 her ikisi de birim fiyatı 'TRY' cinsinden 'on point oh oh' olarak gösterir), fatura miktarı kırk sipariş miktarı yüzün altındadır ve teslimat kırk adetle faturayı tam karşılar (GRN R one). Geçmiş fatura kaydı yoktur; mükerrerlik veya nicel fark bulunmamaktadır."
+}

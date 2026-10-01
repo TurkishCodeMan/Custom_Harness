@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { Position, PositionLevel, ActivityReceipt } from '../types.js'
-import { fetchSkills, fetchPresets, fetchTools, savePreset, browseWorkspace } from '../api.js'
+import { fetchSkills, fetchPresets, fetchTools, savePreset, browseWorkspace, fetchSettings } from '../api.js'
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
+import { PresetCognitiveSettings } from './PresetCognitiveSettings.js'
 
 interface PositionDrawerProps {
   position: Position | null
@@ -42,6 +43,24 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
   const [editTools, setEditTools] = useState<string[]>(position?.tools || [])
   const [editSkills, setEditSkills] = useState<string[]>(position?.skills || [])
   const [workspaceFolders, setWorkspaceFolders] = useState<string[]>([])
+
+  // Cognitive parameters states
+  const [editModelId, setEditModelId] = useState(position?.modelId || '')
+  const [editProviderId, setEditProviderId] = useState(position?.providerId || '')
+  const [editTemperature, setEditTemperature] = useState<number | undefined>(
+    typeof position?.temperature === 'number' ? position.temperature : undefined
+  )
+  const [editResponseFormat, setEditResponseFormat] = useState<string>(() => {
+    if (!position?.responseFormat) return 'default'
+    if (typeof position.responseFormat === 'string') return position.responseFormat
+    if (position.responseFormat.type) return position.responseFormat.type
+    return 'json_object'
+  })
+  const [editMaxTurns, setEditMaxTurns] = useState<number | undefined>(
+    typeof position?.maxTurns === 'number' ? position.maxTurns : undefined
+  )
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([])
+  const [configuredModels, setConfiguredModels] = useState<string[]>([])
 
   const rootWs = companyWorkspace || '/home/huseyina/code_mode/COMPANY_ABC'
 
@@ -94,6 +113,23 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       setEditSystemPrompt(position.systemPrompt || matchingPreset?.systemPrompt || '')
       setEditTools(position.tools || [])
       setEditSkills(position.skills || [])
+
+      setEditModelId(position.modelId || matchingPreset?.modelId || '')
+      setEditProviderId(position.providerId || matchingPreset?.providerId || '')
+      const tempVal = typeof position.temperature === 'number'
+        ? position.temperature
+        : (typeof matchingPreset?.temperature === 'number' ? matchingPreset.temperature : undefined)
+      setEditTemperature(tempVal)
+      const rfVal = position.responseFormat || matchingPreset?.responseFormat
+      if (!rfVal) setEditResponseFormat('default')
+      else if (typeof rfVal === 'string') setEditResponseFormat(rfVal)
+      else if (rfVal.type) setEditResponseFormat(rfVal.type)
+      else setEditResponseFormat('json_object')
+      const maxTVal = typeof position.maxTurns === 'number'
+        ? position.maxTurns
+        : (typeof matchingPreset?.maxTurns === 'number' ? matchingPreset.maxTurns : undefined)
+      setEditMaxTurns(maxTVal)
+
       setIsEditing(false)
     }
   }, [position, availablePresets])
@@ -105,6 +141,18 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
     fetchPresets().then(list => {
       if (list && list.length > 0) {
         setAvailablePresets(list)
+      }
+    })
+    fetchSettings().then(st => {
+      if (st) {
+        const provs = Object.keys(st.providers || {})
+        if (provs.length > 0) setConfiguredProviders(provs)
+        const models = new Set<string>()
+        if (st.defaultModel) models.add(st.defaultModel)
+        Object.values(st.providers || {}).forEach((p: any) => {
+          if (Array.isArray(p.models)) p.models.forEach((m: string) => models.add(m))
+        })
+        if (models.size > 0) setConfiguredModels(Array.from(models))
       }
     })
   }, [])
@@ -207,6 +255,13 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault()
+    let parsedResponseFormat: any = undefined
+    if (editResponseFormat === 'json_object') {
+      parsedResponseFormat = { type: 'json_object' }
+    } else if (editResponseFormat === 'json_schema') {
+      parsedResponseFormat = { type: 'json_schema' }
+    }
+
     const updated: Position = {
       ...position,
       title: editTitle.trim() || position.title,
@@ -218,7 +273,12 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       specialization: editSpecialization.trim() || undefined,
       systemPrompt: editSystemPrompt.trim() || undefined,
       tools: editTools,
-      skills: editSkills
+      skills: editSkills,
+      modelId: editModelId.trim() || undefined,
+      providerId: editProviderId.trim() || undefined,
+      temperature: typeof editTemperature === 'number' ? editTemperature : undefined,
+      responseFormat: parsedResponseFormat,
+      maxTurns: typeof editMaxTurns === 'number' && editMaxTurns > 0 ? editMaxTurns : undefined
     }
     onUpdatePosition(updated)
     setIsEditing(false)
@@ -399,8 +459,19 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
                       const newId = e.target.value
                       setEditPresetId(newId)
                       const pr = availablePresets.find(p => p.id === newId)
-                      if (pr?.systemPrompt) {
-                        setEditSystemPrompt(pr.systemPrompt)
+                      if (pr) {
+                        if (pr.systemPrompt) setEditSystemPrompt(pr.systemPrompt)
+                        if (pr.modelId) setEditModelId(pr.modelId)
+                        if (pr.providerId) setEditProviderId(pr.providerId)
+                        if (typeof pr.temperature === 'number') setEditTemperature(pr.temperature)
+                        if (pr.responseFormat) {
+                          if (typeof pr.responseFormat === 'string') setEditResponseFormat(pr.responseFormat)
+                          else if (pr.responseFormat.type) setEditResponseFormat(pr.responseFormat.type)
+                          else setEditResponseFormat('json_object')
+                        }
+                        if (typeof pr.maxTurns === 'number') setEditMaxTurns(pr.maxTurns)
+                        if (Array.isArray(pr.enabledTools)) setEditTools(pr.enabledTools)
+                        if (Array.isArray(pr.enabledSkills)) setEditSkills(pr.enabledSkills)
                       }
                     }}
                   >
@@ -475,6 +546,23 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
                 placeholder="Örn: finans/Q3_2025_Butce_ve_Harcamalar.csv"
               />
             </div>
+
+            {/* LLM Model, Sıcaklık (Temperature) & Bilişsel Parametreler (Shared Component) */}
+            <PresetCognitiveSettings
+              modelId={editModelId}
+              providerId={editProviderId}
+              temperature={editTemperature}
+              responseFormat={editResponseFormat}
+              maxTurns={editMaxTurns}
+              onChangeModelId={setEditModelId}
+              onChangeProviderId={setEditProviderId}
+              onChangeTemperature={setEditTemperature}
+              onChangeResponseFormat={setEditResponseFormat}
+              onChangeMaxTurns={setEditMaxTurns}
+              configuredProviders={configuredProviders}
+              configuredModels={configuredModels}
+              idPrefix="drawer"
+            />
 
             {/* Available Tools Selector */}
             <div className="form-group" style={{ marginTop: '16px' }}>
@@ -806,6 +894,61 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
                   <div className="mono" style={{ fontSize: '12px', color: '#fde68a' }}>{position.specialization}</div>
                 </>
               )}
+            </div>
+
+            {/* Model & Cognitive Parameters View Card */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.6)',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(56, 189, 248, 0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  ⚙️ Bilişsel Ayarlar & LLM Parametreleri
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  style={{ background: 'transparent', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  ✏️ Ayarla
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', fontSize: '12px' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>🤖 Model</div>
+                  <div className="mono" style={{ color: '#f8fafc', fontWeight: 600, marginTop: '2px', fontSize: '11.5px', wordBreak: 'break-all' }}>
+                    {position.modelId || 'Sistem Varsayılanı'}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>🏷️ Sağlayıcı</div>
+                  <div className="mono" style={{ color: '#93c5fd', marginTop: '2px', fontSize: '11.5px' }}>
+                    {position.providerId || 'Sistem Varsayılanı'}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>🌡️ Sıcaklık</div>
+                  <div className="mono" style={{
+                    color: typeof position.temperature === 'number' && position.temperature <= 0.2 ? '#34d399' : '#38bdf8',
+                    fontWeight: 700,
+                    marginTop: '2px',
+                    fontSize: '11.5px'
+                  }}>
+                    {typeof position.temperature === 'number' ? `${position.temperature.toFixed(2)} ${position.temperature <= 0.2 ? '(🎯)' : ''}` : '0.2 (Varsayılan)'}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>📋 Çıktı / Tur</div>
+                  <div className="mono" style={{ color: '#e2e8f0', marginTop: '2px', fontSize: '11.5px' }}>
+                    {position.responseFormat?.type || (position.responseFormat ? 'JSON' : 'Metin')} / Max {position.maxTurns || 30}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Tools Assigned */}

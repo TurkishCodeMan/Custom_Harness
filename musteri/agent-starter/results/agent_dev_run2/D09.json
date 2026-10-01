@@ -1,0 +1,17 @@
+{
+  "case_id": "D09",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "DUPLICATE_INVOICE",
+      "line_id": null,
+      "amount": "1000.00",
+      "evidence_ids": [
+        "INV",
+        "HIST:H1"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 (SUP-A, PO-001) aktif geçmişte aynı tedarikçi ve normalize edilmiş fatura numarasıyla 'paid' statüsünde mevcut (HIST:H1). Politika adım 2 gereği mükerrer fatura bulgusu oluşturuldu; inceleme tutarı mevcut fatura satırlarının net toplamıdır (100 EA x 10.00 TRY = 1000.00 TRY). Diğer fark kontrolleri hesaplanmadan süreç sonlandırıldı; insan incelemesi önerilir."
+}

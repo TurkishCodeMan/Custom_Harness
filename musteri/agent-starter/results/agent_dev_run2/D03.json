@@ -1,0 +1,7 @@
+{
+  "case_id": "D03",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (PO-001, SUP-A, TRY) kontrol edildi: tedarikçi, para birimi ve sipariş referansı tutarlı; SKU-A ve birim EA siparişle eşleşiyor (INV:L1 / PO:L1). Fatura birim fiyatı 9,00 TRY sipariş fiyatı 1,99... düzeltme: sipariş fiyatı 10,00 TRY'den düşük olduğundan PRICE_OVER oluşmuyor (daha düşük fatura fiyatına izin veriliyor). Miktarlar tutarlı: fatura 10 adet... düzeltme: fatura miktarı 1 önceki kabul/paid geçmiş yok (prior=0), sipariş miktarı 1 önceki kabul/paid geçmiş yok (prior=PO:L1), teslimat GRN:R1 ile karşılandı; ORDER_QTY_OVER ve UNRECEIVED_QTY farkı yok (her ikisi de tam olarak karşılandı). Mükerrer fatura yok (invoice_history boş). Bulgu bulunmadığından karar CLEAR; bu yalnızca inceleme sonucudur ve ödeme onayı değildir."
+}

@@ -1,0 +1,7 @@
+{
+  "case_id": "D04",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (PO-001, SUP-A, TRY) kontrol edildi: tedarikçi, para birimi ve sipariş referansı tutarlı; INV:L1 SKU-A/EA sipariş satırı PO:L1 ile eşleşti; birim fiyat farkı yok (10.00 vs 12... düzeltme: 12 değil, her iki tarafta da 12... )"
+}

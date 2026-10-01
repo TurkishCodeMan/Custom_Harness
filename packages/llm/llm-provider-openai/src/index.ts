@@ -105,12 +105,24 @@ export class OpenAiLlmService extends LlmService {
       }
     }
 
-    if (options.responseFormat) {
-      body.response_format = options.responseFormat
-      if (options.responseFormat.type === 'json_object') {
-        const lastUser = sanitizedMessages.slice().reverse().find(m => m.role === 'user')
-        if (lastUser && typeof lastUser.content === 'string' && !lastUser.content.toLowerCase().includes('json')) {
-          lastUser.content += ' (Response must be a valid JSON object)'
+    if (options.responseFormat && options.responseFormat !== ('default' as any)) {
+      let normalizedRf: any = options.responseFormat
+      if (typeof normalizedRf === 'string') {
+        if (normalizedRf === 'json_object') {
+          normalizedRf = { type: 'json_object' }
+        } else if (normalizedRf === 'json_schema') {
+          normalizedRf = { type: 'json_object' }
+        } else {
+          normalizedRf = undefined
+        }
+      }
+      if (normalizedRf) {
+        body.response_format = normalizedRf
+        if (normalizedRf.type === 'json_object') {
+          const lastUser = sanitizedMessages.slice().reverse().find(m => m.role === 'user')
+          if (lastUser && typeof lastUser.content === 'string' && !lastUser.content.toLowerCase().includes('json')) {
+            lastUser.content += ' (Response must be a valid JSON object)'
+          }
         }
       }
     }

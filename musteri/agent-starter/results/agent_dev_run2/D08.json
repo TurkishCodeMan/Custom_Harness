@@ -1,0 +1,17 @@
+{
+  "case_id": "D8",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "ORDER_QTY_OVER",
+      "line_id": "L8",
+      "amount": "2222",
+      "evidence_ids": [
+        "INV:L8",
+        "PO:L8"
+      ]
+    }
+  ],
+  "summary": ""
+}

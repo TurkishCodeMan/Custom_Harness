@@ -145,3 +145,10 @@ araç davranışı bu skorların kapsamında değildir.
 | scripts/ | Yerel çalıştırıcı ve değerlendirici; ajana kapalı |
 | results/ | Yerel çıktı ve raporlar; ajana kapalı |
 | upload_bundles/ | Her vaka için ayrı, cevap anahtarı içermeyen altı dosyalık ZIP |
+
+
+cd /home/huseyina/code_mode/custom-harness/musteri/agent-starter
+
+python3 scripts/run.py --mode agent --split dev --out results/agent_dev_run2 --adapter python3 /home/huseyina/code_mode/custom-harness/musteri/agent-starter/my_harness_adapter.py
+
+python3 scripts/evaluate.py --predictions results/agent_dev_run2 --split dev --report results/agent_dev_run2_report.json

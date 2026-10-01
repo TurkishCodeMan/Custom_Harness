@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import type { Position, PositionLevel } from '../types.js'
-import { fetchTools, fetchSkills, fetchPresets } from '../api.js'
+import { fetchTools, fetchSkills, fetchPresets, fetchSettings } from '../api.js'
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
+import { PresetCognitiveSettings } from './PresetCognitiveSettings.js'
 
 interface NewPositionModalProps {
   isOpen: boolean
@@ -96,6 +97,15 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
   const [systemPrompt, setSystemPrompt] = useState('')
   const [isPromptEdited, setIsPromptEdited] = useState(false)
 
+  // Cognitive parameter states
+  const [modelId, setModelId] = useState('')
+  const [providerId, setProviderId] = useState('')
+  const [temperature, setTemperature] = useState<number | undefined>(undefined)
+  const [responseFormat, setResponseFormat] = useState<string>('default')
+  const [maxTurns, setMaxTurns] = useState<number | undefined>(undefined)
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([])
+  const [configuredModels, setConfiguredModels] = useState<string[]>([])
+
   const [workspace, setWorkspace] = useState('/home/huseyina/code_mode/COMPANY_ABC')
   const [specialization, setSpecialization] = useState('')
   const [selectedTools, setSelectedTools] = useState<string[]>(['read_file', 'write_file', 'grep_search', 'list_dir'])
@@ -133,6 +143,18 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
     fetchPresets().then(list => {
       if (list && list.length > 0) {
         setAvailablePresets(list)
+      }
+    })
+    fetchSettings().then(st => {
+      if (st) {
+        const provs = Object.keys(st.providers || {})
+        if (provs.length > 0) setConfiguredProviders(provs)
+        const models = new Set<string>()
+        if (st.defaultModel) models.add(st.defaultModel)
+        Object.values(st.providers || {}).forEach((p: any) => {
+          if (Array.isArray(p.models)) p.models.forEach((m: string) => models.add(m))
+        })
+        if (models.size > 0) setConfiguredModels(Array.from(models))
       }
     })
   }, [])
@@ -301,6 +323,15 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       if (Array.isArray(existing.enabledSkills || existing.skills)) {
         setSelectedSkills(existing.enabledSkills || existing.skills)
       }
+      if (existing.modelId) setModelId(existing.modelId)
+      if (existing.providerId) setProviderId(existing.providerId)
+      if (typeof existing.temperature === 'number') setTemperature(existing.temperature)
+      if (existing.responseFormat) {
+        if (typeof existing.responseFormat === 'string') setResponseFormat(existing.responseFormat)
+        else if (existing.responseFormat.type) setResponseFormat(existing.responseFormat.type)
+        else setResponseFormat('json_object')
+      }
+      if (typeof existing.maxTurns === 'number') setMaxTurns(existing.maxTurns)
     }
   }
 
@@ -327,6 +358,13 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       targetId = `${effectivePresetId}-${Date.now().toString(36).slice(-4)}`
     }
 
+    let parsedResponseFormat: any = undefined
+    if (responseFormat === 'json_object') {
+      parsedResponseFormat = { type: 'json_object' }
+    } else if (responseFormat === 'json_schema') {
+      parsedResponseFormat = { type: 'json_schema' }
+    }
+
     const newPos: Position = {
       id: targetId,
       title: effectivePresetName,
@@ -341,7 +379,12 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
       skills: selectedSkills,
       status: 'idle',
       currentAction: 'Yeni tanımlandı',
-      systemPrompt: systemPrompt.trim()
+      systemPrompt: systemPrompt.trim(),
+      modelId: modelId.trim() || undefined,
+      providerId: providerId.trim() || undefined,
+      temperature: typeof temperature === 'number' ? temperature : undefined,
+      responseFormat: parsedResponseFormat,
+      maxTurns: typeof maxTurns === 'number' && maxTurns > 0 ? maxTurns : undefined
     }
 
     // Tek doğruluk kaynağı: Koltuk usePositions hook'u (handleAddPosition) üzerinden backend'e eksiksiz kaydedilir ve liste tazelenir
@@ -735,6 +778,23 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
               placeholder="Örn: ik/bordro_harcamalari.csv, sozl/sozlesmeler.md"
             />
           </div>
+
+          {/* LLM Model, Sıcaklık (Temperature) & Bilişsel Parametreler (Shared Component) */}
+          <PresetCognitiveSettings
+            modelId={modelId}
+            providerId={providerId}
+            temperature={temperature}
+            responseFormat={responseFormat}
+            maxTurns={maxTurns}
+            onChangeModelId={setModelId}
+            onChangeProviderId={setProviderId}
+            onChangeTemperature={setTemperature}
+            onChangeResponseFormat={setResponseFormat}
+            onChangeMaxTurns={setMaxTurns}
+            configuredProviders={configuredProviders}
+            configuredModels={configuredModels}
+            idPrefix="new"
+          />
 
           {/* Available Tools Selector */}
           <div className="form-group" style={{ marginTop: '16px' }}>

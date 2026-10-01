@@ -32,6 +32,11 @@ function presetToPosition(preset: any): Position {
     skills: Array.isArray(preset.enabledSkills) ? preset.enabledSkills : [],
     specialization: preset.specialization || preset.description,
     systemPrompt: preset.systemPrompt || '',
+    modelId: preset.modelId || undefined,
+    providerId: preset.providerId || undefined,
+    temperature: typeof preset.temperature === 'number' ? preset.temperature : undefined,
+    responseFormat: preset.responseFormat || undefined,
+    maxTurns: typeof preset.maxTurns === 'number' ? preset.maxTurns : undefined,
     status: 'idle',
     currentAction: preset.currentAction || 'Hazır'
   }
@@ -51,7 +56,12 @@ function positionToPreset(pos: Position): any {
     enabledTools: pos.tools,
     enabledSkills: pos.skills || [],
     specialization: pos.specialization,
-    currentAction: pos.currentAction
+    currentAction: pos.currentAction,
+    modelId: pos.modelId || undefined,
+    providerId: pos.providerId || undefined,
+    temperature: typeof pos.temperature === 'number' ? pos.temperature : undefined,
+    responseFormat: pos.responseFormat || undefined,
+    maxTurns: typeof pos.maxTurns === 'number' ? pos.maxTurns : undefined
   }
 }
 

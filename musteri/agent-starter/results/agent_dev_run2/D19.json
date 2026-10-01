@@ -1,0 +1,7 @@
+{
+  "case_id": "D19",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (SUP-A, PO-001, TRY) kontrol edildi: tedarikçi, para birimi ve sipariş referansı tutarlı; SKU-A ve birim EA siparişle eşleşti (INV:L1 vs PO:L1). Fiyat farkı yok (her ikisi de 12 basamaklı değil; INV:L1 birim fiyatı 12 değil, her ikisi de TRY cinsinden eşit). Birim fiyatlar eşit (TRY cinsinden her ikisi de aynı değer), geçmiş kabul edilmiş fatura INV-OLD'daki miktar (64 adet değil; HIST:H1 miktarı) ile birlikte toplam faturalanan miktar sipariş miktarını ve teslimat miktarını aşmıyor (GRN:R1 teslimatı yeterli). Mükerrer fatura yok (INV-OLD farklı fatura numarasına sahip). Bulgu bulunmadı; CLEAR önerilir."
+}

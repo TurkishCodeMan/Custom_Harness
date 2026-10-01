@@ -1,0 +1,7 @@
+{
+  "case_id": "D01",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (SUP-A, TRY) PO-001 ile kontrol edildi: tedarikçi, para birimi ve sipariş referansı tutarlı; geçmişte aktif fatura yok (mükerrerlik yok). L1 satırı: SKU-A/EA, adet 100 ve birim fiyat 10.00 hem PO:L1 hem GRN:R1 ile birebir eşleşiyor; fiyat toleransı içinde ve teslimat miktarı aşılmıyor. Bulgu yok; CLEAR yalnız inceleme sonucudur, ödeme onayı değildir."
+}

@@ -1,0 +1,16 @@
+{
+  "case_id": "D10",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "summary": "Fatura INV-001 (SUP-A, TRY) sayısal olarak geçerli ve geçmişte mükerrer kayıt bulunmamaktadır; ancak purchase_order verisi sağlanmadığından (null) sipariş karşılaştırması yapılamamıştır. Politika gereği MISSING_PO bulgusu ile inceleme NEEDS_INFO olarak sonlandırılmıştır; PO belgesi talep edilmelidir.",
+  "findings": [
+    {
+      "code": "MISSING_PO",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV"
+      ]
+    }
+  ]
+}

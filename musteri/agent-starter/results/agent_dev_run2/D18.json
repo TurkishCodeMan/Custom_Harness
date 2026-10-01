@@ -1,0 +1,7 @@
+{
+  "case_id": "D18",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-PO-PO-PO kontrol edildi (invoice-reviewer-v1): tedarikçi (SUP-A), para birimi (TRY) ve sipariş referansı (PO-PO) tutarlı; INV:L'in SKU-A ve birim EA sipariş satırı PO:L ile eşleşti; miktar (one hundred EA) hem siparişe hem teslimata (GRN-R-one hundred EA) uyuyor; birim fiyat on point zero zero TRY eşit; aktif geçmişte aynı tedarikçi/sipariş için mükerrer veya öncelikli fatura yok (HIST-H-one farklı tedarikçi/siparişe ait olduğu için hariç tutuldu). Nicel fark bulunmadı."
+}

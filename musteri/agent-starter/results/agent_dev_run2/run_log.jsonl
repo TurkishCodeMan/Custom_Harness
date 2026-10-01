@@ -1,0 +1,25 @@
+
+{"case_id": "D01", "mode": "agent", "status": "ok", "elapsed_seconds": 10.5777}
+{"case_id": "D01", "mode": "agent", "status": "error", "error": "adapter exit code 1; inspect adapter logs", "elapsed_seconds": 1.3552}
+{"case_id": "D02", "mode": "agent", "status": "error", "error": "adapter exit code 1; inspect adapter logs", "elapsed_seconds": 1.246}
+{"case_id": "D03", "mode": "agent", "status": "error", "error": "adapter exit code 1; inspect adapter logs", "elapsed_seconds": 1.1572}
+{"case_id": "D01", "mode": "agent", "status": "ok", "elapsed_seconds": 8.36}
+{"case_id": "D02", "mode": "agent", "status": "ok", "elapsed_seconds": 15.3924}
+{"case_id": "D03", "mode": "agent", "status": "ok", "elapsed_seconds": 13.3262}
+{"case_id": "D04", "mode": "agent", "status": "ok", "elapsed_seconds": 12.5743}
+{"case_id": "D05", "mode": "agent", "status": "error", "error": "Command '['python3', '/home/huseyina/code_mode/custom-harness/musteri/agent-starter/my_harness_adapter.py']' timed out after 120 seconds", "elapsed_seconds": 120.0104}
+{"case_id": "D06", "mode": "agent", "status": "error", "error": "adapter exit code 1; inspect adapter logs", "elapsed_seconds": 69.4491}
+{"case_id": "D07", "mode": "agent", "status": "ok", "elapsed_seconds": 11.8579}
+{"case_id": "D08", "mode": "agent", "status": "ok", "elapsed_seconds": 11.9758}
+{"case_id": "D09", "mode": "agent", "status": "ok", "elapsed_seconds": 9.0229}
+{"case_id": "D10", "mode": "agent", "status": "ok", "elapsed_seconds": 7.8826}
+{"case_id": "D11", "mode": "agent", "status": "ok", "elapsed_seconds": 7.5915}
+{"case_id": "D12", "mode": "agent", "status": "ok", "elapsed_seconds": 8.3384}
+{"case_id": "D13", "mode": "agent", "status": "ok", "elapsed_seconds": 7.9824}
+{"case_id": "D14", "mode": "agent", "status": "ok", "elapsed_seconds": 9.5745}
+{"case_id": "D15", "mode": "agent", "status": "ok", "elapsed_seconds": 10.3148}
+{"case_id": "D16", "mode": "agent", "status": "ok", "elapsed_seconds": 14.5164}
+{"case_id": "D17", "mode": "agent", "status": "ok", "elapsed_seconds": 12.4666}
+{"case_id": "D18", "mode": "agent", "status": "ok", "elapsed_seconds": 13.7468}
+{"case_id": "D19", "mode": "agent", "status": "ok", "elapsed_seconds": 12.0738}
+{"case_id": "D20", "mode": "agent", "status": "error", "error": "adapter exit code 1; inspect adapter logs", "elapsed_seconds": 60.8492}

@@ -15,6 +15,11 @@ export interface Position {
   skills?: string[]
   specialization?: string
   systemPrompt?: string
+  modelId?: string
+  providerId?: string
+  temperature?: number
+  responseFormat?: any
+  maxTurns?: number
   status: PositionStatus
   currentAction?: string
   lastActive?: number

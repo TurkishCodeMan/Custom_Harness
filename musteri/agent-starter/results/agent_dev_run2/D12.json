@@ -1,0 +1,17 @@
+{
+  "case_id": "D12",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "CURRENCY_MISMATCH",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 USD para biriminde düzenlenmiş; sipariş PO-001 TRY para birimindedir (INV: currency=USD, PO: currency=TRY). Politika v1 kur dönüşümü kapsamadığından inceleme bu aşamada durduruldu; para birimi uyumu için ek belge/bilgi talep edilmelidir."
+}

@@ -1,0 +1,1 @@
+D10 vakasını invoice-reviewer-v1 politikasıyla incele. Yalnızca output.schema.json biçiminde JSON döndür. Eksik bilgiyi uydurma; hiçbir dış işlem gerçekleştirme.

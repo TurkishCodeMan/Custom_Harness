@@ -18,7 +18,7 @@ def main():
     a=p.parse_args()
     if a.mode=='agent' and not a.adapter: p.error('agent mode requires --adapter COMMAND ... as last argument')
     if a.timeout<=0: p.error('timeout must be positive')
-    a.out.mkdir(parents=True,exist_ok=False)
+    a.out.mkdir(parents=True,exist_ok=True)
     preset=ROOT/'runtime/preset'
     instruction=(preset/'SYSTEM_PROMPT.md').read_text(encoding='utf-8')+'\n\n'+(preset/'POLICY.md').read_text(encoding='utf-8')
     schema=json.loads((preset/'output.schema.json').read_text(encoding='utf-8'))

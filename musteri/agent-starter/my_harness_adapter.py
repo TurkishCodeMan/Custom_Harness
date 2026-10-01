@@ -82,18 +82,7 @@ async def run_agent_case(request_payload: dict) -> dict:
     case_workspace = os.path.join(WORKSPACE_DIR, f"case_{case_id}")
     os.makedirs(case_workspace, exist_ok=True)
 
-    # 1. Preset dosyalarını ve vaka input.json'ını bu izole workspace'e kopyala
-    preset_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime", "preset")
-    for fname in ("POLICY.md", "output.schema.json", "SYSTEM_PROMPT.md"):
-        src = os.path.join(preset_dir, fname)
-        dst = os.path.join(case_workspace, fname)
-        if os.path.exists(src) and not os.path.exists(dst):
-            try:
-                import shutil
-                shutil.copy2(src, dst)
-            except Exception:
-                pass
-
+    # 1. Yalnızca vaka dosyalarını (input.json ve request.txt) çalışma alanına koy
     case_file = os.path.join(case_workspace, "input.json")
     try:
         with open(case_file, "w", encoding="utf-8") as f:
@@ -102,7 +91,46 @@ async def run_agent_case(request_payload: dict) -> dict:
     except Exception as e:
         log_debug(f"[ADAPTER WARN] input.json yazılamadı: {e}")
 
-    # 2. Yeni bir session oluştur (İzole vaka çalışma alanı ile)
+    req_file = os.path.join(case_workspace, "request.txt")
+    try:
+        with open(req_file, "w", encoding="utf-8") as f:
+            f.write(user_request)
+    except Exception:
+        pass
+
+    preset_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime", "preset")
+    for fname in ("POLICY.md", "output.schema.json"):
+        src = os.path.join(preset_dir, fname)
+        dst = os.path.join(case_workspace, fname)
+        try:
+            if os.path.exists(src):
+                import shutil
+                shutil.copy2(src, dst)
+                log_debug(f"[ADAPTER] Case {case_id} {fname} workspace'e kopyalandı: {dst}")
+        except Exception as e:
+            log_debug(f"[ADAPTER WARN] {fname} kopyalanamadı: {e}")
+
+    # 2. API / Tenant üzerindeki gerçek Invoice Preset ID'sini doğrula
+    target_preset_id = preset_id
+    try:
+        r_presets = requests.get(f"{BACKEND_HTTP}/api/presets", headers={"X-User-Id": "user_admin"}, timeout=5)
+        if r_presets.ok:
+            data = r_presets.json()
+            plist = data.get("presets", [])
+            found_ids = [p.get("id") for p in plist if p.get("id")]
+            if target_preset_id not in found_ids:
+                # 'invoice' veya 'fatura' içeren ilk preset'i seç
+                for p in plist:
+                    pid = (p.get("id") or "").lower()
+                    pname = (p.get("name") or "").lower()
+                    if "invoice" in pid or "fatura" in pid or "invoice" in pname or "fatura" in pname:
+                        target_preset_id = p.get("id")
+                        break
+            log_debug(f"[ADAPTER] Kullanılan API/Tenant Preset: {target_preset_id}")
+    except Exception as e:
+        log_debug(f"[ADAPTER WARN] Preset API kontrolü yapılamadı: {e}")
+
+    # 3. Yeni bir session oluştur (İzole vaka çalışma alanı ile)
     session_title = f"[Eval] Case {case_id}"
     session_id = None
     try:
@@ -119,43 +147,22 @@ async def run_agent_case(request_payload: dict) -> dict:
         log_debug(f"[ADAPTER ERROR] Session oluşturulamadı: {e}")
         raise
 
-    system_prompt = request_payload.get("system_prompt")
-
-    # 3. Sade prompt
-    prompt = (
-        f"{user_request}\n\n"
-        f"Çalışma alanındaki `input.json` dosyasını `read_file` aracıyla incele ve faturayı denetle.\n"
-        f"ÖNEMLİ KURAL: İncelemeyi ve hesaplamaları bitirdiğinde, başka hiçbir metin veya açıklama eklemeden YALNIZCA geçerli tek bir JSON nesnesi döndür."
-    )
-
-    # 4. OpenAI / vLLM resmi Structured Output (json_schema) parametresi
-    output_schema = request_payload.get("output_schema", {})
-    clean_schema = dict(output_schema)
-    clean_schema.pop("$schema", None)
-
-    response_format = {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "InvoiceReviewV1",
-            "strict": True,
-            "schema": clean_schema
-        }
-    }
+    # 4. Prompt: Ekstra ajan talimatı eklenmez, doğrudan caseden gelen orijinal prompt iletilir
+    prompt = user_request
 
     accumulated_text = ""
     try:
-        # 5. WebSocket'e bağlan
+        # 5. WebSocket'e bağlan — preset backend'den alınır
         async with websockets.connect(BACKEND_WS, ping_timeout=120, close_timeout=10) as ws:
             ws_payload = {
                 "type": "chat",
                 "sessionId": session_id,
                 "prompt": prompt,
-                "presetId": preset_id,
-                "systemPrompt": system_prompt,
+                "presetId": target_preset_id,
                 "workspace": case_workspace,
-                "userId": "user_admin",
-                "responseFormat": response_format
+                "userId": "user_admin"
             }
+
             await ws.send(json.dumps(ws_payload))
 
             while True:

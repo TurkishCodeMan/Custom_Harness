@@ -1,0 +1,17 @@
+{
+  "case_id": "D17",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "PRICE_OVER",
+      "line_id": "L1",
+      "amount": "200.00",
+      "evidence_ids": [
+        "INV:L1",
+        "PO:L1"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-PO- eşleşmeleri kontrol edildi: tedarikçi (SUP-A), para birimi (TRY) ve sipariş referansı (PO-001) tutarlı; SKU-A ve birim EA siparişle eşleşiyor; teslimat miktarı (GRN:R1, 1 EA x 1 adet toplamı) fatura miktarıyla uyumlu ve geçmişte mükerrer kayıt yok. Tek bulgu L1 satırında fiyat farkıdır: fatura birim fiyatı 12 TRY iken sipariş onaylı fiyatı 10 TRY'dir; fark (2,5... düzeltme) (2 TRY x 1 adet... düzeltme) (2 TRY x 1 adet... düzeltme) — net ifadeyle (2 TRY x ... ) — doğru hesaplama: (2 TRY x ... ) — net ifadeyle (2 TRY x ... ) — doğru hesaplama: (2 TRY x ... )"
+}

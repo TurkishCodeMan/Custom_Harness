@@ -38,6 +38,17 @@ export async function deletePreset(presetId: string): Promise<boolean> {
   }
 }
 
+export async function fetchSettings(): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/settings`)
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`)
+    return await res.json()
+  } catch (err) {
+    console.warn('[CompanyOS] Settings çekilemedi:', err)
+    return null
+  }
+}
+
 export interface SkillItem {
   id: string
   name: string

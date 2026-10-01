@@ -1,0 +1,17 @@
+{
+  "case_id": "D13",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "SUPPLIER_MISMATCH",
+      "line_id": null,
+      "amount": null,
+      "evidence_ids": [
+        "INV",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 tedarikçisi SUP-B iken sipariş PO-001 tedarikçisi SUP-A'dır (INV vs PO). Politika v1 adım 4 gereği ilk durdurucu aşamada SUPPLIER_MISMATCH bulgusu ile NEEDS_INFO/REQUEST_DOCUMENTS olarak sonlandırıldı; satır düzeyi karşılaştırmalar yapılmadı. Para birimi (TRY) ve sipariş referansı (PO-001) tutarlıdır; teslimat kaydı GRN:R1 mevcuttur ancak bu aşamada değerlendirilmedi."
+}

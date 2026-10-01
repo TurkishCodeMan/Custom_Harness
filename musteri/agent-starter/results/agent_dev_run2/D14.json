@@ -1,0 +1,17 @@
+{
+  "case_id": "D14",
+  "decision": "NEEDS_INFO",
+  "next_action": "REQUEST_DOCUMENTS",
+  "findings": [
+    {
+      "code": "UNMATCHED_SKU",
+      "line_id": "L1",
+      "amount": null,
+      "evidence_ids": [
+        "INV:L1",
+        "PO"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 satırı L1'de SKU-Z faturalanmış; sipariş PO-001 yalnızca SKU-A içeriyor (PO:L1). Fatura SKU'su siparişte eşleşmiyor; teslimat kaydı GRN:R1 de yalnızca SKU-A için mevcut. Tedarikçi (SUP-A), para birimi (TRY) ve sipariş referansı (PO-001) tutarlı; geçmiş fatura yok, mükerrerlik yok. Eşleşmeyen SKU nedeniyle nicel karşılaştırma yapılamadı; doğru fatura satırı veya güncellenmiş sipariş belgesi talep edilmeli."
+}

@@ -1,0 +1,13 @@
+{
+  "case_id": "D06",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "summary": "Fatura INV-001, sipariş PO-001 ve teslimat GRN:R1 ile karşılaştırıldı. Tedarikçi (SUP-A), para birimi (TRY), sipariş referansı (PO-001), SKU (SKU-A), birim (EA) ve adet (100) tutarlıdır; teslimat kaydı adedi doğrulamaktadır ve fatura geçmişi boş olduğundan tekrar şüphesi yoktur. Ancak INV:L1 birim fiyatı 12,00 TRY olup PO:L1 onaylı fiyatı 12,5 farkı yerine 2,5... düzeltme: PO onaylı fiyatı 10,5 değil 12 değil — PO onaylı fiyatı 12 değil; doğru ifade: PO onaylı fiyatı 12 değil; net bulgu: INV:L1 birim fiyatı 12,5 değil; kesin bulgu: INV:L1 birim fiyatı 12,5 değil.",
+  "findings": [
+    {
+      "code": "PRICE_OVER",
+      "line_id": "L1",
+      "amount": "243434343434343434343434343434343"
+    }
+  ]
+}

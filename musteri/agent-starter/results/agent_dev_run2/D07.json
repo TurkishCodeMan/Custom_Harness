@@ -1,0 +1,17 @@
+{
+  "case_id": "D07",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "UNRECEIVED_QTY",
+      "line_id": "L1",
+      "amount": "200.00",
+      "evidence_ids": [
+        "INV:L1",
+        "GRN:R1"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 (PO-001, SUP-A, TRY) siparişle tedarikçi, para birimi ve sipariş referansı açısından uyumlu; SKU-A ve birim EA eşleşiyor; fiyat farkı yok (INV:L1 birim fiyatı PO:L1 ile aynı). Teslimat kaydı GRN:R1 yalnızca SKU-A için toplamda 8 adet gösterirken fatura INV:L1'de miktarı göstermektedir; bu nedenle teslim edilmemiş miktar farkı tespit edilmiştir (inceleme tutarı TRY). Geçmiş fatura kaydı bulunmamaktadır (invoice_history boş). Nicel fark nedeniyle dosya insan incelemesine yönlendirilmiştir."
+}

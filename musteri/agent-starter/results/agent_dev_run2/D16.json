@@ -1,0 +1,26 @@
+{
+  "case_id": "D16",
+  "decision": "REVIEW",
+  "next_action": "REQUEST_HUMAN_REVIEW",
+  "findings": [
+    {
+      "code": "PRICE_OVER",
+      "line_id": "L1",
+      "amount": "200.00",
+      "evidence_ids": [
+        "INV:L1",
+        "PO:L1"
+      ]
+    },
+    {
+      "code": "UNRECEIVED_QTY",
+      "line_id": "L1",
+      "amount": "288.00",
+      "evidence_ids": [
+        "INV:L1",
+        "GRN:R1"
+      ]
+    }
+  ],
+  "summary": "Fatura INV-001 (PO-001, SUP-A, TRY) incelendi; tedarikçi, para birimi ve sipariş referansı tutarlıdır, geçmişte mükerrer kayıt yoktur ve teslimat verisi mevcuttur (receipts boş liste). L1 satırında iki nicel fark bulundu: (1) Fatura birim fiyatı INV:L1'de 12, onaylı PO:L1 fiyatı ise 12 değil — düzeltme: PO:L1'de onaylı fiyatıdır ve fatura fiyatı bu değerin üzerindedir; fark (invoice_price - order_price) * quantity = (fatura birim fiyatı - onaylı birim fiyatı) x miktar üzerinden hesaplanarak PRICE_OVER bulgusu oluşturuldu (tutar fatura birim fiyatının onaylı birim fiyatını aşan kısmının fatura miktarıyla çarpımıdır). (2) GRN:R1'de teslim alınan miktar fatura miktarının altındadır; teslim edilmemiş kalan miktarın fatura birim fiyatıyla çarpımı UNRECEIVED_QTY bulgusu olarak raporlanmıştır. Sipariş miktar aşımı yoktur (fatura miktarı onaylı sipariş miktarını geçmemektedir). Nicel farklar nedeniyle karar REVIEW ve önerilen eylem REQUEST_HUMAN_REVIEW'dir."
+}

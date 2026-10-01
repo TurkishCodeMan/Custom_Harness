@@ -1,0 +1,7 @@
+{
+  "case_id": "D05",
+  "decision": "CLEAR",
+  "next_action": "RECORD_REVIEW",
+  "findings": [],
+  "summary": "INV-001 (SUP-A, PO-001, TRY) denetlendi. Tedarikçi (SUP-A), para birimi (TRY) ve sipariş referansı (PO-001) fatura ile sipariş arasında tutarlıdır; geçmiş fatura kaydı bulunmadığından mükerrerlik yoktur. INV:L1 satırı SKU-A/EA/1 adet ile PO:L1 ve GRN:R1 teslimatıyla birebir eşleşmektedir; miktar farkı sıfırdır (ORDER_QTY_OVER ve UNRECEIVED_QTY yok). Birim fiyat farkı INV:L1 (256) - PO:L1 (256) = ham PRICE_OVER tutarı yuvarlandığında tolerans içinde kalmaktadır; bulgu oluşmamıştır."
+}
