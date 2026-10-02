@@ -116,6 +116,15 @@ export class OpenAiLlmService extends LlmService {
           normalizedRf = undefined
         }
       }
+
+      // Güvenlik ağı: tools + json_schema aynı request'te vLLM/OpenAI tarafından reddedilebilir.
+      // tools varken json_schema gönderilirse json_object'e indirge veya kaldır.
+      const hasTools = body.tools && body.tools.length > 0
+      if (hasTools && normalizedRf?.type === 'json_schema') {
+        // vLLM ve OpenAI uyumluluğu için tools varken json_object'e düşürülür
+        normalizedRf = { type: 'json_object' }
+      }
+
       if (normalizedRf) {
         body.response_format = normalizedRf
         if (normalizedRf.type === 'json_object') {
@@ -187,8 +196,8 @@ export class OpenAiLlmService extends LlmService {
     body.max_tokens = Math.min(targetMaxTokens + thinkingBudget, availableHeadroom)
 
     body.temperature = typeof options.temperature === 'number' ? options.temperature : 0.2
-    body.frequency_penalty = 0.3
-    body.presence_penalty = 0.2
+    body.frequency_penalty = typeof (options as any).frequency_penalty === 'number' ? (options as any).frequency_penalty : 0
+    body.presence_penalty = typeof (options as any).presence_penalty === 'number' ? (options as any).presence_penalty : 0
 
     if (options.tools && options.tools.length > 0) {
       body.tools = options.tools

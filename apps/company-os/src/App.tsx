@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import type { Position, Routine, ActivityReceipt, NavView, ApprovalItem, ChatThread, ExecutionActionCard, ExecutionActionItem, ThreadMessage } from './types.js'
+import type { Position, Routine, ActivityReceipt, NavView, ApprovalItem, ChatThread, ExecutionActionCard, ExecutionActionItem, ThreadMessage, TokenMeasurement } from './types.js'
 import { Sidebar } from './components/Sidebar.js'
 import { AssistantPage } from './pages/AssistantPage.js'
 import { ApprovalsPage } from './pages/ApprovalsPage.js'
@@ -20,7 +20,8 @@ import { ActivityStream } from './components/ActivityStream.js'
 import { NewPositionModal } from './components/NewPositionModal.js'
 import { ReportViewerModal } from './components/ReportViewerModal.js'
 import { CompanyWorkspaceModal } from './components/CompanyWorkspaceModal.js'
-import { fetchSchedules, createSchedule, deleteSchedule, triggerSchedule, createSession, fetchSessions, fetchSession, deleteSession, clearAllSessions, setWorkspaceApi } from './api.js'
+import { SettingsPage } from './pages/SettingsPage.js'
+import { fetchSchedules, createSchedule, deleteSchedule, triggerSchedule, createSession, fetchSessions, fetchSession, deleteSession, clearAllSessions, setWorkspaceApi, fetchSessionContext } from './api.js'
 import { wsClient } from './ws.js'
 import { usePositions } from './hooks/usePositions.js'
 import { useApprovals } from './hooks/useApprovals.js'
@@ -104,6 +105,7 @@ export const App: React.FC = () => {
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [streamingText, setStreamingText] = useState<string>('')
   const [streamingThought, setStreamingThought] = useState<string>('')
+  const [sessionMeasurement, setSessionMeasurement] = useState<TokenMeasurement | undefined>(undefined)
   const streamingTextRef = useRef<string>('')
   const streamingThoughtRef = useRef<string>('')
 
@@ -111,6 +113,7 @@ export const App: React.FC = () => {
   const loadSessionMessages = async (sessionId: string) => {
     if (!sessionId) {
       setMessages([])
+      setSessionMeasurement(undefined)
       return
     }
     try {
@@ -132,6 +135,13 @@ export const App: React.FC = () => {
           )
         }
       }
+
+      // Fetch TokenMeter measurement from backend
+      fetchSessionContext(sessionId).then(measurement => {
+        if (measurement) {
+          setSessionMeasurement(measurement)
+        }
+      }).catch(() => {})
     } catch (err) {
       console.warn('Session messages yüklenemedi:', err)
     }
@@ -575,6 +585,10 @@ export const App: React.FC = () => {
         })
       }
 
+      if (data.measurement) {
+        setSessionMeasurement(data.measurement)
+      }
+
       streamingTextRef.current = ''
       streamingThoughtRef.current = ''
       setStreamingText('')
@@ -588,6 +602,18 @@ export const App: React.FC = () => {
 
     const unsubDone1 = wsClient.on('done', handleDone)
     const unsubDone2 = wsClient.on('chat/done', handleDone)
+
+    const unsubContextUpdate = wsClient.on('context_update', (data: any) => {
+      if (data?.measurement) {
+        setSessionMeasurement(data.measurement)
+      }
+    })
+
+    const unsubTokenUsage = wsClient.on('token_usage', (data: any) => {
+      if (data?.measurement) {
+        setSessionMeasurement(data.measurement)
+      }
+    })
 
     // Listen for AI-generated session title
     const unsubSessionTitle = wsClient.on('session_title', (data: any) => {
@@ -796,6 +822,8 @@ export const App: React.FC = () => {
       unsubChunk()
       unsubDone1()
       unsubDone2()
+      unsubContextUpdate()
+      unsubTokenUsage()
       unsubSessionTitle()
       unsubScheduleTrigger()
       unsubScheduleComplete()
@@ -1248,15 +1276,9 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
       {/* 1. Left Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
-        onSelectView={(v) => {
-          if (v === 'settings') {
-            setIsCompanyModalOpen(true)
-          } else {
-            setCurrentView(v)
-          }
-        }}
+        onSelectView={(v) => setCurrentView(v)}
         companyName={companyName}
-        onOpenCompanyWorkspace={() => setIsCompanyModalOpen(true)}
+        onOpenCompanyWorkspace={() => setCurrentView('settings')}
         pendingApprovalsCount={pendingApprovalsCount}
         chatThreads={chatThreads}
         activeThreadId={activeThreadId}
@@ -1272,7 +1294,10 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
           setActionCards([])
           setCurrentView('assistant')
         }}
-        onDeleteThread={handleDeleteThread}
+        onDeleteThread={(threadId, e) => {
+          e.stopPropagation()
+          handleDeleteThread(threadId)
+        }}
         onClearAllThreads={handleClearAllThreads}
       />
 
@@ -1285,19 +1310,22 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             <span className="breadcrumb-sep">/</span>
             <span className="breadcrumb-current">
               {currentView === 'dashboard' && 'Dashboard'}
-              {currentView === 'assistant' && 'Assistant & Execution Stream'}
+              {currentView === 'assistant' && 'Command Center'}
+              {currentView === 'cases' && 'Cases & Runs'}
               {currentView === 'tasks' && 'Tasks & Directives'}
-              {currentView === 'recurring' && 'Şirket Rutinleri (Recurring)'}
-              {currentView === 'approvals' && 'Approvals (Onaylar)'}
-              {currentView === 'workflows' && 'Workflows & Pipelines'}
-              {currentView === 'agents' && 'Organizasyon & Ajan Koltukları'}
-              {currentView === 'company' && 'Organizasyon Şeması'}
-              {currentView === 'knowledge' && 'Knowledge Base (Dokümanlar)'}
-              {currentView === 'skills' && 'Uzmanlık Becerileri (Skills)'}
-              {currentView === 'integrations' && 'Kurumsal Entegrasyonlar'}
-              {currentView === 'roi' && 'Denetim İzi & Receipts'}
-              {currentView === 'inspector' && 'Ajan Röntgeni (LLM Payload & Context Debug)'}
-              {currentView === 'settings' && 'Ayarlar'}
+              {currentView === 'recurring' && 'Scheduled Jobs'}
+              {currentView === 'approvals' && 'Approvals'}
+              {currentView === 'workflows' && 'Workflows & DAG'}
+              {currentView === 'agents' && 'Positions'}
+              {currentView === 'positions' && 'Positions'}
+              {currentView === 'company' && 'Organization Graph'}
+              {currentView === 'org-graph' && 'Organization Graph'}
+              {currentView === 'knowledge' && 'Knowledge'}
+              {currentView === 'skills' && 'Skills'}
+              {currentView === 'integrations' && 'Integrations'}
+              {currentView === 'roi' && 'Decision Ledger'}
+              {currentView === 'inspector' && 'Agent Debug'}
+              {currentView === 'settings' && 'System Settings'}
             </span>
           </div>
 
@@ -1374,6 +1402,7 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
                 }
               }}
               companyWorkspace={companyWorkspace}
+              tokenMeasurement={sessionMeasurement}
             />
           </div>
 
@@ -1391,26 +1420,29 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             />
           )}
 
-          {currentView === 'agents' && (
+          {/* Positions — koltuk listesi (eski 'agents') */}
+          {(currentView === 'agents' || currentView === 'positions') && (
             <AgentsPage
               positions={positions}
               onSelectPosition={(pos) => setSelectedPosition(pos)}
               onDirectDirective={(pos) => setSelectedPosition(pos)}
               onViewReport={(reportPath) => setSelectedReportPath(reportPath)}
               onAddNewPosition={() => setIsNewPositionModalOpen(true)}
-              onOpenChatWithAgent={(pos) => {
+              onOpenChatWithAgent={(_pos) => {
                 setCurrentView('assistant')
               }}
               isDirectiveRunning={isDirectiveRunning}
             />
           )}
 
-          {currentView === 'tasks' && (
+          {/* Cases & Runs (eski 'tasks') */}
+          {(currentView === 'tasks' || currentView === 'cases') && (
             <TasksPage
               positions={positions}
               receipts={receipts}
               routines={routines}
               chatThreads={chatThreads}
+              approvals={approvals}
               onOpenDirective={() => setIsDirectiveModalOpen(true)}
               onViewReport={(reportPath) => setSelectedReportPath(reportPath)}
               onSelectThread={(t) => {
@@ -1426,69 +1458,15 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
             />
           )}
 
-          {currentView === 'company' && (
-            <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: '800px' }}>
-              <div
-                style={{
-                  padding: '12px 24px',
-                  display: 'flex',
-                  gap: '10px',
-                  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-                  background: 'rgba(15, 23, 42, 0.6)',
-                  backdropFilter: 'blur(10px)'
-                }}
-              >
-                <button
-                  className={companySubTab === 'dag' ? 'btn-primary' : 'btn-secondary'}
-                  onClick={() => setCompanySubTab('dag')}
-                  style={{ fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 14px' }}
-                >
-                  <FlowIcon size={14} />
-                  <span>Canlı Görev Ağacı (A2A DAG)</span>
-                  {dagNodes.some((n) => n.status === 'running') && (
-                    <span
-                      style={{
-                        width: '7px',
-                        height: '7px',
-                        borderRadius: '50%',
-                        background: '#fbbf24',
-                        display: 'inline-block',
-                        animation: 'pulse 1s infinite'
-                      }}
-                    />
-                  )}
-                </button>
-                <button
-                  className={companySubTab === 'chart' ? 'btn-primary' : 'btn-secondary'}
-                  onClick={() => setCompanySubTab('chart')}
-                  style={{ fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 14px' }}
-                >
-                  <OrganizationIcon size={14} />
-                  <span>Hiyerarşik Organigram</span>
-                </button>
-              </div>
-
-              {companySubTab === 'dag' ? (
-                <ExecutionDagViewer
-                  nodes={dagNodes}
-                  activeTraceId={activeTraceId}
-                  positions={positions}
-                  onOpenSession={(sId) => {
-                    setActiveThreadId(sId)
-                    setCurrentView('assistant')
-                  }}
-                  onClearGraph={() => setDagNodes([])}
-                />
-              ) : (
-                <OrgChart
-                  positions={positions}
-                  onSelectPosition={(pos) => setSelectedPosition(pos)}
-                  onDirectDirective={(pos) => setSelectedPosition(pos)}
-                  onViewReport={(reportPath) => setSelectedReportPath(reportPath)}
-                  isDirectiveRunning={isDirectiveRunning}
-                />
-              )}
-            </div>
+          {/* Organization Graph — sadece OrgChart hiyerarşisi */}
+          {(currentView === 'company' || currentView === 'org-graph') && (
+            <OrgChart
+              positions={positions}
+              onSelectPosition={(pos) => setSelectedPosition(pos)}
+              onDirectDirective={(pos) => setSelectedPosition(pos)}
+              onViewReport={(reportPath) => setSelectedReportPath(reportPath)}
+              isDirectiveRunning={isDirectiveRunning}
+            />
           )}
 
           {currentView === 'recurring' && (
@@ -1536,18 +1514,46 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
           )}
 
           {currentView === 'workflows' && (
-            <WorkflowsPage
-              positions={positions}
-              onRunWorkflow={(title, targetIds) => {
-                handleExecuteDirective({
-                  prompt: `[İş Akışı Başlatıldı]: ${title}. İlgili tüm adımları sırayla işletip konsolide durum raporunu masaya koyun.`,
-                  targetPositionIds: targetIds,
-                  scheduleType: 'instant'
-                })
-                setCurrentView('assistant')
-              }}
-              isExecuting={isDirectiveRunning}
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minHeight: '600px' }}>
+              {/* DAG Viewer — canlı execution ağacı */}
+              {dagNodes.length > 0 && (
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(15,23,42,0.5)' }}>
+                    <FlowIcon size={14} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Live Execution DAG</span>
+                    {dagNodes.some(n => n.status === 'running') && (
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', display: 'inline-block', animation: 'pulse 1s infinite' }} />
+                    )}
+                    <button className="btn-secondary" style={{ marginLeft: 'auto', fontSize: '11px', padding: '4px 10px' }} onClick={() => setDagNodes([])}>
+                      Clear
+                    </button>
+                  </div>
+                  <ExecutionDagViewer
+                    nodes={dagNodes}
+                    activeTraceId={activeTraceId}
+                    positions={positions}
+                    onOpenSession={(sId) => {
+                      setActiveThreadId(sId)
+                      setCurrentView('assistant')
+                    }}
+                    onClearGraph={() => setDagNodes([])}
+                  />
+                </div>
+              )}
+              {/* Workflow Şablonları */}
+              <WorkflowsPage
+                positions={positions}
+                onRunWorkflow={(title, targetIds) => {
+                  handleExecuteDirective({
+                    prompt: `[İş Akışı Başlatıldı]: ${title}. İlgili tüm adımları sırayla işletip konsolide durum raporunu masaya koyun.`,
+                    targetPositionIds: targetIds,
+                    scheduleType: 'instant'
+                  })
+                  setCurrentView('assistant')
+                }}
+                isExecuting={isDirectiveRunning}
+              />
+            </div>
           )}
 
           {currentView === 'inspector' && (
@@ -1555,6 +1561,16 @@ GÖREVİN VE TOPLANTI PROTOKOLÜ (MÜZAKERE ADIMLARI):
               chatThreads={chatThreads}
               activeSessionId={activeThreadId || undefined}
               companyWorkspace={companyWorkspace}
+            />
+          )}
+
+          {currentView === 'settings' && (
+            <SettingsPage
+              companyName={companyName}
+              companyWorkspace={companyWorkspace}
+              positions={positions}
+              onSaveWorkspace={handleUpdateCompanyWorkspace}
+              threadsCount={chatThreads.length}
             />
           )}
         </div>

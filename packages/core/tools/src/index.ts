@@ -43,7 +43,7 @@ export class ToolsService extends Service {
 
   public getOpenAiSchemas(allowedTools?: string[]): any[] {
     let tools = this.getActiveTools()
-    if (allowedTools !== undefined) {
+    if (allowedTools !== undefined && Array.isArray(allowedTools)) {
       const allowedSet = new Set(allowedTools)
       tools = tools.filter(tool => allowedSet.has(tool.name))
     }

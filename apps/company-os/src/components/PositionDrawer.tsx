@@ -4,6 +4,7 @@ import { fetchSkills, fetchPresets, fetchTools, savePreset, browseWorkspace, fet
 import { TOOL_CLASSES, ToolCategory, getToolCategory, getToolCategoryMeta } from '../toolCategories.js'
 import { PresetCognitiveSettings } from './PresetCognitiveSettings.js'
 import { AgentContractSettings } from './AgentContractSettings.js'
+import { FileScopeSelector } from './FileScopeSelector.js'
 
 interface PositionDrawerProps {
   position: Position | null
@@ -78,6 +79,9 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
   const [editVerificationRules, setEditVerificationRules] = useState<any[]>(() => {
     return position?.verificationRules || position?.contract?.verificationPolicy?.rules || []
   })
+
+  // File Scope (READ / WRITE Path ACL)
+  const [editFileScope, setEditFileScope] = useState<any>(position?.fileScope)
 
   const rootWs = companyWorkspace || '/home/huseyina/code_mode/COMPANY_ABC'
 
@@ -154,6 +158,9 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       setEditInputSchemaStr(position.inputSchema ? JSON.stringify(position.inputSchema, null, 2) : '')
       setEditOutputSchemaStr(position.outputSchema ? JSON.stringify(position.outputSchema, null, 2) : '')
       setEditVerificationRules(position.verificationRules || position.contract?.verificationPolicy?.rules || [])
+
+      const fsScope = position.fileScope || matchingPreset?.fileScope
+      setEditFileScope(fsScope)
 
       setIsEditing(false)
     }
@@ -301,6 +308,8 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       } catch {}
     }
 
+    const fileScope = editFileScope
+
     const updated: Position = {
       ...position,
       title: editTitle.trim() || position.title,
@@ -313,6 +322,7 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
       systemPrompt: editSystemPrompt.trim() || undefined,
       tools: editTools,
       skills: editSkills,
+      fileScope,
       modelId: editModelId.trim() || undefined,
       providerId: editProviderId.trim() || undefined,
       temperature: typeof editTemperature === 'number' ? editTemperature : undefined,
@@ -530,6 +540,9 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
                         if (typeof pr.maxTurns === 'number') setEditMaxTurns(pr.maxTurns)
                         if (Array.isArray(pr.enabledTools)) setEditTools(pr.enabledTools)
                         if (Array.isArray(pr.enabledSkills)) setEditSkills(pr.enabledSkills)
+                        if (pr.fileScope) {
+                          setEditFileScope(pr.fileScope)
+                        }
                       }
                     }}
                   >
@@ -636,6 +649,13 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
               onChangeOutputSchemaStr={setEditOutputSchemaStr}
               allPositions={allPositions}
               currentPositionId={position.id}
+            />
+
+            {/* File Scope (READ / WRITE Path ACL) Dynamic Interactive Selector */}
+            <FileScopeSelector
+              workspace={editWorkspace || rootWs}
+              fileScope={editFileScope}
+              onChange={setEditFileScope}
             />
 
             {/* Available Tools Selector */}
@@ -1024,6 +1044,76 @@ export const PositionDrawer: React.FC<PositionDrawerProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* File Scope (READ / WRITE Path ACL) View Card */}
+            {(position.fileScope || availablePresets.find(p => p.id === position.presetId)?.fileScope) && (() => {
+              const fs = position.fileScope || availablePresets.find(p => p.id === position.presetId)?.fileScope
+              return (
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🛡️ Dosya İzin Sınırları (File Scope ACL)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      style={{ background: 'transparent', border: 'none', color: '#38bdf8', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      ✏️ Düzenle
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                    {fs.read && fs.read.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#34d399', minWidth: '55px' }}>📖 READ:</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {fs.read.map((pat: string) => (
+                            <code key={pat} style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#6ee7b7', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                              {pat}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {fs.write && fs.write.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#38bdf8', minWidth: '55px' }}>✍️ WRITE:</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {fs.write.map((pat: string) => (
+                            <code key={pat} style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#bae6fd', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                              {pat}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {fs.deny && fs.deny.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: '#f87171', minWidth: '55px' }}>🚫 DENY:</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {fs.deny.map((pat: string) => (
+                            <code key={pat} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                              {pat}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Tools Assigned */}
             <div>

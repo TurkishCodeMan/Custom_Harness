@@ -4,9 +4,125 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export const name = 'tool-fs'
-export const inject = ['tools', 'fs', 'settings']
+export const inject = ['tools', 'fs', 'settings', 'session']
 
 import os from 'node:os'
+
+function globToRegex(glob: string): RegExp {
+  const normalized = glob.replace(/\\/g, '/')
+  let regexStr = '^'
+  let i = 0
+  while (i < normalized.length) {
+    const c = normalized[i]
+    if (c === '*' && normalized[i + 1] === '*') {
+      if (normalized[i + 2] === '/') {
+        regexStr += '(?:.+/)?'
+        i += 3
+      } else {
+        regexStr += '.*'
+        i += 2
+      }
+    } else if (c === '*') {
+      regexStr += '[^/]*'
+      i++
+    } else if (c === '?') {
+      regexStr += '[^/]'
+      i++
+    } else if ('./+^$[](){}|'.includes(c)) {
+      regexStr += '\\' + c
+      i++
+    } else {
+      regexStr += c
+      i++
+    }
+  }
+  regexStr += '$'
+  return new RegExp(regexStr, 'i')
+}
+
+export function matchGlob(pattern: string, targetPath: string): boolean {
+  const normTarget = targetPath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const normPattern = pattern.replace(/\\/g, '/').replace(/^\/+/, '')
+
+  if (normPattern.endsWith('/**')) {
+    const prefix = normPattern.slice(0, -3)
+    if (normTarget === prefix || normTarget.startsWith(prefix + '/')) return true
+  }
+
+  try {
+    return globToRegex(normPattern).test(normTarget)
+  } catch {
+    return normTarget === normPattern || normTarget.startsWith(normPattern)
+  }
+}
+
+function assertPathScope(
+  resolvedPath: string,
+  op: 'read' | 'write',
+  ctx: Context,
+  context?: any
+): void {
+  // 1. Resolve active preset
+  let activePreset: any = context?.activePreset || null
+  const sessionId = context?.sessionId
+  if (!activePreset && sessionId && ctx.session?.getSession) {
+    const session = ctx.session.getSession(sessionId)
+    if (session?.presetId) {
+      activePreset = (ctx as any).agentPresets?.get?.(session.presetId) ||
+                     (ctx as any).presets?.getPreset?.(session.presetId) ||
+                     (ctx as any).preset?.getPreset?.(session.presetId) ||
+                     ctx.settings?.getPreset?.(session.presetId)
+    }
+  }
+
+  if (!activePreset && context?.preset) {
+    activePreset = typeof context.preset === 'object' ? context.preset : ctx.settings?.getPreset?.(context.preset)
+  }
+
+  // If no fileScope restricted on preset, fallback to standard safe workspace check
+  if (!activePreset?.fileScope) {
+    return
+  }
+
+  const fileScope = activePreset.fileScope
+  const root = context?.cwd || (ctx.settings?.getSettings?.().workspace) || process.cwd()
+  const relPath = path.relative(path.resolve(root), path.resolve(resolvedPath)).replace(/\\/g, '/')
+
+  // Empty or root dot is allowed for workspace inspection
+  if (relPath === '' || relPath === '.') {
+    return
+  }
+
+  // 1. Deny check
+  if (fileScope.deny && Array.isArray(fileScope.deny) && fileScope.deny.length > 0) {
+    for (const pattern of fileScope.deny) {
+      if (matchGlob(pattern, relPath)) {
+        throw new Error(`[Dosya Güvenlik Engeli (DENY)]: '${relPath}' yoluna erişim '${activePreset.name || activePreset.id}' koltuğu için kesin olarak yasaklanmıştır.`)
+      }
+    }
+  }
+
+  // 2. Read check
+  if (op === 'read') {
+    if (fileScope.read && Array.isArray(fileScope.read) && fileScope.read.length > 0) {
+      const allowed = fileScope.read.some((pattern: string) => matchGlob(pattern, relPath))
+      if (!allowed) {
+        throw new Error(`[Okuma Güvenlik Engeli (READ SCOPE)]: '${relPath}' yolu '${activePreset.name || activePreset.id}' koltuğunun okuma yetkileri dışındadır. İzinli alanlar: ${fileScope.read.join(', ')}`)
+      }
+    }
+  }
+
+  // 3. Write check
+  if (op === 'write') {
+    if (!fileScope.write || !Array.isArray(fileScope.write) || fileScope.write.length === 0) {
+      throw new Error(`[Yazma Güvenlik Engeli (WRITE SCOPE)]: '${activePreset.name || activePreset.id}' koltuğunun dosya yazma/düzenleme yetkisi YOKTUR (Salt-Okunur rol).`)
+    }
+    const allowed = fileScope.write.some((pattern: string) => matchGlob(pattern, relPath))
+    if (!allowed) {
+      throw new Error(`[Yazma Güvenlik Engeli (WRITE SCOPE)]: '${relPath}' yoluna dosya yazma/düzenleme yetkiniz yoktur. Yalnızca şu yollar altına yazabilirsiniz: ${fileScope.write.join(', ')}`)
+    }
+  }
+}
 
 function assertWritePermitted(ctx: Context): void {
   const mode = ctx.settings?.getSandboxMode ? ctx.settings.getSandboxMode() : 'workspace-write'
@@ -150,6 +266,7 @@ export function apply(ctx: Context) {
     if (!targetFile) throw new Error('file_path or path parameter is required.')
     
     const fullPath = resolvePath(targetFile, context?.cwd)
+    assertPathScope(fullPath, 'read', ctx, context)
     if (!fs.existsSync(fullPath)) {
       throw new Error(`File not found: ${targetFile}`)
     }
@@ -214,6 +331,7 @@ export function apply(ctx: Context) {
     if (!targetFile) throw new Error('file_path or path parameter is required.')
 
     const fullPath = resolvePath(targetFile, context?.cwd)
+    assertPathScope(fullPath, 'write', ctx, context)
     const oldStr = args.old_string ?? args.old_str ?? args.old_content
     const newStr = args.new_string ?? args.new_str ?? args.new_content ?? ''
     const replaceAll = args.replace_all ?? false
@@ -280,25 +398,29 @@ export function apply(ctx: Context) {
     const targetFile = args.file_path || args.path || args.filePath || args.target_file || args.filename || args.TargetFile
     if (!targetFile) throw new Error('file_path or path parameter is required.')
 
+    const rawContent = args.content ?? args.contents ?? args.data ?? args.text ?? args.body ?? args.CodeContent ?? ''
+    const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent, null, 2)
+
     const fullPath = resolvePath(targetFile, context?.cwd)
+    assertPathScope(fullPath, 'write', ctx, context)
     fs.mkdirSync(path.dirname(fullPath), { recursive: true })
-    fs.writeFileSync(fullPath, args.content || '', 'utf8')
-    return `The file ${targetFile} has been written successfully.`
+    fs.writeFileSync(fullPath, content, 'utf8')
+
+    let jsonValidationNote = ''
+    if (targetFile.endsWith('.json')) {
+      try {
+        JSON.parse(content)
+        jsonValidationNote = ' Valid JSON syntax confirmed.'
+      } catch (err: any) {
+        jsonValidationNote = ` [WARNING]: Written content is NOT valid JSON: ${err.message}.`
+      }
+    }
+
+    const lineCount = content.split('\n').length
+    const charCount = content.length
+    return `Successfully wrote ${charCount} characters (${lineCount} lines) to ${targetFile}.${jsonValidationNote}`
   }
 
-  ctx.tools.register(defineTool({
-    name: 'write',
-    description: 'Create or overwrite a file with given content.',
-    parameters: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'Path to the file to write.' },
-        content: { type: 'string', description: 'Content to write.' }
-      },
-      required: ['file_path', 'content']
-    },
-    execute: writeHandler
-  }))
 
   ctx.tools.register(defineTool({
     name: 'write_file',
@@ -334,6 +456,7 @@ export function apply(ctx: Context) {
       const fullPath = resolvePath(args.path, context?.cwd)
 
       if (args.command === 'view') {
+        assertPathScope(fullPath, 'read', ctx, context)
         if (!fs.existsSync(fullPath)) throw new Error(`Path does not exist: ${args.path}`)
         const stat = fs.statSync(fullPath)
         if (stat.isDirectory()) {
@@ -353,6 +476,7 @@ export function apply(ctx: Context) {
       }
 
       assertWritePermitted(ctx)
+      assertPathScope(fullPath, 'write', ctx, context)
 
       if (args.command === 'create') {
         fs.mkdirSync(path.dirname(fullPath), { recursive: true })
@@ -387,6 +511,7 @@ export function apply(ctx: Context) {
     },
     execute: async (args: { path?: string; recursive?: boolean }, context) => {
       const fullPath = resolvePath(args.path || '.', context?.cwd)
+      assertPathScope(fullPath, 'read', ctx, context)
       if (!fs.existsSync(fullPath)) {
         throw new Error(`Directory not found: ${args.path || '.'}`)
       }
@@ -399,6 +524,14 @@ export function apply(ctx: Context) {
           if (entry.name === 'node_modules' || entry.name === '.git') continue
           const itemPath = path.join(dir, entry.name)
           const rel = path.relative(fullPath, itemPath)
+          
+          // Filter out files that violate path scope
+          try {
+            assertPathScope(itemPath, 'read', ctx, context)
+          } catch {
+            continue
+          }
+
           if (entry.isDirectory()) {
             results.push({ name: rel, type: 'directory' })
             if (args.recursive) {
@@ -432,6 +565,8 @@ export function apply(ctx: Context) {
     execute: async (args: { query: string; path?: string }, context) => {
       const cwd = context?.cwd || process.cwd()
       const searchPath = args.path || '.'
+      const fullSearchPath = resolvePath(searchPath, cwd)
+      assertPathScope(fullSearchPath, 'read', ctx, context)
       try {
         const { execSync } = await import('node:child_process')
         const output = execSync(`grep -rnI --exclude-dir=.git --exclude-dir=node_modules -m 30 "${args.query.replace(/"/g, '\\"')}" ${searchPath}`, { cwd, encoding: 'utf8', maxBuffer: 1024 * 1024 * 5 })

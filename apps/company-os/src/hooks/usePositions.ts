@@ -39,6 +39,7 @@ function presetToPosition(preset: any): Position {
     maxTurns: typeof preset.maxTurns === 'number' ? preset.maxTurns : undefined,
     status: 'idle',
     currentAction: preset.currentAction || 'Hazır',
+    fileScope: preset.fileScope || preset.contract?.fileScope,
     // Phase 2: Contract-Safe Agent Runtime & Delegation Mesh
     isCallableByAgents: preset.isCallableByAgents ?? (preset.contract?.isCallableByAgents ?? !!preset.inputSchema),
     allowedDelegates: preset.allowedDelegates || preset.contract?.allowedDelegates || [],
@@ -82,7 +83,8 @@ function positionToPreset(pos: Position): any {
     allowedCallers: pos.allowedCallers,
     inputSchema: pos.inputSchema,
     outputSchema: pos.outputSchema,
-    contract: pos.contract
+    contract: pos.contract,
+    fileScope: pos.fileScope
   }
 }
 

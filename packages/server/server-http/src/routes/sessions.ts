@@ -96,12 +96,16 @@ export function createSessionsRouter(ctx: Context): Router {
 
   // 6. Session Context Measurement
   router.get('/sessions/:id/context', checkSession, (req, res) => {
-    const tm = (ctx as any).get?.('tokenMeter', false) || (ctx as any).reflect?.get?.('tokenMeter', false) || (ctx as any).tokenMeter
-    if (!tm || !tm.measureSession) {
-      return res.status(503).json({ error: 'Token meter service not available' })
+    try {
+      const tm = (ctx as any).get?.('tokenMeter', false) || (ctx as any).reflect?.get?.('tokenMeter', false) || (ctx as any).tokenMeter
+      if (!tm || !tm.measureSession) {
+        return res.status(503).json({ error: 'Token meter service not available' })
+      }
+      const measurement = tm.measureSession(req.params.id)
+      res.json(measurement)
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
     }
-    const measurement = tm.measureSession(req.params.id)
-    res.json(measurement)
   })
 
   return router

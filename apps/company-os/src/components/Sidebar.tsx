@@ -1,8 +1,8 @@
 import React from 'react'
 import type { NavView, ChatThread } from '../types.js'
 import {
-  OrganizationIcon,
-  CockpitIcon,
+  CommandCenterIcon,
+  CasesIcon,
   GovernanceIcon,
   LedgerIcon,
   KnowledgeIcon,
@@ -14,7 +14,10 @@ import {
   TrashIcon,
   FlowIcon,
   SparklesIcon,
-  InspectorIcon
+  InspectorIcon,
+  PositionsIcon,
+  GraphIcon,
+  OrganizationIcon
 } from './Icons.js'
 
 interface SidebarProps {
@@ -41,6 +44,11 @@ interface NavItemDef {
   badgeVariant?: 'danger' | 'warning' | 'info'
 }
 
+interface NavGroup {
+  label: string
+  items: NavItemDef[]
+}
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
@@ -56,49 +64,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userName = 'Hüseyin',
   userRole = 'Yönetici / Executive'
 }) => {
-  // 4 Core Executive Hubs
-  const executiveHubs: NavItemDef[] = [
+  const isAdmin = !userRole ||
+    userRole.toLowerCase().includes('yönetici') ||
+    userRole.toLowerCase().includes('admin') ||
+    userRole.toLowerCase().includes('executive')
+
+  const navGroups: NavGroup[] = [
     {
-      id: 'company',
-      label: 'Organizasyon & DAG',
-      icon: <OrganizationIcon size={16} />
+      label: 'OPERATE',
+      items: [
+        {
+          id: 'assistant',
+          label: 'Command Center',
+          icon: <CommandCenterIcon size={15} />
+        },
+        {
+          id: 'cases',
+          label: 'Cases & Runs',
+          icon: <CasesIcon size={15} />
+        },
+        {
+          id: 'approvals',
+          label: 'Approvals',
+          icon: <GovernanceIcon size={15} />,
+          badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined,
+          badgeVariant: 'danger'
+        }
+      ]
     },
     {
-      id: 'assistant',
-      label: 'Yönetici Kokpiti',
-      icon: <CockpitIcon size={16} />
+      label: 'ORGANIZATION',
+      items: [
+        {
+          id: 'positions',
+          label: 'Positions',
+          icon: <PositionsIcon size={15} />
+        },
+        {
+          id: 'org-graph',
+          label: 'Organization Graph',
+          icon: <GraphIcon size={15} />
+        },
+        {
+          id: 'workflows',
+          label: 'Workflows & DAG',
+          icon: <FlowIcon size={15} />
+        }
+      ]
     },
     {
-      id: 'approvals',
-      label: 'Yönetişim & Onaylar',
-      icon: <GovernanceIcon size={16} />,
-      badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined,
-      badgeVariant: 'danger'
+      label: 'KNOWLEDGE & CAPABILITIES',
+      items: [
+        { id: 'knowledge', label: 'Knowledge', icon: <KnowledgeIcon size={15} /> },
+        { id: 'skills', label: 'Skills', icon: <SparklesIcon size={15} /> },
+        { id: 'integrations', label: 'Integrations', icon: <PlugIcon size={15} /> },
+        { id: 'recurring', label: 'Scheduled Jobs', icon: <RecurringIcon size={15} /> }
+      ]
     },
     {
-      id: 'roi',
-      label: 'Karar Defteri & Audit',
-      icon: <LedgerIcon size={16} />
+      label: 'GOVERNANCE',
+      items: [
+        { id: 'roi', label: 'Decision Ledger', icon: <LedgerIcon size={15} /> },
+        ...(isAdmin ? [{
+          id: 'inspector' as NavView,
+          label: 'Agent Debug',
+          icon: <InspectorIcon size={15} />,
+          badge: 'DEV',
+          badgeVariant: 'warning' as const
+        }] : []),
+        { id: 'settings', label: 'System Settings', icon: <SettingsIcon size={15} /> }
+      ]
     }
-  ]
-
-  const isAdmin = !userRole || userRole.toLowerCase().includes('yönetici') || userRole.toLowerCase().includes('admin') || userRole.toLowerCase().includes('executive')
-
-  // Secondary Tools & System Dock
-  const utilityItems: NavItemDef[] = [
-    { id: 'workflows', label: 'İş Akışları (DAG)', icon: <FlowIcon size={15} /> },
-    { id: 'knowledge', label: 'Bilgi Tabanı (RAG)', icon: <KnowledgeIcon size={15} /> },
-    { id: 'skills', label: 'Beceriler (Skills)', icon: <SparklesIcon size={15} /> },
-    { id: 'recurring', label: 'Zamanlanmış Görevler', icon: <RecurringIcon size={15} /> },
-    { id: 'integrations', label: 'Entegrasyonlar', icon: <PlugIcon size={15} /> },
-    ...(isAdmin ? [{
-      id: 'inspector' as NavView,
-      label: 'Ajan Röntgeni (Debug)',
-      icon: <InspectorIcon size={15} />,
-      badge: 'ADMIN',
-      badgeVariant: 'warning' as const
-    }] : []),
-    { id: 'settings', label: 'Sistem Ayarları', icon: <SettingsIcon size={15} /> }
   ]
 
   const todayThreads = chatThreads.filter(t => t.period === 'today')
@@ -137,70 +173,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
-      {/* Main Navigation - 4 Executive Hubs */}
-      <div className="sidebar-section-container">
-        <div className="sidebar-section-title">YÖNETİM KOKPİTİ</div>
-        <nav className="sidebar-nav-section">
-          {executiveHubs.map(item => {
-            const isActive = currentView === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => onSelectView(item.id)}
-              >
-                <span className="nav-item-icon">{item.icon}</span>
-                <span className="nav-item-label">{item.label}</span>
-                {item.badge !== undefined && (
-                  <span className={`nav-item-badge ${item.badgeVariant || ''}`}>
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </nav>
+      {/* 4-Group Navigation */}
+      <div className="sidebar-nav-groups">
+        {navGroups.map(group => (
+          <div key={group.label} className="sidebar-section-container">
+            <div className="sidebar-section-title">{group.label}</div>
+            <nav className="sidebar-nav-section">
+              {group.items.map(item => {
+                const isActive = currentView === item.id
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => onSelectView(item.id)}
+                  >
+                    <span className="nav-item-icon">{item.icon}</span>
+                    <span className="nav-item-label">{item.label}</span>
+                    {item.badge !== undefined && (
+                      <span className={`nav-item-badge ${item.badgeVariant || ''}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </nav>
+          </div>
+        ))}
       </div>
 
-      {/* Secondary Tools */}
-      <div className="sidebar-section-container" style={{ marginTop: '12px' }}>
-        <div className="sidebar-section-title">SİSTEM ALTYAPISI</div>
-        <nav className="sidebar-nav-section compact">
-          {utilityItems.map(item => {
-            const isActive = currentView === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`sidebar-nav-item sub-item ${isActive ? 'active' : ''}`}
-                onClick={() => onSelectView(item.id)}
-              >
-                <span className="nav-item-icon">{item.icon}</span>
-                <span className="nav-item-label">{item.label}</span>
-                {item.badge !== undefined && (
-                  <span className="nav-item-badge">{item.badge}</span>
-                )}
-              </button>
-            )
-          })}
-        </nav>
-      </div>
-
-      {/* CHATS Section */}
+      {/* Chat Thread History */}
       <div className="sidebar-chats-section">
         <div className="chats-section-header">
-          <span className="chats-header-title">GÖREV VE OTURUMLAR</span>
-          {chatThreads.length > 0 && onClearAllThreads && (
+          <span className="chats-header-title">CONVERSATIONS</span>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button
               type="button"
               className="chats-clear-all-btn"
-              title="Tüm Oturumları Temizle"
-              onClick={onClearAllThreads}
+              title="Yeni Sohbet Başlat"
+              onClick={onNewChat}
+              style={{ padding: '2px 4px', display: 'flex', alignItems: 'center', color: '#94a3b8' }}
             >
-              Temizle
+              <PlusIcon size={12} />
             </button>
-          )}
+            {chatThreads.length > 0 && onClearAllThreads && (
+              <button
+                type="button"
+                className="chats-clear-all-btn"
+                title="Tüm Konuşmaları Sil"
+                onClick={onClearAllThreads}
+                style={{ padding: '2px 4px' }}
+              >
+                <TrashIcon size={11} />
+              </button>
+            )}
+          </div>
         </div>
 
         <button
@@ -208,107 +236,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="new-chat-btn"
           onClick={onNewChat}
         >
-          <PlusIcon size={14} />
+          <PlusIcon size={13} />
           <span>Yeni Görev Başlat</span>
         </button>
 
         <div className="chats-scroll-list">
-          {/* TODAY */}
           {todayThreads.length > 0 && (
             <div className="chat-time-group">
               <span className="chat-time-label">BUGÜN</span>
-              {todayThreads.map(thread => (
-                <div
+              {todayThreads.map((thread) => (
+                <ThreadItem
                   key={thread.id}
-                  className={`chat-thread-item ${activeThreadId === thread.id ? 'active' : ''}`}
-                  onClick={() => onSelectThread(thread)}
-                  title={thread.title}
-                >
-                  <div className="chat-thread-main">
-                    <span className="chat-thread-bullet"></span>
-                    <span className="chat-thread-title">{thread.title}</span>
-                  </div>
-                  {onDeleteThread && (
-                    <button
-                      type="button"
-                      className="chat-thread-delete-btn"
-                      title="Oturumu Sil"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteThread(thread.id, e)
-                      }}
-                    >
-                      <TrashIcon size={13} />
-                    </button>
-                  )}
-                </div>
+                  thread={thread}
+                  isActive={thread.id === activeThreadId}
+                  onSelect={() => onSelectThread(thread)}
+                  onDelete={onDeleteThread ? (e) => onDeleteThread(thread.id, e) : undefined}
+                />
               ))}
             </div>
           )}
 
-          {/* YESTERDAY */}
           {yesterdayThreads.length > 0 && (
             <div className="chat-time-group">
               <span className="chat-time-label">DÜN</span>
-              {yesterdayThreads.map(thread => (
-                <div
+              {yesterdayThreads.map((thread) => (
+                <ThreadItem
                   key={thread.id}
-                  className={`chat-thread-item ${activeThreadId === thread.id ? 'active' : ''}`}
-                  onClick={() => onSelectThread(thread)}
-                  title={thread.title}
-                >
-                  <div className="chat-thread-main">
-                    <span className="chat-thread-bullet"></span>
-                    <span className="chat-thread-title">{thread.title}</span>
-                  </div>
-                  {onDeleteThread && (
-                    <button
-                      type="button"
-                      className="chat-thread-delete-btn"
-                      title="Oturumu Sil"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteThread(thread.id, e)
-                      }}
-                    >
-                      <TrashIcon size={13} />
-                    </button>
-                  )}
-                </div>
+                  thread={thread}
+                  isActive={thread.id === activeThreadId}
+                  onSelect={() => onSelectThread(thread)}
+                  onDelete={onDeleteThread ? (e) => onDeleteThread(thread.id, e) : undefined}
+                />
               ))}
             </div>
           )}
 
-          {/* LAST 7 DAYS */}
           {last7DaysThreads.length > 0 && (
             <div className="chat-time-group">
               <span className="chat-time-label">SON 7 GÜN</span>
-              {last7DaysThreads.map(thread => (
-                <div
+              {last7DaysThreads.map((thread) => (
+                <ThreadItem
                   key={thread.id}
-                  className={`chat-thread-item ${activeThreadId === thread.id ? 'active' : ''}`}
-                  onClick={() => onSelectThread(thread)}
-                  title={thread.title}
-                >
-                  <div className="chat-thread-main">
-                    <span className="chat-thread-bullet"></span>
-                    <span className="chat-thread-title">{thread.title}</span>
-                  </div>
-                  {onDeleteThread && (
-                    <button
-                      type="button"
-                      className="chat-thread-delete-btn"
-                      title="Oturumu Sil"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteThread(thread.id, e)
-                      }}
-                    >
-                      <TrashIcon size={13} />
-                    </button>
-                  )}
-                </div>
+                  thread={thread}
+                  isActive={thread.id === activeThreadId}
+                  onSelect={() => onSelectThread(thread)}
+                  onDelete={onDeleteThread ? (e) => onDeleteThread(thread.id, e) : undefined}
+                />
               ))}
+            </div>
+          )}
+
+          {chatThreads.length === 0 && (
+            <div style={{ padding: '16px 8px', fontSize: '11px', color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>
+              Henüz konuşma geçmişi yok
             </div>
           )}
         </div>
@@ -316,23 +296,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* User Profile Footer */}
       <div className="sidebar-user-footer">
-        <div className="user-avatar-circle">
-          <span>{userName.slice(0, 1).toUpperCase()}</span>
-        </div>
+        <div className="user-avatar-circle">{userName.charAt(0)}</div>
         <div className="user-info-text">
           <span className="user-name-label">{userName}</span>
           <span className="user-role-label">{userRole}</span>
         </div>
-        <button
-          type="button"
-          className="user-settings-trigger"
-          onClick={() => onSelectView('settings')}
-          title="Ayarlar"
-        >
-          <SettingsIcon size={15} />
-        </button>
       </div>
     </aside>
   )
 }
 
+// ─── Thread List Item ──────────────────────────────────────────────────────────
+interface ThreadItemProps {
+  thread: ChatThread
+  isActive: boolean
+  onSelect: () => void
+  onDelete?: (e: React.MouseEvent) => void
+}
+
+const ThreadItem: React.FC<ThreadItemProps> = ({ thread, isActive, onSelect, onDelete }) => (
+  <div
+    className={`chat-thread-item ${isActive ? 'active' : ''}`}
+    onClick={onSelect}
+    title={thread.title}
+  >
+    <div className="chat-thread-main">
+      <span className="chat-thread-bullet" />
+      <span className="chat-thread-title">{thread.title}</span>
+    </div>
+    {onDelete && (
+      <button
+        type="button"
+        className="chat-thread-delete-btn"
+        title="Oturumu Sil"
+        onClick={(e) => {
+          e.stopPropagation()
+          onDelete(e)
+        }}
+      >
+        <TrashIcon size={12} />
+      </button>
+    )}
+  </div>
+)

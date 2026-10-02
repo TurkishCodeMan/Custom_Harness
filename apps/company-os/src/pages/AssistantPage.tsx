@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import type { Position, ExecutionActionCard, ExecutionActionItem, ThreadMessage } from '../types.js'
+import type { Position, ExecutionActionCard, ExecutionActionItem, ThreadMessage, TokenMeasurement } from '../types.js'
 import { browseWorkspace, uploadClientFiles, type WorkspaceFileItem, type UploadedFileInfo } from '../api.js'
 import { LayaService, type LayaRouteResult } from '../services/layaService.js'
 import { groupMessagesByRound } from '../messageGrouping.js'
+import { TokenMeterBadge } from '../components/TokenMeterBadge.js'
 
 const getToolCategoryInfo = (toolName: string) => {
   const name = (toolName || '').toLowerCase()
@@ -275,6 +276,7 @@ interface AssistantPageProps {
   onDeleteActiveSession?: () => void
   onRefreshSession?: () => void
   companyWorkspace?: string
+  tokenMeasurement?: TokenMeasurement
 }
 
 export const AssistantPage: React.FC<AssistantPageProps> = ({
@@ -292,7 +294,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   activeSessionTitle,
   onDeleteActiveSession,
   onRefreshSession,
-  companyWorkspace
+  companyWorkspace,
+  tokenMeasurement
 }) => {
   const [inputText, setInputText] = useState('')
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false)
@@ -304,12 +307,39 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
   const [expandedToolOutputs, setExpandedToolOutputs] = useState<Record<string, boolean>>({})
+  const [seatCardDismissed, setSeatCardDismissed] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const isAutoScrollEnabledRef = useRef<boolean>(true)
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState<boolean>(false)
+
+  // Detect @mentioned position from input text
+  const mentionedPosition = useMemo(() => {
+    if (!inputText || !positions.length) return null
+    for (const p of positions) {
+      if (
+        inputText.includes(`@${p.title}`) ||
+        inputText.includes(`@${p.id}`) ||
+        inputText.toLowerCase().includes(`@${p.title.toLowerCase()}`)
+      ) {
+        return p
+      }
+    }
+    return null
+  }, [inputText, positions])
+
+  // Re-open card when a *different* position is mentioned
+  const prevMentionedIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const newId = mentionedPosition?.id
+    if (newId && newId !== prevMentionedIdRef.current) {
+      setSeatCardDismissed(false)
+    }
+    prevMentionedIdRef.current = newId
+  }, [mentionedPosition])
+
 
   const handleToggleCard = (cardId: string) => {
     setExpandedCards(prev => ({
@@ -782,7 +812,9 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   }
 
   return (
-    <div className="assistant-view-container">
+    <div style={{ display: 'flex', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
+      {/* ─── Main Chat Column ─────────────────────────────────────────────────── */}
+      <div className="assistant-view-container" style={{ flex: 1, minWidth: 0, transition: 'all 0.2s ease' }}>
       {/* Session Header Bar */}
       {activeSessionTitle && (
         <div style={{
@@ -1758,7 +1790,147 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
             )}
           </div>
         </form>
+
+        {/* Token & Context Meter Status Bar (Directly underneath chat inbox) */}
+        <div style={{
+          width: '100%',
+          maxWidth: '860px',
+          margin: '0 auto',
+          padding: '0 4px'
+        }}>
+          <TokenMeterBadge
+            measurement={tokenMeasurement}
+            usage={messages.filter(m => m.role === 'assistant').slice(-1)[0]?.tokenUsage}
+            modelName="Qwen3.8-27B"
+          />
+        </div>
       </div>
+      {/* ─── END Main Chat Column ─────────────────────────────────────────────── */}
+      </div>
+
+      {/* ─── Seat Card Side Panel ─────────────────────────────────────────────── */}
+      {mentionedPosition && !seatCardDismissed && (
+        <div style={{
+          width: '260px',
+          minWidth: '260px',
+          borderLeft: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(15,23,42,0.85)',
+          backdropFilter: 'blur(16px)',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '20px 16px',
+          gap: '12px',
+          animation: 'fadeIn 0.2s ease',
+          overflowY: 'auto'
+        }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '28px', lineHeight: 1 }}>{mentionedPosition.icon}</span>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>{mentionedPosition.title}</div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '2px' }}>Seat</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSeatCardDismissed(true)}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: '16px', padding: '0 2px', lineHeight: 1 }}
+              title="Kapat"
+            >×</button>
+          </div>
+
+          {/* Status pill */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{
+              width: '7px', height: '7px', borderRadius: '50%',
+              background: mentionedPosition.status === 'executing' ? '#fbbf24'
+                : mentionedPosition.status === 'error' ? '#f87171'
+                : mentionedPosition.status === 'completed' ? '#34d399'
+                : '#60a5fa',
+              flexShrink: 0
+            }} />
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', textTransform: 'capitalize' }}>
+              {mentionedPosition.status === 'executing' ? 'Running'
+                : mentionedPosition.status === 'completed' ? 'Completed'
+                : mentionedPosition.status === 'error' ? 'Error'
+                : 'Idle'}
+            </span>
+          </div>
+
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+          {/* Role */}
+          <SeatCardRow label="Role" value={mentionedPosition.role} />
+
+          {/* Model */}
+          {mentionedPosition.modelId && (
+            <SeatCardRow label="Model" value={mentionedPosition.modelId} mono />
+          )}
+
+          {/* Skills */}
+          {mentionedPosition.skills && mentionedPosition.skills.length > 0 && (
+            <div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Skills</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {mentionedPosition.skills.map(s => (
+                  <span key={s} style={{
+                    fontSize: '10px', padding: '2px 8px',
+                    background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(99,102,241,0.3)',
+                    borderRadius: '4px', color: '#a5b4fc'
+                  }}>{s}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Delegates */}
+          {mentionedPosition.allowedDelegates && mentionedPosition.allowedDelegates.length > 0 && (
+            <div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Can Delegate To</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {mentionedPosition.allowedDelegates.map(d => (
+                  <span key={d} style={{
+                    fontSize: '10px', padding: '2px 8px',
+                    background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)',
+                    borderRadius: '4px', color: '#fcd34d'
+                  }}>{d}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Workspace */}
+          {mentionedPosition.workspace && (
+            <div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Workspace</div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                {mentionedPosition.workspace.replace('/home/huseyina/code_mode/', '~/')}
+              </div>
+            </div>
+          )}
+
+          {/* Last report */}
+          {mentionedPosition.lastReport && (
+            <div style={{
+              background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)',
+              borderRadius: '6px', padding: '8px 10px'
+            }}>
+              <div style={{ fontSize: '10px', color: '#6ee7b7', marginBottom: '3px' }}>📄 Last Report</div>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>{mentionedPosition.lastReport.title}</div>
+              <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginTop: '2px' }}>{mentionedPosition.lastReport.date}</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
+
+// ─── Seat Card Row Helper ──────────────────────────────────────────────────────
+const SeatCardRow: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
+  <div>
+    <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '3px' }}>{label}</div>
+    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.75)', fontFamily: mono ? 'monospace' : 'inherit', lineHeight: 1.4 }}>{value}</div>
+  </div>
+)

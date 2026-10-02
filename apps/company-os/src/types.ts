@@ -2,6 +2,12 @@ export type PositionLevel = 1 | 2 | 3 | 4
 
 export type PositionStatus = 'idle' | 'routing' | 'thinking' | 'executing' | 'completed' | 'error'
 
+export interface FileScopeConfig {
+  read?: string[]
+  write?: string[]
+  deny?: string[]
+}
+
 export interface Position {
   id: string
   title: string
@@ -20,6 +26,8 @@ export interface Position {
   temperature?: number
   responseFormat?: any
   maxTurns?: number
+  // Scoped File Access (READ & WRITE ACL)
+  fileScope?: FileScopeConfig
   // Contract-Safe Agent Runtime (Phase 2)
   contract?: any
   contractVersion?: number
@@ -79,17 +87,21 @@ export type NavView =
   | 'dashboard'
   | 'assistant'
   | 'tasks'
+  | 'cases'
   | 'recurring'
   | 'approvals'
   | 'workflows'
   | 'agents'
+  | 'positions'
   | 'knowledge'
   | 'skills'
   | 'integrations'
   | 'company'
+  | 'org-graph'
   | 'roi'
   | 'settings'
   | 'inspector'
+
 
 export interface ApprovalItem {
   id: string
@@ -136,6 +148,41 @@ export interface ExecutionActionCard {
   items: ExecutionActionItem[]
 }
 
+export interface TokenMeasurement {
+  contextPressure?: {
+    usedTokens: number
+    contextWindow: number
+    percent: number
+    projectedTokens: number
+  }
+  contextBreakdown?: {
+    systemTokens: number
+    toolsTokens: number
+    messageTokens: number
+    systemPercent: number
+    toolsPercent: number
+    messagePercent: number
+  }
+  modelId?: string
+  contextWindow?: number
+  systemPromptTokens?: number
+  toolsTokens?: number
+  historyTokens?: number
+  totalTokens?: number
+  percentage?: number
+  actualUsage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    turnCount: number
+    lastPromptTokens: number
+    lastCompletionTokens: number
+    lastUpdated?: number
+    modelId?: string
+  }
+  isCalibrated?: boolean
+}
+
 export interface ThreadMessage {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool'
@@ -149,6 +196,14 @@ export interface ThreadMessage {
   isStreaming?: boolean
   actionCards?: ExecutionActionCard[]
   attachments?: any[]
+  tokenMeasurement?: TokenMeasurement
+  tokenUsage?: {
+    promptTokens?: number
+    completionTokens?: number
+    totalTokens?: number
+    model?: string
+  }
 }
+
 
 

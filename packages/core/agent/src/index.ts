@@ -204,6 +204,7 @@ export class AgentService extends Service {
       // Stream LLM response
       let assistantContent = ''
       let thinkingContent = ''
+      let lastUsage: any = undefined
       const pendingToolCalls: { id: string; name: string; arguments: string }[] = []
 
       const effectiveResponseFormat = options.responseFormat || activePreset?.responseFormat
@@ -250,7 +251,13 @@ export class AgentService extends Service {
             break
           }
           case 'done':
-            if (event.usage) options.onUsage?.(event.usage)
+            if (event.usage) {
+              lastUsage = event.usage
+              options.onUsage?.(event.usage)
+              if (typeof (this.ctx as any).emit === 'function') {
+                (this.ctx as any).emit('llm/token-usage', { sessionId, model: model?.id, usage: event.usage })
+              }
+            }
             break
         }
       }
@@ -267,6 +274,7 @@ export class AgentService extends Service {
         reasoning_content: finalThinking || undefined,
         presetName: activePreset?.name || activePreset?.id || 'Full-Stack Developer',
         modelName: model?.name || model?.id,
+        tokenUsage: lastUsage,
         ...(options.isInternal ? { isInternal: true } : {})
       }
 

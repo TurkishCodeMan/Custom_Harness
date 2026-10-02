@@ -408,6 +408,13 @@ export function setupWebSocketGateway(ctx: Context, server: http.Server): WebSoc
                 }
               },
               onUsage: (usage) => {
+                const tm = getSafeTokenMeter(ctx)
+                if (tm?.recordUsage) {
+                  tm.recordUsage(activeSessionId, usage, modelId)
+                }
+                if (typeof (ctx as any).emit === 'function') {
+                  (ctx as any).emit('llm/token-usage', { sessionId: activeSessionId, usage, model: modelId })
+                }
                 if (ws.readyState === WebSocket.OPEN) {
                   const updatedMeasurement = measureSessionSafe(ctx, activeSessionId)
                   ws.send(JSON.stringify({

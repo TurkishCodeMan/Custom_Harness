@@ -693,4 +693,15 @@ export async function uploadClientFiles(
   return data.files || []
 }
 
+export async function fetchSessionContext(sessionId: string): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/context`)
+    if (!res.ok) return null
+    return await res.json()
+  } catch (err) {
+    console.warn('[CompanyOS] Token meter measurement çekilemedi:', err)
+    return null
+  }
+}
+
 

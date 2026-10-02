@@ -434,4 +434,42 @@ export const CopyIcon: React.FC<IconProps> = ({ size = 14, color = 'currentColor
   </svg>
 )
 
+// Command Center icon
+export const CommandCenterIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <path d="M8 21h8" />
+    <path d="M12 17v4" />
+    <path d="m7 9 2 2-2 2" />
+    <path d="M11 13h4" />
+  </svg>
+)
 
+// Positions / Seats icon
+export const PositionsIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <circle cx="9" cy="7" r="4" />
+    <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+    <path d="m19 8 1.5 1.5L22 8l-1.5-1.5L22 5l-1.5 1.5L19 5l1.5 1.5Z" />
+  </svg>
+)
+
+// Cases / Runs icon
+export const CasesIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+    <path d="M2 17l10 5 10-5" />
+    <path d="M2 12l10 5 10-5" />
+  </svg>
+)
+
+// Organization Graph / Network icon
+export const GraphIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <path d="M8.59 13.51 15.42 17.49" />
+    <path d="M15.41 6.51 8.59 10.49" />
+  </svg>
+)

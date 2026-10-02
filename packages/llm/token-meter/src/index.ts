@@ -1,6 +1,9 @@
 import { Service } from 'cordis'
 import type { Context } from '@custom-harness/core-context'
 import type { ChatMessage, ModelConfig, TokenUsage } from '@custom-harness/core-types'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 
 export interface ContextBreakdown {
   systemTokens: number
@@ -50,7 +53,7 @@ export const inject = ['settings', 'tools', 'session', 'systemPrompt', 'compacto
 
 export class TokenMeterService extends Service {
   declare ctx: Context
-  static inject = ['settings', 'tools', 'session', 'systemPrompt', 'compactor']
+  static inject = ['settings', 'tools', 'session', 'systemPrompt', 'compactor', 'agentPresets']
 
   private _sessionUsage?: Map<string, SessionActualUsage>
   private _lastSessionState?: Map<string, { promptTokens: number; messageCount: number }>
@@ -200,9 +203,33 @@ export class TokenMeterService extends Service {
       }
     }
 
-    // 1. System Prompt Tokens (rendered dynamically from ctx.systemPrompt if available)
+    // Resolve session & preset context if sessionId is provided
+    let activePreset: any = null
+    let session: any = null
+    if (sessionId && this.ctx.session?.getSession) {
+      try {
+        session = this.ctx.session.getSession(sessionId)
+      } catch {}
+    }
+
+    const presetId = session?.presetId ||
+                     session?.messages?.slice().reverse().find((m: any) => m.presetId || m.presetName)?.presetId ||
+                     session?.messages?.slice().reverse().find((m: any) => m.presetName)?.presetName
+    const userId = session?.userId || 'user_admin'
+
+    if (presetId) {
+      try {
+        activePreset = (this.ctx as any).agentPresets?.get?.(presetId, userId) ||
+                       (this.ctx as any).agentPresets?.get?.(presetId) ||
+                       this.ctx.settings?.getPreset?.(presetId)
+      } catch {}
+    }
+
+    // 1. System Prompt Tokens (scoped to activePreset if available)
     let systemPromptText = ''
-    if (this.ctx.systemPrompt) {
+    if (activePreset?.systemPrompt) {
+      systemPromptText = activePreset.systemPrompt
+    } else if (this.ctx.systemPrompt) {
       try {
         systemPromptText = this.ctx.systemPrompt.render()
       } catch {}
@@ -211,33 +238,49 @@ export class TokenMeterService extends Service {
       const cwd = this.ctx.settings.getSettings().workspace || process.cwd()
       systemPromptText = `You are a helpful and intelligent AI Coding Assistant powered by ${activeModel?.name || modelId}.\nYour current working directory is: ${cwd}\nYou have access to tools for interacting with the system.`
     }
-    const systemTokens = this.estimateText(systemPromptText) + 8
+    let systemTokens = this.estimateText(systemPromptText) + 8
 
-    // 2. Tools Schema Tokens
-    const toolSchemas = this.ctx.tools?.getOpenAiSchemas ? this.ctx.tools.getOpenAiSchemas() : []
+    // 2. Tools Schema Tokens (strictly scoped to activePreset.enabledTools if defined)
+    let toolSchemas: any[] = []
+    if (this.ctx.tools?.getOpenAiSchemas) {
+      try {
+        const toolsToFilter = activePreset?.enabledTools ?? activePreset?.tools
+        if (Array.isArray(toolsToFilter)) {
+          toolSchemas = this.ctx.tools.getOpenAiSchemas(toolsToFilter)
+        } else if (activePreset) {
+          toolSchemas = []
+        } else {
+          // Fallback when no preset exists: only include core default tools, avoid dumping 70+ MCP schemas
+          toolSchemas = this.ctx.tools.getOpenAiSchemas(['read_file', 'list_dir', 'grep_search', 'edit_file', 'write_file', 'bash'])
+        }
+      } catch {
+        toolSchemas = []
+      }
+    }
     let toolsTokens = 0
     if (toolSchemas && toolSchemas.length > 0) {
-      const toolsJson = JSON.stringify(toolSchemas)
-      toolsTokens = this.estimateText(toolsJson) + 12
+      try {
+        const toolsJson = JSON.stringify(toolSchemas)
+        toolsTokens = this.estimateText(toolsJson) + 12
+      } catch {
+        toolsTokens = 0
+      }
     }
 
     // 3. Message History Tokens (Projected through compactor if session messages are large)
     let messageTokens = 0
     let sessionMessageCount = 0
-    if (sessionId) {
-      const session = this.ctx.session?.getSession ? this.ctx.session.getSession(sessionId) : null
-      if (session && session.messages) {
-        sessionMessageCount = session.messages.length
-        let messagesToMeasure = session.messages
-        if (this.ctx.compactor) {
-          const compRes = this.ctx.compactor.compact([...session.messages])
-          if (compRes.compacted) {
-            messagesToMeasure = compRes.messages
-          }
+    if (session && session.messages) {
+      sessionMessageCount = session.messages.length
+      let messagesToMeasure = session.messages
+      if (this.ctx.compactor) {
+        const compRes = this.ctx.compactor.compact([...session.messages])
+        if (compRes.compacted) {
+          messagesToMeasure = compRes.messages
         }
-        for (const msg of messagesToMeasure) {
-          messageTokens += this.estimateMessage(msg)
-        }
+      }
+      for (const msg of messagesToMeasure) {
+        messageTokens += this.estimateMessage(msg)
       }
     }
 
@@ -246,24 +289,42 @@ export class TokenMeterService extends Service {
     const actualUsage = sessionId ? (this.sessionUsage?.get(sessionId) || undefined) : undefined
     const lastState = sessionId ? (this.lastSessionState?.get(sessionId) || undefined) : undefined
 
-    // Ground context measurement with verified tokens from LLM turn if available
-    if (lastState && lastState.promptTokens > 0) {
-      const newMessagesCount = Math.max(0, sessionMessageCount - lastState.messageCount)
-      const baselineContext = lastState.promptTokens + (actualUsage?.lastCompletionTokens || 0)
+    // Ground context measurement with verified tokens from LLM turn if available (in-memory or from session messages)
+    let verifiedPromptTokens = (lastState && lastState.promptTokens > 0) ? lastState.promptTokens : 0
+    let verifiedCompletionTokens = actualUsage?.lastCompletionTokens || 0
+
+    if (verifiedPromptTokens === 0 && session?.messages) {
+      const lastMsgWithUsage = session.messages.slice().reverse().find((m: any) => m.role === 'assistant' && m.tokenUsage?.promptTokens)
+      if (lastMsgWithUsage?.tokenUsage) {
+        verifiedPromptTokens = lastMsgWithUsage.tokenUsage.promptTokens || 0
+        verifiedCompletionTokens = lastMsgWithUsage.tokenUsage.completionTokens || 0
+      }
+    }
+
+    if (verifiedPromptTokens > 0) {
+      const baselineContext = verifiedPromptTokens + verifiedCompletionTokens
+      const newMessagesCount = lastState ? Math.max(0, sessionMessageCount - lastState.messageCount) : 0
       if (newMessagesCount === 0) {
         usedTokens = baselineContext
+        const estTotal = Math.max(1, systemTokens + toolsTokens + messageTokens)
+        const scale = usedTokens / estTotal
+        systemTokens = Math.round(systemTokens * scale)
+        toolsTokens = Math.round(toolsTokens * scale)
         messageTokens = Math.max(0, usedTokens - systemTokens - toolsTokens)
         isCalibrated = true
       } else {
-        const session = this.ctx.session?.getSession ? this.ctx.session.getSession(sessionId!) : null
         let deltaTokens = 0
         if (session && session.messages) {
-          const newMessages = session.messages.slice(lastState.messageCount)
+          const newMessages = session.messages.slice(lastState!.messageCount)
           for (const msg of newMessages) {
             deltaTokens += this.estimateMessage(msg)
           }
         }
         usedTokens = baselineContext + deltaTokens
+        const estTotal = Math.max(1, systemTokens + toolsTokens + messageTokens)
+        const scale = usedTokens / estTotal
+        systemTokens = Math.round(systemTokens * scale)
+        toolsTokens = Math.round(toolsTokens * scale)
         messageTokens = Math.max(0, usedTokens - systemTokens - toolsTokens)
         isCalibrated = true
       }

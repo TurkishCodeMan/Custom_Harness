@@ -97,6 +97,7 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
   const [showJsonPreview, setShowJsonPreview] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [isPromptEdited, setIsPromptEdited] = useState(false)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1)
 
   // Cognitive parameter states
   const [modelId, setModelId] = useState('')
@@ -465,8 +466,55 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
           </button>
         </div>
 
+        {/* Wizard Stepper Header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '10px 14px',
+          background: 'rgba(15,23,42,0.6)',
+          borderRadius: '10px',
+          marginBottom: '20px',
+          border: '1px solid rgba(255,255,255,0.06)'
+        }}>
+          {[
+            { step: 1, label: '1. Rol & Hiyerarşi' },
+            { step: 2, label: '2. Bilişsel Model' },
+            { step: 3, label: '3. Araçlar & Beceriler' },
+            { step: 4, label: '4. A2A & Sözleşme' },
+            { step: 5, label: '5. Prompt & Onay' }
+          ].map((s) => {
+            const isActive = currentStep === s.step
+            const isCompleted = currentStep > s.step
+            return (
+              <button
+                key={s.step}
+                type="button"
+                onClick={() => setCurrentStep(s.step as any)}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: 'pointer',
+                  border: isActive ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+                  background: isActive ? 'rgba(99,102,241,0.2)' : isCompleted ? 'rgba(52,211,153,0.1)' : 'transparent',
+                  color: isActive ? '#c7d2fe' : isCompleted ? '#6ee7b7' : '#64748b',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {s.label}
+              </button>
+            )
+          })}
+        </div>
+
         <form onSubmit={handleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '16px', marginBottom: '16px' }}>
+          {/* STEP 1: ROLE & HIERARCHY */}
+          {currentStep === 1 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '16px' }}>
             <div className="form-group">
               <label className="form-label">İkon:</label>
               <input
@@ -804,68 +852,77 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
               )}
             </div>
           )}
+        </div>
+      )}
 
-          {/* System Prompt / Persona Field */}
-          <div className="form-group" style={{ marginBottom: '16px' }}>
-            <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>🧠 Sistem İstemi & Persona Talimatları (System Prompt):</span>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Ajanın düşünce tarzı, kuralları ve uzmanlığı</span>
-            </label>
-            <textarea
-              className="form-textarea"
-              style={{ minHeight: '90px', fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: 1.45 }}
-              value={systemPrompt}
-              onChange={(e) => {
-                setSystemPrompt(e.target.value)
-                setIsPromptEdited(true)
-              }}
-              placeholder="Ajanın rol ve davranış talimatları..."
-            />
-          </div>
+          {/* STEP 2: COGNITIVE MODEL & WORKSPACE */}
+          {currentStep === 2 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="form-group">
+                  <label className="form-label">Çalışma Alanı (Workspace):</label>
+                  <input
+                    type="text"
+                    className="form-input mono"
+                    value={workspace}
+                    onChange={(e) => setWorkspace(e.target.value)}
+                    placeholder="/home/huseyina/code_mode/COMPANY_ABC"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Uzmanlık Dosyaları / Rotalar:</label>
+                  <input
+                    type="text"
+                    className="form-input mono"
+                    value={specialization}
+                    onChange={(e) => setSpecialization(e.target.value)}
+                    placeholder="Örn: ik/bordro_harcamalari.csv, sozl/sozlesmeler.md"
+                  />
+                </div>
+              </div>
 
-          <div className="form-group">
-            <label className="form-label">Uzmanlık Dosyaları / Rotalar:</label>
-            <input
-              type="text"
-              className="form-input mono"
-              value={specialization}
-              onChange={(e) => setSpecialization(e.target.value)}
-              placeholder="Örn: ik/bordro_harcamalari.csv, sozl/sozlesmeler.md"
-            />
-          </div>
+              {/* LLM Model, Sıcaklık (Temperature) & Bilişsel Parametreler (Shared Component) */}
+              <PresetCognitiveSettings
+                modelId={modelId}
+                providerId={providerId}
+                temperature={temperature}
+                responseFormat={responseFormat}
+                maxTurns={maxTurns}
+                onChangeModelId={setModelId}
+                onChangeProviderId={setProviderId}
+                onChangeTemperature={setTemperature}
+                onChangeResponseFormat={setResponseFormat}
+                onChangeMaxTurns={setMaxTurns}
+                configuredProviders={configuredProviders}
+                configuredModels={configuredModels}
+                idPrefix="new"
+              />
+            </div>
+          )}
 
-          {/* LLM Model, Sıcaklık (Temperature) & Bilişsel Parametreler (Shared Component) */}
-          <PresetCognitiveSettings
-            modelId={modelId}
-            providerId={providerId}
-            temperature={temperature}
-            responseFormat={responseFormat}
-            maxTurns={maxTurns}
-            onChangeModelId={setModelId}
-            onChangeProviderId={setProviderId}
-            onChangeTemperature={setTemperature}
-            onChangeResponseFormat={setResponseFormat}
-            onChangeMaxTurns={setMaxTurns}
-            configuredProviders={configuredProviders}
-            configuredModels={configuredModels}
-            idPrefix="new"
-          />
+          {/* STEP 4: AGENT CONTRACT & DELEGATION MESH */}
+          {currentStep === 4 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <AgentContractSettings
+                isCallableByAgents={isCallableByAgents}
+                onChangeCallable={setIsCallableByAgents}
+                allowedDelegates={allowedDelegates}
+                onChangeAllowedDelegates={setAllowedDelegates}
+                allowedCallers={allowedCallers}
+                onChangeAllowedCallers={setAllowedCallers}
+                inputSchemaStr={inputSchemaStr}
+                onChangeInputSchemaStr={setInputSchemaStr}
+                outputSchemaStr={outputSchemaStr}
+                onChangeOutputSchemaStr={setOutputSchemaStr}
+                allPositions={positions}
+                currentPositionId={isCustomPreset ? (customPresetId || 'new-pos') : (presetId || 'new-pos')}
+              />
+            </div>
+          )}
 
-          {/* Phase 2: Agent Contract & Delegation Mesh */}
-          <AgentContractSettings
-            isCallableByAgents={isCallableByAgents}
-            onChangeCallable={setIsCallableByAgents}
-            allowedDelegates={allowedDelegates}
-            onChangeAllowedDelegates={setAllowedDelegates}
-            allowedCallers={allowedCallers}
-            onChangeAllowedCallers={setAllowedCallers}
-            inputSchemaStr={inputSchemaStr}
-            onChangeInputSchemaStr={setInputSchemaStr}
-            outputSchemaStr={outputSchemaStr}
-            onChangeOutputSchemaStr={setOutputSchemaStr}
-            allPositions={positions}
-            currentPositionId={isCustomPreset ? (customPresetId || 'new-pos') : (presetId || 'new-pos')}
-          />
+          {/* STEP 3: TOOLS & SKILLS */}
+          {currentStep === 3 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
           {/* Available Tools Selector */}
           <div className="form-group" style={{ marginTop: '16px' }}>
@@ -1226,14 +1283,144 @@ export const NewPositionModal: React.FC<NewPositionModalProps> = ({
               )}
             </div>
           </div>
+        </div>
+      )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Vazgeç
+          {/* STEP 5: SYSTEM PROMPT & CONFIRMATION */}
+          {currentStep === 5 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* System Prompt / Persona Field */}
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>🧠 Sistem İstemi & Persona Talimatları (System Prompt):</span>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Ajanın düşünce tarzı, kuralları ve uzmanlığı</span>
+                </label>
+                <textarea
+                  className="form-textarea"
+                  style={{ minHeight: '120px', fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: 1.45 }}
+                  value={systemPrompt}
+                  onChange={(e) => {
+                    setSystemPrompt(e.target.value)
+                    setIsPromptEdited(true)
+                  }}
+                  placeholder="Ajanın rol ve davranış talimatları..."
+                />
+              </div>
+
+              {/* Review Summary Card */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '10px',
+                padding: '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  📋 Koltuk Özeti & Doğrulama
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>Koltuk:</span>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#f1f5f9' }}>{icon} {title || 'İsimsiz'} (Level {level})</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>Model:</span>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#38bdf8' }}>{modelId || 'Varsayılan Model'}</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>Araçlar & Beceriler:</span>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#a78bfa' }}>{selectedTools.length} araç • {selectedSkills.length} beceri</div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>A2A Çağrı:</span>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: isCallableByAgents ? '#34d399' : '#94a3b8' }}>
+                      {isCallableByAgents ? 'Açık (Delegasyon Aktif)' : 'Kapalı (Salt Kullanıcı)'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* JSON preview toggle & pre */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowJsonPreview(!showJsonPreview)}
+                  style={{
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: '#94a3b8',
+                    borderRadius: '5px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {showJsonPreview ? '👁️ JSON Gizle' : '📄 Tam JSON Önizleme'}
+                </button>
+              </div>
+
+              {showJsonPreview && (
+                <pre style={{
+                  background: '#090d16',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  fontSize: '11px',
+                  color: '#a7f3d0',
+                  fontFamily: 'var(--font-mono)',
+                  maxHeight: '200px',
+                  overflowY: 'auto'
+                }}>
+                  {JSON.stringify({
+                    title,
+                    role,
+                    icon,
+                    level,
+                    parentId,
+                    presetId,
+                    workspace,
+                    modelId,
+                    selectedTools,
+                    selectedSkills,
+                    isCallableByAgents,
+                    allowedDelegates
+                  }, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Wizard Footer Controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                if (currentStep > 1) setCurrentStep((currentStep - 1) as any)
+                else onClose()
+              }}
+            >
+              {currentStep > 1 ? '← Geri' : 'Vazgeç'}
             </button>
-            <button type="submit" className="btn-primary">
-              Koltuk Tanımını Ekle
-            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Adım {currentStep} / 5</span>
+              {currentStep < 5 ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setCurrentStep((currentStep + 1) as any)}
+                >
+                  İleri →
+                </button>
+              ) : (
+                <button type="submit" className="btn-primary" style={{ background: '#22c55e', borderColor: '#22c55e' }}>
+                  ✓ Koltuk Tanımını Kaydet & Aktifleştir
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

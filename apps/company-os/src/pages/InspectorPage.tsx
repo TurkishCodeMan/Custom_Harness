@@ -5,7 +5,10 @@ import {
   RefreshCwIcon,
   CopyIcon,
   SearchIcon,
-  TrashIcon
+  TrashIcon,
+  ClockIcon,
+  CheckCircleIcon,
+  TerminalIcon
 } from '../components/Icons.js'
 
 interface InspectorPageProps {
@@ -24,10 +27,11 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
   const [selectedTurnIndex, setSelectedTurnIndex] = useState<number>(0)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true)
-  const [activeTab, setActiveTab] = useState<'messages' | 'tools' | 'executions' | 'response' | 'raw'>('messages')
+  const [activeTab, setActiveTab] = useState<'timeline' | 'messages' | 'tools' | 'executions' | 'response' | 'raw'>('timeline')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [expandedSystem, setExpandedSystem] = useState<boolean>(false)
+  const [sessionContext, setSessionContext] = useState<any>(null)
 
   // Update selected session if activeSessionId changes and none was selected
   useEffect(() => {
@@ -35,6 +39,22 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
       setSelectedSessionId(activeSessionId)
     }
   }, [activeSessionId])
+
+  // Fetch token-meter context (real tokenizer measurement) for session
+  const fetchSessionContext = async (sessionId: string) => {
+    if (!sessionId) return
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/context`)
+      if (res.ok) {
+        const data = await res.json()
+        setSessionContext(data)
+      } else {
+        setSessionContext(null)
+      }
+    } catch (e) {
+      console.error('[InspectorPage] Failed to fetch session tokenizer context:', e)
+    }
+  }
 
   // Fetch turns for session
   const fetchTurns = async (sessionId: string, silent = false) => {
@@ -64,6 +84,7 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
   useEffect(() => {
     if (selectedSessionId) {
       fetchTurns(selectedSessionId)
+      fetchSessionContext(selectedSessionId)
     }
   }, [selectedSessionId])
 
@@ -72,6 +93,7 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
     if (!autoRefresh || !selectedSessionId) return
     const timer = setInterval(() => {
       fetchTurns(selectedSessionId, true)
+      fetchSessionContext(selectedSessionId)
     }, 2500)
     return () => clearInterval(timer)
   }, [autoRefresh, selectedSessionId])
@@ -97,6 +119,44 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
   }
 
   const currentTurn = turns[selectedTurnIndex] || null
+
+  // Session telemetry aggregates (with tokenizer fallback)
+  const sessionMetrics = React.useMemo(() => {
+    let totalTools = 0
+    let totalPromptTokens = 0
+    let totalCompletionTokens = 0
+    const firstTs = turns[0]?.timestamp || 0
+    const lastTs = turns[turns.length - 1]?.timestamp || 0
+
+    for (const t of turns) {
+      if (t.toolExecutions?.length) totalTools += t.toolExecutions.length
+      if (t.llmResponse?.usage) {
+        totalPromptTokens += t.llmResponse.usage.promptTokens || 0
+        totalCompletionTokens += t.llmResponse.usage.completionTokens || 0
+      }
+    }
+
+    // Tokenizer / TokenMeter fallback if turn-level usage wasn't captured
+    if (totalPromptTokens === 0 && totalCompletionTokens === 0) {
+      if (sessionContext?.actualUsage) {
+        totalPromptTokens = sessionContext.actualUsage.promptTokens || 0
+        totalCompletionTokens = sessionContext.actualUsage.completionTokens || 0
+      } else if (sessionContext?.totalInputTokens) {
+        totalPromptTokens = sessionContext.totalInputTokens
+      }
+    }
+
+    const durationSec = firstTs && lastTs ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0
+
+    return {
+      totalTurns: turns.length,
+      totalTools,
+      totalPromptTokens,
+      totalCompletionTokens,
+      totalTokens: totalPromptTokens + totalCompletionTokens,
+      durationSec
+    }
+  }, [turns, sessionContext])
 
   // Filter messages in Tab 1 if search applied
   const messagesToSend: any[] = currentTurn?.llmPayload?.messagesToSend || []
@@ -383,17 +443,34 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
           <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
             <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hedef Model & Sağlayıcı</div>
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#38bdf8', marginTop: '2px' }}>
-              {currentTurn.llmPayload?.model || 'gpt-4o'} <span style={{ fontSize: '11px', color: '#94a3b8' }}>({currentTurn.llmPayload?.provider || 'openai'})</span>
+              {sessionContext?.modelId || currentTurn.llmPayload?.model || 'gpt-4o'} <span style={{ fontSize: '11px', color: '#94a3b8' }}>({currentTurn.llmPayload?.provider || 'openai'})</span>
             </div>
           </div>
 
           <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tahmini / Gerçek Token</div>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: '#f59e0b', marginTop: '2px' }}>
-              ~{currentTurn.llmPayload?.estimatedTokens?.totalTokens?.toLocaleString() || 0} token
-              {currentTurn.llmResponse?.usage && (
-                <span style={{ fontSize: '11px', color: '#10b981', marginLeft: '6px' }}>
-                  (Harcanan: {currentTurn.llmResponse.usage.totalTokens})
+            <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Aktif Tur / Kümülatif Token</div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#f59e0b', marginTop: '2px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+              <span>
+                {sessionContext?.actualUsage?.lastPromptTokens
+                  ? `${sessionContext.actualUsage.lastPromptTokens.toLocaleString()} tk ↑`
+                  : `${(sessionContext?.totalTokens || currentTurn?.llmPayload?.estimatedTokens?.totalTokens || 0).toLocaleString()} tk ↑`}
+              </span>
+              {sessionContext?.actualUsage?.lastCompletionTokens > 0 && (
+                <span style={{ color: '#34d399', fontSize: '13px' }}>
+                  / {sessionContext.actualUsage.lastCompletionTokens.toLocaleString()} tk ↓
+                </span>
+              )}
+              {sessionContext?.actualUsage?.totalTokens && (
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: '#38bdf8',
+                  background: 'rgba(56, 189, 248, 0.1)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  padding: '1px 6px',
+                  borderRadius: '4px'
+                }}>
+                  Oturum Toplam: {sessionContext.actualUsage.totalTokens.toLocaleString()} tk ({sessionContext.actualUsage.turnCount || 1} Tur)
                 </span>
               )}
             </div>
@@ -415,6 +492,64 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
         </div>
       )}
 
+      {/* 3b. Real Tokenizer Breakdown Sub-strip */}
+      {sessionContext && (
+        <div style={{
+          padding: '8px 24px',
+          background: 'rgba(10, 14, 23, 0.85)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          flexWrap: 'wrap',
+          fontSize: '12px'
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontWeight: 500 }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1' }}></span>
+            <span>Sistem Talimatı:</span>
+            <strong style={{ color: '#c7d2fe' }}>{(sessionContext.systemPromptTokens ?? sessionContext.contextBreakdown?.systemTokens ?? 0).toLocaleString()} tk</strong>
+          </span>
+
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontWeight: 500 }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8' }}></span>
+            <span>Araç Şemaları:</span>
+            <strong style={{ color: '#bae6fd' }}>{(sessionContext.toolsTokens ?? sessionContext.contextBreakdown?.toolsTokens ?? 0).toLocaleString()} tk</strong>
+          </span>
+
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontWeight: 500 }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }}></span>
+            <span>Sohbet Geçmişi:</span>
+            <strong style={{ color: '#fde68a' }}>
+              {(sessionContext.historyTokens ?? sessionContext.contextBreakdown?.messageTokens ?? 0).toLocaleString()} tk
+            </strong>
+          </span>
+
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontWeight: 500 }}>
+            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
+            <span>Aktif Tur Girişi:</span>
+            <strong style={{ color: '#a7f3d0' }}>
+              {(sessionContext.actualUsage?.lastPromptTokens ?? sessionContext.totalTokens ?? 0).toLocaleString()} tk
+            </strong>
+          </span>
+
+          {sessionContext.actualUsage?.lastCompletionTokens !== undefined && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#94a3b8', fontWeight: 500 }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ec4899' }}></span>
+              <span>Aktif Tur Çıkışı:</span>
+              <strong style={{ color: '#fbcfe8' }}>
+                {sessionContext.actualUsage.lastCompletionTokens.toLocaleString()} tk
+              </strong>
+            </span>
+          )}
+
+          {sessionContext.contextWindow > 0 && (
+            <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: '11px' }}>
+              Bağlam Penceresi: <span style={{ color: '#cbd5e1' }}>{(((sessionContext.contextPressure?.usedTokens ?? sessionContext.totalTokens ?? 0) / sessionContext.contextWindow) * 100).toFixed(1)}%</span> / {sessionContext.contextWindow.toLocaleString()} tk
+            </span>
+          )}
+        </div>
+      )}
+
       {/* 4. Tab Navigation Strip */}
       <div style={{
         padding: '0 24px',
@@ -424,6 +559,7 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
         gap: '24px'
       }}>
         {[
+          { key: 'timeline', label: `⏱️ Yaşam Döngüsü & Timeline (${turns.length} Tur)` },
           { key: 'messages', label: `📤 LLM'e Giden Mesajlar (${messagesToSend.length})` },
           { key: 'tools', label: `🛠️ LLM'e Sunulan Araç Şemaları (${availableTools.length})` },
           { key: 'executions', label: `⚡ Gerçekleşen Araç Çağrıları (${currentTurn?.toolExecutions?.length || 0})` },
@@ -461,7 +597,7 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
         padding: '20px 24px',
         backgroundColor: '#090d16'
       }}>
-        {!currentTurn ? (
+        {!currentTurn && turns.length === 0 ? (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -476,6 +612,157 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
           </div>
         ) : (
           <>
+            {/* TAB 0: RUNTIME TIMELINE & LIFECYCLE */}
+            {activeTab === 'timeline' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* Aggregate Session Stats */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '12px'
+                }}>
+                  <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                    <div style={{ fontSize: '11px', color: '#a5b4fc', textTransform: 'uppercase', fontWeight: 600 }}>Toplam Tur (Turns)</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>{sessionMetrics.totalTurns}</div>
+                  </div>
+                  <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)' }}>
+                    <div style={{ fontSize: '11px', color: '#38bdf8', textTransform: 'uppercase', fontWeight: 600 }}>Araç Çağrıları</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>{sessionMetrics.totalTools}</div>
+                  </div>
+                  <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                    <div style={{ fontSize: '11px', color: '#fcd34d', textTransform: 'uppercase', fontWeight: 600 }}>Toplam Token (In/Out)</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>
+                      {sessionMetrics.totalTokens.toLocaleString()}
+                      <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginLeft: '6px' }}>
+                        ({sessionMetrics.totalPromptTokens.toLocaleString()} ↑ / {sessionMetrics.totalCompletionTokens.toLocaleString()} ↓)
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 16px', borderRadius: '10px', background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                    <div style={{ fontSize: '11px', color: '#6ee7b7', textTransform: 'uppercase', fontWeight: 600 }}>Toplam Oturum Süresi</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f8fafc', marginTop: '4px' }}>
+                      {sessionMetrics.durationSec > 0 ? `${sessionMetrics.durationSec}s` : '< 1s'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Turn-by-Turn Chronological Trace */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {turns.map((turn, tIdx) => {
+                    const executions = turn.toolExecutions || []
+                    const turnTokens = turn.llmResponse?.usage?.totalTokens || (tIdx === turns.length - 1 ? (sessionContext?.actualUsage?.totalTokens || sessionContext?.totalInputTokens) : 0) || 0
+                    const userMsg = turn.input?.prompt || turn.input?.message || (turn.llmPayload?.messagesToSend?.find((m: any) => m.role === 'user')?.content)
+                    const userPromptStr = typeof userMsg === 'string' ? userMsg : JSON.stringify(userMsg)
+                    return (
+                      <div
+                        key={turn.id || tIdx}
+                        style={{
+                          background: 'rgba(15, 23, 42, 0.65)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderRadius: '12px',
+                          padding: '16px 20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px'
+                        }}
+                      >
+                        {/* Turn Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{
+                              padding: '2px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 700,
+                              background: 'rgba(99,102,241,0.2)', color: '#c7d2fe', border: '1px solid rgba(99,102,241,0.35)'
+                            }}>
+                              Tur #{turn.turnCount || tIdx + 1}
+                            </span>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>
+                              {formatTime(turn.timestamp)}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+                              {turn.llmPayload?.model || 'model'}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                            {turnTokens > 0 && <span>{turnTokens.toLocaleString()} tokens</span>}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTurnIndex(tIdx)
+                                setActiveTab('messages')
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                color: '#a5b4fc',
+                                borderRadius: '5px',
+                                padding: '3px 8px',
+                                fontSize: '11px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Detay İncele →
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Events within this turn */}
+                        <div style={{
+                          padding: '10px 14px',
+                          background: 'rgba(0, 0, 0, 0.3)',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          fontSize: '12px'
+                        }}>
+                          {/* 1. Input prompt */}
+                          {userPromptStr && (
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                              <span style={{ color: '#60a5fa', fontWeight: 600, minWidth: '85px' }}>▶ Kullanıcı:</span>
+                              <span style={{ color: '#cbd5e1', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                                {userPromptStr.length > 200 ? userPromptStr.slice(0, 200) + '...' : userPromptStr}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* 2. Tools executed */}
+                          {executions.map((exec: any, eIdx: number) => (
+                            <div key={exec.toolCallId || eIdx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', paddingLeft: '12px', borderLeft: '2px solid rgba(56,189,248,0.3)' }}>
+                              <span style={{ color: '#38bdf8', fontWeight: 600, minWidth: '73px' }}>⚡ Araç:</span>
+                              <div style={{ flex: 1 }}>
+                                <span style={{ fontFamily: 'monospace', color: '#7dd3fc', fontWeight: 600 }}>{exec.toolName}</span>
+                                {exec.durationMs ? <span style={{ color: '#64748b', fontSize: '11px', marginLeft: '6px' }}>({exec.durationMs}ms)</span> : null}
+                                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                  {typeof exec.args === 'string' ? exec.args.slice(0, 140) : JSON.stringify(exec.args)?.slice(0, 140)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* 3. Model Response */}
+                          {turn.llmResponse && (
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', paddingLeft: '12px', borderLeft: '2px solid rgba(52,211,153,0.3)' }}>
+                              <span style={{ color: '#34d399', fontWeight: 600, minWidth: '73px' }}>📥 Model:</span>
+                              <div style={{ flex: 1, color: '#94a3b8' }}>
+                                <span style={{ color: '#a7f3d0' }}>
+                                  {turn.llmResponse.finishReason === 'tool_calls' ? '🛠️ Araç çağrısı üretti' : '✅ Yanıt tamamlandı (stop)'}
+                                </span>
+                                {turn.llmResponse.text && (
+                                  <div style={{ fontSize: '11.5px', color: '#cbd5e1', marginTop: '3px', lineHeight: 1.4 }}>
+                                    {turn.llmResponse.text.slice(0, 180)}...
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* TAB 1: EXACT MESSAGES SENT TO LLM */}
             {activeTab === 'messages' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -885,38 +1172,52 @@ export const InspectorPage: React.FC<InspectorPageProps> = ({
                 </div>
 
                 {/* Token Usage Stats */}
-                {currentTurn.llmResponse?.usage && (
-                  <div style={{
-                    background: '#111827',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    borderRadius: '8px',
-                    padding: '16px'
-                  }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#f59e0b' }}>
-                      📊 Model Tüketim Raporu (Token Usage):
-                    </span>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px' }}>
-                      <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>Prompt Tokens</div>
-                        <div style={{ fontSize: '16px', fontWeight: 600, color: '#f8fafc', marginTop: '2px' }}>
-                          {currentTurn.llmResponse.usage.promptTokens?.toLocaleString() || 0}
-                        </div>
+                {(currentTurn.llmResponse?.usage || sessionContext?.actualUsage || sessionContext?.totalInputTokens) && (() => {
+                  const usage = currentTurn.llmResponse?.usage || sessionContext?.actualUsage || {
+                    promptTokens: sessionContext?.totalInputTokens || 0,
+                    completionTokens: 0,
+                    totalTokens: sessionContext?.totalInputTokens || 0
+                  }
+                  return (
+                    <div style={{
+                      background: '#111827',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '8px',
+                      padding: '16px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#f59e0b' }}>
+                          📊 Model Tüketim Raporu (Token Usage):
+                        </span>
+                        {!currentTurn.llmResponse?.usage && (
+                          <span style={{ fontSize: '11px', color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', padding: '2px 8px', borderRadius: '4px' }}>
+                            Tokenizer / Oturum Metrikleri
+                          </span>
+                        )}
                       </div>
-                      <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>Completion Tokens</div>
-                        <div style={{ fontSize: '16px', fontWeight: 600, color: '#f8fafc', marginTop: '2px' }}>
-                          {currentTurn.llmResponse.usage.completionTokens?.toLocaleString() || 0}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '12px' }}>
+                        <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Prompt Tokens</div>
+                          <div style={{ fontSize: '16px', fontWeight: 600, color: '#f8fafc', marginTop: '2px' }}>
+                            {usage.promptTokens?.toLocaleString() || 0}
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>Toplam Token</div>
-                        <div style={{ fontSize: '16px', fontWeight: 600, color: '#38bdf8', marginTop: '2px' }}>
-                          {currentTurn.llmResponse.usage.totalTokens?.toLocaleString() || 0}
+                        <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Completion Tokens</div>
+                          <div style={{ fontSize: '16px', fontWeight: 600, color: '#f8fafc', marginTop: '2px' }}>
+                            {usage.completionTokens?.toLocaleString() || 0}
+                          </div>
+                        </div>
+                        <div style={{ background: '#0a0e17', padding: '10px', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Toplam Token</div>
+                          <div style={{ fontSize: '16px', fontWeight: 600, color: '#38bdf8', marginTop: '2px' }}>
+                            {usage.totalTokens?.toLocaleString() || 0}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             )}
 

@@ -159,6 +159,19 @@ export async function executeContractDelegation(
   ;(subSession as any).delegationCallStack = nextStack
   ctx.session.saveSession?.(subSession)
 
+  // Contract-Safe Output Schema Enforcement:
+  const outputSchema = targetPreset.contract?.outputSchema ?? targetPreset.outputSchema
+  const delegationResponseFormat = outputSchema
+    ? {
+        type: 'json_schema' as const,
+        json_schema: {
+          name: `${targetId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)}_output`,
+          strict: true,
+          schema: outputSchema
+        }
+      }
+    : undefined
+
   // Construct structured prompt containing ONLY the schema-validated payload
   const prompt =
     `[ORGANIZATIONAL CONTRACT INVOCATION]\n` +
@@ -176,7 +189,8 @@ export async function executeContractDelegation(
       isInternal: true,
       workspace: execContext.cwd,
       userId: execContext.userId,
-      signal: execContext.signal
+      signal: execContext.signal,
+      responseFormat: delegationResponseFormat
     })
   } catch (runErr: any) {
     return {
@@ -199,9 +213,44 @@ export async function executeContractDelegation(
     // If not JSON, leave as raw string
   }
 
-  const outputSchema = targetPreset.contract?.outputSchema ?? targetPreset.outputSchema
   if (outputSchema && typeof parsedOutput === 'object') {
-    const outputValidation = validateJsonSchema(outputSchema, parsedOutput)
+    let outputValidation = validateJsonSchema(outputSchema, parsedOutput)
+    if (!outputValidation.valid) {
+      // 7b. Self-Healing Schema Pass: If tools were active during ReAct loop and prevented json_schema enforcement,
+      // run an immediate tool-free final synthesis turn using responseFormat to strictly map findings to schema.
+      try {
+        const reformatPrompt =
+          `[CONTRACT SCHEMA CORRECTION]\n` +
+          `Your previous analysis was accurate, but the output structure did not strictly match the required outputSchema.\n` +
+          `Errors: ${JSON.stringify(outputValidation.errors)}\n` +
+          `Original Raw Finding:\n${typeof parsedOutput === 'string' ? parsedOutput : JSON.stringify(parsedOutput, null, 2)}\n\n` +
+          `Format your finding into a single strictly compliant JSON object adhering to your contract schema.`
+
+        const reformatted = await ctx.agent.run({
+          sessionId: subSession.id,
+          prompt: reformatPrompt,
+          presetId: targetPreset.id,
+          isInternal: true,
+          workspace: execContext.cwd,
+          userId: execContext.userId,
+          signal: execContext.signal,
+          maxTurns: 1,
+          responseFormat: delegationResponseFormat
+        })
+
+        const secondMatch = reformatted.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+        const secondCandidate = secondMatch ? secondMatch[1].trim() : reformatted.trim()
+        const secondParsed = JSON.parse(secondCandidate)
+        const secondValidation = validateJsonSchema(outputSchema, secondParsed)
+        if (secondValidation.valid) {
+          parsedOutput = secondParsed
+          outputValidation = secondValidation
+        }
+      } catch (err: any) {
+        // Fall back to partial_success if reformatting fails
+      }
+    }
+
     if (!outputValidation.valid) {
       console.warn(`[Delegation Warning] Target '${targetId}' output violated outputSchema:`, outputValidation.errors)
       return {

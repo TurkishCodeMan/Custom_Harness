@@ -566,7 +566,7 @@ export function apply(ctx: Context) {
             if (skill.enabled === false) {
               return `[DEVRE DIŞI / OFF]: '${skill.name}' becerisi kullanıcı tarafından devre dışı bırakılmıştır.`
             }
-            return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${skill.name}):\n\n${skill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu beceri metnini kullanıcıya kopyalama; HEMEN sıradaki eylem olarak bash aracını çağırarak gerçek sorgunu/analizini çalıştır.`
+            return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${skill.name}):\n\n${skill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu beceri metnini kullanıcıya kopyalama; sıradaki eylem olarak yetkili araçlarını kullanarak görevi yerine getir.`
           }
         }
 
@@ -579,7 +579,7 @@ export function apply(ctx: Context) {
         const primarySkill = activeSkills[0]
 
         if (primarySkill) {
-          return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${primarySkill.name}):\n\n${primarySkill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu metni kullanıcıya kopyalama; HEMEN sıradaki eylem olarak bash aracını çağırarak veritabanı sorgunu veya analizini çalıştır.`
+          return `### ⚡ AKTİF BECERİ TALİMATLARI VE BAĞLANTI BİLGİLERİ (${primarySkill.name}):\n\n${primarySkill.content}\n\n---\n[TALİMAT]: Beceri başarıyla yüklendi. Bu metni kullanıcıya kopyalama; sıradaki eylem olarak yetkili araçlarını kullanarak görevi yerine getir.`
         }
 
         return 'Bu koltuk için tanımlanmış aktif bir beceri bulunamadı.'

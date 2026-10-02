@@ -99,6 +99,13 @@ export const ActivityStream: React.FC<ActivityStreamProps> = ({
     })
   }, [allEntries, filterPosition, filterType, searchQuery])
 
+  const [viewMode, setViewMode] = useState<'flow' | 'raw'>('flow')
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+
+  const toggleGroup = (sessionId: string) => {
+    setExpandedGroups(prev => ({ ...prev, [sessionId]: !prev[sessionId] }))
+  }
+
   // Telemetry counts
   const totalCount = allEntries.length
   const toolCallCount = allEntries.filter((r) => r.actionType === 'tool_call').length
@@ -106,6 +113,67 @@ export const ActivityStream: React.FC<ActivityStreamProps> = ({
     (r) => r.actionType === 'subagent_spawn' || r.actionType === 'subagent_completed'
   ).length
   const reportCount = allEntries.filter((r) => r.actionType === 'report_generated').length
+
+  // Decision Ledger — Group events into structured case/session flows
+  const decisionFlowGroups = useMemo(() => {
+    const map = new Map<string, {
+      sessionId: string
+      title: string
+      positionTitle: string
+      positionIcon: string
+      positionId: string
+      startTime: number
+      endTime: number
+      entries: ActivityReceipt[]
+      toolCount: number
+      reportCount: number
+      hasApproval: boolean
+      status: 'approved' | 'rejected' | 'pending' | 'completed'
+    }>()
+
+    for (const item of filtered) {
+      const sId = item.sessionId || item.traceId || 'ungrouped'
+      let grp = map.get(sId)
+      if (!grp) {
+        const pos = positions.find((p) => p.id === item.positionId)
+        grp = {
+          sessionId: sId,
+          title: item.summary?.slice(0, 80) || 'Görev / Karar Akışı',
+          positionTitle: item.positionTitle || pos?.title || 'Sistem',
+          positionIcon: pos?.icon || '🏛️',
+          positionId: item.positionId || 'system',
+          startTime: item.timestamp,
+          endTime: item.timestamp,
+          entries: [],
+          toolCount: 0,
+          reportCount: 0,
+          hasApproval: false,
+          status: 'completed'
+        }
+        map.set(sId, grp)
+      }
+
+      grp.entries.push(item)
+      if (item.timestamp < grp.startTime) grp.startTime = item.timestamp
+      if (item.timestamp > grp.endTime) grp.endTime = item.timestamp
+      if (item.actionType === 'tool_call') grp.toolCount++
+      if (item.actionType === 'report_generated') grp.reportCount++
+
+      const lower = (item.summary || '').toLowerCase()
+      if (lower.includes('onaylandı') || lower.includes('approved')) {
+        grp.status = 'approved'
+        grp.hasApproval = true
+      } else if (lower.includes('reddedildi') || lower.includes('rejected')) {
+        grp.status = 'rejected'
+        grp.hasApproval = true
+      } else if (lower.includes('onay bekliyor') || lower.includes('approval_required')) {
+        grp.status = 'pending'
+        grp.hasApproval = true
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.endTime - a.endTime)
+  }, [filtered, positions])
 
   const exportUrl = getAuditExportUrl({
     positionId: filterPosition !== 'all' ? filterPosition : undefined,
@@ -449,6 +517,68 @@ export const ActivityStream: React.FC<ActivityStreamProps> = ({
         </div>
       </div>
 
+      {/* View Mode Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px',
+        padding: '6px 12px',
+        background: 'rgba(15,23,42,0.4)',
+        borderRadius: '10px',
+        border: '1px solid rgba(255,255,255,0.06)'
+      }}>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('flow')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 14px',
+              borderRadius: '7px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: viewMode === 'flow' ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+              background: viewMode === 'flow' ? 'rgba(99,102,241,0.2)' : 'transparent',
+              color: viewMode === 'flow' ? '#c7d2fe' : '#94a3b8'
+            }}
+          >
+            <FlowIcon size={13} />
+            <span>Karar Akışları (Decision Flow)</span>
+            <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '1px 6px', borderRadius: '10px' }}>
+              {decisionFlowGroups.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('raw')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 14px',
+              borderRadius: '7px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: viewMode === 'raw' ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
+              background: viewMode === 'raw' ? 'rgba(99,102,241,0.2)' : 'transparent',
+              color: viewMode === 'raw' ? '#c7d2fe' : '#94a3b8'
+            }}
+          >
+            <LedgerIcon size={13} />
+            <span>Düz Zaman Çizelgesi (Raw Stream)</span>
+            <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '1px 6px', borderRadius: '10px' }}>
+              {filtered.length}
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* Receipts Timeline Feed */}
       {filtered.length === 0 ? (
         <div
@@ -470,6 +600,182 @@ export const ActivityStream: React.FC<ActivityStreamProps> = ({
             Seçili kriterlerle eşleşen kayıt yok. Ajanlar direktif yürüttüğünde veya yeni bir araç çağırdığında tüm
             adımlar burada otomatik listelenir.
           </p>
+        </div>
+      ) : viewMode === 'flow' ? (
+        /* Decision Flow Structured Cards */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {decisionFlowGroups.map((grp) => {
+            const isGroupExpanded = !!expandedGroups[grp.sessionId]
+            return (
+              <div
+                key={grp.sessionId}
+                style={{
+                  background: 'rgba(15, 23, 42, 0.7)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '14px',
+                  padding: '20px 24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '10px',
+                      background: 'rgba(99, 102, 241, 0.15)',
+                      border: '1px solid rgba(99, 102, 241, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '20px'
+                    }}>
+                      {grp.positionIcon}
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc' }}>
+                          {grp.title}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.06)', padding: '1px 7px', borderRadius: '4px' }}>
+                          {grp.positionTitle}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                        <ClockIcon size={12} />
+                        <span>{formatRelativeTime(grp.endTime)}</span>
+                        <span>•</span>
+                        <span>{new Date(grp.startTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} - {new Date(grp.endTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Badges & Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {grp.status === 'approved' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', color: '#34d399' }}>
+                        <CheckCircleIcon size={12} />
+                        ONAYLANDI
+                      </span>
+                    )}
+                    {grp.status === 'rejected' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
+                        ✕ REDDEDİLDİ
+                      </span>
+                    )}
+                    {grp.status === 'pending' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+                        ⏳ ONAY BEKLİYOR
+                      </span>
+                    )}
+                    {grp.status === 'completed' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600, padding: '3px 10px', borderRadius: '20px', background: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.25)', color: '#93c5fd' }}>
+                        TAMAMLANDI
+                      </span>
+                    )}
+
+                    <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: '6px' }}>
+                      {grp.toolCount} Araç
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: '6px' }}>
+                      {grp.entries.length} Adım
+                    </span>
+
+                    {grp.sessionId && grp.sessionId !== 'ungrouped' && onOpenSession && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSession(grp.sessionId)}
+                        style={{
+                          background: 'rgba(99, 102, 241, 0.15)',
+                          border: '1px solid rgba(99, 102, 241, 0.35)',
+                          color: '#a5b4fc',
+                          borderRadius: '6px',
+                          padding: '4px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                      >
+                        <span>Sohbete Git</span>
+                        <ArrowRightIcon size={11} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Structured Step Timeline */}
+                <div style={{
+                  padding: '12px 16px',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255, 255, 255, 0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  {grp.entries.slice(0, isGroupExpanded ? undefined : 4).map((entry, idx) => (
+                    <div key={entry.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' }}>
+                      <span style={{ color: '#6366f1', fontSize: '10px', fontFamily: 'monospace' }}>
+                        {idx === 0 ? '▶' : '├─'}
+                      </span>
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                        background: entry.actionType === 'tool_call' ? 'rgba(56,189,248,0.15)' :
+                          entry.actionType === 'report_generated' ? 'rgba(52,211,153,0.15)' :
+                          entry.actionType === 'directive_issued' ? 'rgba(99,102,241,0.15)' :
+                          'rgba(255,255,255,0.06)',
+                        color: entry.actionType === 'tool_call' ? '#38bdf8' :
+                          entry.actionType === 'report_generated' ? '#34d399' :
+                          entry.actionType === 'directive_issued' ? '#a5b4fc' :
+                          '#94a3b8'
+                      }}>
+                        {entry.actionType.replace('_', ' ')}
+                      </span>
+                      <span style={{ color: 'rgba(255,255,255,0.8)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {entry.summary}
+                      </span>
+                      <span style={{ fontSize: '10px', color: '#64748b' }}>
+                        {new Date(entry.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                  ))}
+                  {grp.entries.length > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(grp.sessionId)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#818cf8',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: '4px 0',
+                        textAlign: 'left',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>{isGroupExpanded ? '▾ Daha Az Göster' : `▸ Diğer ${grp.entries.length - 4} adımı göster`}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

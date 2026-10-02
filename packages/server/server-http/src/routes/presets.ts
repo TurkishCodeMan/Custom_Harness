@@ -74,7 +74,8 @@ export function createPresetsRouter(ctx: Context): Router {
         allowedDelegates: Array.isArray(raw.allowedDelegates) ? raw.allowedDelegates : undefined,
         allowedCallers: Array.isArray(raw.allowedCallers) ? raw.allowedCallers : undefined,
         verificationRules: Array.isArray(raw.verificationRules) ? raw.verificationRules : undefined,
-        isCallableByAgents: typeof raw.isCallableByAgents === 'boolean' ? raw.isCallableByAgents : undefined
+        isCallableByAgents: typeof raw.isCallableByAgents === 'boolean' ? raw.isCallableByAgents : undefined,
+        fileScope: raw.fileScope
       }
       const ap = safeGetAgentPresets()
       const saved = ap ? ap.save(preset, user?.id, isAdmin) : ctx.settings.savePreset(preset)

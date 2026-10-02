@@ -267,6 +267,13 @@ h1, h2, h3, h4, .font-display {
 }
 
 /* Nav Menu Sections */
+.sidebar-nav-groups {
+  flex-shrink: 0;
+  max-height: 48vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .sidebar-section-container {
   padding: 10px 10px 4px 10px;
 }

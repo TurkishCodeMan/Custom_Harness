@@ -30,6 +30,7 @@ export interface ChatMessage {
   modelName?: string
   isInternal?: boolean
   timestamp?: number
+  tokenUsage?: TokenUsage
 }
 
 export interface TokenUsage {
@@ -146,6 +147,12 @@ export interface ExecutionReceipt {
   timestamp: number
 }
 
+export interface FileScopeConfig {
+  read?: string[]
+  write?: string[]
+  deny?: string[]
+}
+
 export interface AgentPreset {
   id: string
   name: string
@@ -166,6 +173,8 @@ export interface AgentPreset {
   parentId?: string
   specialization?: string
   currentAction?: string
+  // Scoped File Access (READ & WRITE ACL)
+  fileScope?: FileScopeConfig
   // Contract-Safe Agent Runtime (Phase 2)
   contract?: AgentContract
   inputSchema?: Record<string, any>

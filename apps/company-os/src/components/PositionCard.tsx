@@ -114,6 +114,25 @@ export const PositionCard: React.FC<PositionCardProps> = ({
               ↗️ {position.allowedDelegates.length} Delege
             </span>
           )}
+          {position.fileScope && (Boolean(position.fileScope.read?.length) || Boolean(position.fileScope.write?.length)) && (
+            <span
+              style={{
+                fontSize: '10px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: '#6ee7b7',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+              title={`Dosya İzin Kapsamı: R:[${position.fileScope.read?.join(', ') || '*'}] W:[${position.fileScope.write?.join(', ') || '*'}]`}
+            >
+              🛡️ Kapsamlı
+            </span>
+          )}
         </div>
       </div>
 
